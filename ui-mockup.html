@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Woodtron - Modern Industrial UI Mockup</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        // Primary brand colors - Deep Industrial Blue
+                        primary: {
+                            50: '#f0f7ff',
+                            100: '#e0efff',
+                            200: '#bae0ff',
+                            300: '#7cc8ff',
+                            400: '#36a9ff',
+                            500: '#0c8ce9',
+                            600: '#006ed6',  // Main brand
+                            700: '#0056b3',
+                            800: '#024794',
+                            900: '#083d7a',
+                            950: '#062652'
+                        },
+                        // Secondary - Industrial Orange
+                        secondary: {
+                            50: '#fff7ed',
+                            100: '#ffedd5',
+                            200: '#fed7aa',
+                            300: '#fdba74',
+                            400: '#fb923c',
+                            500: '#f97316',  // Main secondary
+                            600: '#ea580c',
+                            700: '#c2410c',
+                            800: '#9a3412',
+                            900: '#7c2d12',
+                            950: '#431407'
+                        },
+                        // Neutral grays - Professional
+                        neutral: {
+                            50: '#fafafa',
+                            100: '#f5f5f5',
+                            200: '#e5e5e5',
+                            300: '#d4d4d4',
+                            400: '#a3a3a3',
+                            500: '#737373',
+                            600: '#525252',
+                            700: '#404040',
+                            800: '#262626',
+                            850: '#1a1a1a',  // Custom dark
+                            900: '#171717',
+                            950: '#0a0a0a'
+                        },
+                        // Status colors
+                        success: {
+                            50: '#ecfdf5',
+                            500: '#10b981',
+                            600: '#059669',
+                            700: '#047857'
+                        },
+                        warning: {
+                            50: '#fffbeb',
+                            500: '#f59e0b',
+                            600: '#d97706',
+                            700: '#b45309'
+                        },
+                        danger: {
+                            50: '#fef2f2',
+                            500: '#ef4444',
+                            600: '#dc2626',
+                            700: '#b91c1c'
+                        }
+                    },
+                    fontFamily: {
+                        'sans': ['Inter', 'system-ui', 'sans-serif'],
+                        'mono': ['JetBrains Mono', 'Monaco', 'Consolas', 'monospace']
+                    },
+                    boxShadow: {
+                        'soft': '0 2px 15px -3px rgba(0, 0, 0, 0.07), 0 10px 20px -2px rgba(0, 0, 0, 0.04)',
+                        'medium': '0 4px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                        'strong': '0 10px 40px -10px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0, 0, 0, 0.1)',
+                        'glow-primary': '0 0 20px rgba(0, 110, 214, 0.3)',
+                        'glow-secondary': '0 0 20px rgba(249, 115, 22, 0.3)'
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        /* Custom glass morphism effects */
+        .glass {
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .glass-dark {
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            background: rgba(26, 26, 26, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Smooth transitions */
+        * {
+            transition: all 0.2s ease-out;
+        }
+
+        /* Custom scrollbar */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #006ed6;
+            border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #0056b3;
+        }
+
+        /* Animations */
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .animate-slide-in {
+            animation: slideIn 0.3s ease-out;
+        }
+
+        .animate-fade-in {
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        /* Status indicators */
+        .status-dot::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        .status-online::before { background: #10b981; }
+        .status-warning::before { background: #f59e0b; }
+        .status-error::before { background: #ef4444; }
+        .status-offline::before { background: #737373; }
+    </style>
+</head>
+<body class="bg-neutral-50 font-sans text-neutral-900 overflow-hidden">
+    <!-- Main App Container -->
+    <div class="flex h-screen">
+        <!-- Sidebar Navigation -->
+        <aside class="w-64 bg-gradient-to-b from-neutral-850 to-neutral-900 text-white flex flex-col shadow-strong">
+            <!-- Logo Section -->
+            <div class="p-6 border-b border-neutral-700">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 bg-primary-600 rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold tracking-tight">Woodtron</h1>
+                        <p class="text-xs text-neutral-400">Manufacturing Control</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Navigation Menu -->
+            <nav class="flex-1 p-4 space-y-2 custom-scrollbar overflow-y-auto">
+                <div class="space-y-1">
+                    <!-- Dashboard -->
+                    <a href="#" class="flex items-center space-x-3 px-4 py-3 rounded-lg bg-primary-600 text-white shadow-glow-primary">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M3 3h8v8H3V3zm10 0h8v5h-8V3zM3 13h5v8H3v-8zm7 4h11v4H10v-4z"/>
+                        </svg>
+                        <span class="font-medium">Dashboard</span>
+                    </a>
+
+                    <!-- Jobs -->
+                    <a href="#" class="flex items-center space-x-3 px-4 py-3 rounded-lg text-neutral-300 hover:bg-neutral-800 hover:text-white group">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M4 7h16v10H4V7zm5-3h6v2H9V4z"/>
+                        </svg>
+                        <span class="font-medium">Jobs</span>
+                        <span class="ml-auto bg-secondary-500 text-white text-xs px-2 py-1 rounded-full">24</span>
+                    </a>
+
+                    <!-- Router -->
+                    <a href="#" class="flex items-center space-x-3 px-4 py-3 rounded-lg text-neutral-300 hover:bg-neutral-800 hover:text-white">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M4 13h16v6H4v-6zm2-8h2v4H6V5zm4 0h2v4h-2V5zm4 0h2v4h-2V5z"/>
+                        </svg>
+                        <span class="font-medium">Router</span>
+                    </a>
+
+                    <!-- History -->
+                    <a href="#" class="flex items-center space-x-3 px-4 py-3 rounded-lg text-neutral-300 hover:bg-neutral-800 hover:text-white">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M13 3a9 9 0 1 0 8.485 6H19l3.5-3.5L26 9h-2.515A9 9 0 0 0 13 3zm1 5h-2v5l4.243 2.828 1-1.732L14 12.5V8z"/>
+                        </svg>
+                        <span class="font-medium">History</span>
+                    </a>
+
+                    <!-- Ready to Run -->
+                    <a href="#" class="flex items-center space-x-3 px-4 py-3 rounded-lg text-neutral-300 hover:bg-neutral-800 hover:text-white">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M10 4H4v16h16V8h-8l-2-4z"/>
+                        </svg>
+                        <span class="font-medium">Ready to Run</span>
+                    </a>
+
+                    <!-- Machines -->
+                    <a href="#" class="flex items-center space-x-3 px-4 py-3 rounded-lg text-neutral-300 hover:bg-neutral-800 hover:text-white">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                        </svg>
+                        <span class="font-medium">Machines</span>
+                    </a>
+                </div>
+
+                <div class="pt-4 border-t border-neutral-700 mt-4">
+                    <p class="text-xs text-neutral-500 font-medium uppercase tracking-wider px-4 mb-2">Tools</p>
+
+                    <!-- Hypernest -->
+                    <a href="#" class="flex items-center space-x-3 px-4 py-3 rounded-lg text-neutral-300 hover:bg-neutral-800 hover:text-white">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M3 12l7-9 2 5 5 2-9 7-1-3-4-2zM2 22l6-3-3-3-3 6zM22 2l-6 3 3 3 3-6z"/>
+                        </svg>
+                        <span class="font-medium">Hypernest</span>
+                        <svg class="w-4 h-4 ml-auto" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M7 17l9.2-9.2M17 17V7H7"/>
+                        </svg>
+                    </a>
+
+                    <!-- Settings -->
+                    <a href="#" class="flex items-center space-x-3 px-4 py-3 rounded-lg text-neutral-300 hover:bg-neutral-800 hover:text-white">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M19.14 12.936a7.962 7.962 0 0 0 .06-.936 7.962 7.962 0 0 0-.06-.936l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.324a.5.5 0 0 0-.6-.22l-2.39.96a7.994 7.994 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.57.22-1.11.52-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.67 7.844a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.936s.02.626.06.936l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.324a.5.5 0 0 0 .6.22l2.39-.96c.51.42 1.05.72 1.62.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.57-.22 1.11-.52 1.62-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.324a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/>
+                        </svg>
+                        <span class="font-medium">Settings</span>
+                    </a>
+                </div>
+            </nav>
+
+            <!-- System Status -->
+            <div class="p-4 border-t border-neutral-700">
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-neutral-400">System Status</span>
+                        <span class="status-dot status-online text-success-500 font-medium">Online</span>
+                    </div>
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-neutral-400">Database</span>
+                        <span class="status-dot status-online text-success-500 font-medium">Connected</span>
+                    </div>
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-neutral-400">Queue</span>
+                        <span class="text-secondary-500 font-medium">24 jobs</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 flex flex-col">
+            <!-- Top Header -->
+            <header class="bg-white border-b border-neutral-200 px-6 py-4 shadow-soft">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-2xl font-bold text-neutral-900">System Dashboard</h2>
+                        <p class="text-sm text-neutral-600 mt-1">Manufacturing control center overview</p>
+                    </div>
+
+                    <div class="flex items-center space-x-4">
+                        <!-- Notifications -->
+                        <button class="relative p-2 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-600 hover:text-neutral-800">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm9 7c0-3.9-3.1-7-7-7S7 5.1 7 9c0 2.4 1.2 4.5 3.2 5.7v4.8c0 .8.7 1.5 1.5 1.5h2.6c.8 0 1.5-.7 1.5-1.5v-4.8c2-1.2 3.2-3.3 3.2-5.7z"/>
+                            </svg>
+                            <span class="absolute -top-1 -right-1 w-3 h-3 bg-danger-500 rounded-full"></span>
+                        </button>
+
+                        <!-- Diagnostics -->
+                        <button class="relative p-2 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-600 hover:text-neutral-800">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+                            </svg>
+                            <span class="absolute -top-1 -right-1 w-3 h-3 bg-warning-500 rounded-full"></span>
+                        </button>
+
+                        <!-- Theme Toggle -->
+                        <div class="flex items-center bg-neutral-100 rounded-lg p-1">
+                            <button class="px-3 py-1 rounded-md bg-white shadow-sm text-sm font-medium text-neutral-900">Light</button>
+                            <button class="px-3 py-1 rounded-md text-sm font-medium text-neutral-600 hover:text-neutral-900">Dark</button>
+                        </div>
+
+                        <!-- User Avatar -->
+                        <div class="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                            A
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Content Area -->
+            <div class="flex-1 p-6 custom-scrollbar overflow-auto">
+                <!-- Stats Cards Row -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <!-- Active Jobs Card -->
+                    <div class="bg-white rounded-xl shadow-soft border border-neutral-200 p-6 animate-fade-in">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm font-medium text-neutral-600">Active Jobs</p>
+                                <p class="text-3xl font-bold text-neutral-900 mt-2">24</p>
+                                <p class="text-sm text-success-600 mt-1">↗ +3 from yesterday</p>
+                            </div>
+                            <div class="w-12 h-12 bg-primary-100 rounded-lg flex items-center justify-center">
+                                <svg class="w-6 h-6 text-primary-600" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M4 7h16v10H4V7zm5-3h6v2H9V4z"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Machines Online Card -->
+                    <div class="bg-white rounded-xl shadow-soft border border-neutral-200 p-6 animate-fade-in" style="animation-delay: 0.1s">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm font-medium text-neutral-600">Machines Online</p>
+                                <p class="text-3xl font-bold text-neutral-900 mt-2">12/14</p>
+                                <p class="text-sm text-success-600 mt-1">All critical systems operational</p>
+                            </div>
+                            <div class="w-12 h-12 bg-success-100 rounded-lg flex items-center justify-center">
+                                <svg class="w-6 h-6 text-success-600" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Efficiency Card -->
+                    <div class="bg-white rounded-xl shadow-soft border border-neutral-200 p-6 animate-fade-in" style="animation-delay: 0.2s">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm font-medium text-neutral-600">Efficiency</p>
+                                <p class="text-3xl font-bold text-neutral-900 mt-2">94%</p>
+                                <p class="text-sm text-success-600 mt-1">↗ +2% this week</p>
+                            </div>
+                            <div class="w-12 h-12 bg-secondary-100 rounded-lg flex items-center justify-center">
+                                <svg class="w-6 h-6 text-secondary-600" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Alerts Card -->
+                    <div class="bg-white rounded-xl shadow-soft border border-neutral-200 p-6 animate-fade-in" style="animation-delay: 0.3s">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm font-medium text-neutral-600">Active Alerts</p>
+                                <p class="text-3xl font-bold text-neutral-900 mt-2">3</p>
+                                <p class="text-sm text-warning-600 mt-1">2 warnings, 1 info</p>
+                            </div>
+                            <div class="w-12 h-12 bg-warning-100 rounded-lg flex items-center justify-center">
+                                <svg class="w-6 h-6 text-warning-600" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main Content Grid -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- Job Queue Table -->
+                    <div class="lg:col-span-2 bg-white rounded-xl shadow-soft border border-neutral-200 animate-fade-in" style="animation-delay: 0.4s">
+                        <div class="p-6 border-b border-neutral-200">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h3 class="text-lg font-semibold text-neutral-900">Active Job Queue</h3>
+                                    <p class="text-sm text-neutral-600 mt-1">Jobs currently in processing pipeline</p>
+                                </div>
+                                <button class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium text-sm shadow-soft hover:shadow-medium">
+                                    View All Jobs
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="overflow-hidden">
+                            <table class="w-full">
+                                <thead class="bg-neutral-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Job ID</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Machine</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Material</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Status</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Progress</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-neutral-200">
+                                    <tr class="hover:bg-neutral-50">
+                                        <td class="px-6 py-4 text-sm font-mono font-medium text-neutral-900">JOB-2024-001</td>
+                                        <td class="px-6 py-4 text-sm text-neutral-600">CNC Router #3</td>
+                                        <td class="px-6 py-4 text-sm text-neutral-600">Oak Panel</td>
+                                        <td class="px-6 py-4">
+                                            <span class="inline-flex px-3 py-1 text-xs font-medium rounded-full bg-warning-100 text-warning-700">
+                                                In Progress
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <div class="flex items-center space-x-3">
+                                                <div class="flex-1 bg-neutral-200 rounded-full h-2">
+                                                    <div class="bg-primary-600 h-2 rounded-full" style="width: 65%"></div>
+                                                </div>
+                                                <span class="text-sm font-medium text-neutral-600">65%</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr class="hover:bg-neutral-50">
+                                        <td class="px-6 py-4 text-sm font-mono font-medium text-neutral-900">JOB-2024-002</td>
+                                        <td class="px-6 py-4 text-sm text-neutral-600">CNC Router #1</td>
+                                        <td class="px-6 py-4 text-sm text-neutral-600">Pine Sheet</td>
+                                        <td class="px-6 py-4">
+                                            <span class="inline-flex px-3 py-1 text-xs font-medium rounded-full bg-success-100 text-success-700">
+                                                Completed
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <div class="flex items-center space-x-3">
+                                                <div class="flex-1 bg-neutral-200 rounded-full h-2">
+                                                    <div class="bg-success-600 h-2 rounded-full" style="width: 100%"></div>
+                                                </div>
+                                                <span class="text-sm font-medium text-neutral-600">100%</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr class="hover:bg-neutral-50">
+                                        <td class="px-6 py-4 text-sm font-mono font-medium text-neutral-900">JOB-2024-003</td>
+                                        <td class="px-6 py-4 text-sm text-neutral-600">CNC Router #2</td>
+                                        <td class="px-6 py-4 text-sm text-neutral-600">Maple Board</td>
+                                        <td class="px-6 py-4">
+                                            <span class="inline-flex px-3 py-1 text-xs font-medium rounded-full bg-neutral-100 text-neutral-700">
+                                                Queued
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <div class="flex items-center space-x-3">
+                                                <div class="flex-1 bg-neutral-200 rounded-full h-2">
+                                                    <div class="bg-neutral-400 h-2 rounded-full" style="width: 0%"></div>
+                                                </div>
+                                                <span class="text-sm font-medium text-neutral-600">0%</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Right Sidebar -->
+                    <div class="space-y-6">
+                        <!-- System Health Card -->
+                        <div class="bg-white rounded-xl shadow-soft border border-neutral-200 p-6 animate-fade-in" style="animation-delay: 0.5s">
+                            <h3 class="text-lg font-semibold text-neutral-900 mb-4">System Health</h3>
+                            <div class="space-y-4">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-sm text-neutral-600">Database Connection</span>
+                                    <span class="status-dot status-online text-success-600 font-medium text-sm">Online</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-sm text-neutral-600">File Watchers</span>
+                                    <span class="status-dot status-online text-success-600 font-medium text-sm">Active</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-sm text-neutral-600">Machine Network</span>
+                                    <span class="status-dot status-warning text-warning-600 font-medium text-sm">Degraded</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-sm text-neutral-600">Backup System</span>
+                                    <span class="status-dot status-online text-success-600 font-medium text-sm">Active</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Recent Activity Card -->
+                        <div class="bg-white rounded-xl shadow-soft border border-neutral-200 p-6 animate-fade-in" style="animation-delay: 0.6s">
+                            <h3 class="text-lg font-semibold text-neutral-900 mb-4">Recent Activity</h3>
+                            <div class="space-y-4">
+                                <div class="flex items-start space-x-3">
+                                    <div class="w-2 h-2 bg-success-500 rounded-full mt-2"></div>
+                                    <div class="flex-1">
+                                        <p class="text-sm text-neutral-900">Job JOB-2024-002 completed successfully</p>
+                                        <p class="text-xs text-neutral-500 mt-1">2 minutes ago</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-start space-x-3">
+                                    <div class="w-2 h-2 bg-warning-500 rounded-full mt-2"></div>
+                                    <div class="flex-1">
+                                        <p class="text-sm text-neutral-900">CNC Router #4 network timeout</p>
+                                        <p class="text-xs text-neutral-500 mt-1">5 minutes ago</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-start space-x-3">
+                                    <div class="w-2 h-2 bg-primary-500 rounded-full mt-2"></div>
+                                    <div class="flex-1">
+                                        <p class="text-sm text-neutral-900">New job JOB-2024-003 added to queue</p>
+                                        <p class="text-xs text-neutral-500 mt-1">8 minutes ago</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-start space-x-3">
+                                    <div class="w-2 h-2 bg-success-500 rounded-full mt-2"></div>
+                                    <div class="flex-1">
+                                        <p class="text-sm text-neutral-900">System backup completed</p>
+                                        <p class="text-xs text-neutral-500 mt-1">15 minutes ago</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Quick Actions Card -->
+                        <div class="bg-white rounded-xl shadow-soft border border-neutral-200 p-6 animate-fade-in" style="animation-delay: 0.7s">
+                            <h3 class="text-lg font-semibold text-neutral-900 mb-4">Quick Actions</h3>
+                            <div class="space-y-3">
+                                <button class="w-full flex items-center justify-between px-4 py-3 bg-primary-50 hover:bg-primary-100 rounded-lg text-primary-700 hover:text-primary-800 font-medium text-sm">
+                                    <span>Add New Job</span>
+                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                                    </svg>
+                                </button>
+                                <button class="w-full flex items-center justify-between px-4 py-3 bg-neutral-50 hover:bg-neutral-100 rounded-lg text-neutral-700 hover:text-neutral-800 font-medium text-sm">
+                                    <span>Machine Diagnostics</span>
+                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M7 17l9.2-9.2M17 17V7H7"/>
+                                    </svg>
+                                </button>
+                                <button class="w-full flex items-center justify-between px-4 py-3 bg-neutral-50 hover:bg-neutral-100 rounded-lg text-neutral-700 hover:text-neutral-800 font-medium text-sm">
+                                    <span>Export Reports</span>
+                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Floating Alert (Example) -->
+    <div class="fixed top-4 right-4 bg-white border-l-4 border-warning-500 rounded-lg shadow-strong p-4 max-w-sm animate-slide-in">
+        <div class="flex items-start">
+            <div class="flex-shrink-0">
+                <svg class="h-5 w-5 text-warning-500" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+                </svg>
+            </div>
+            <div class="ml-3">
+                <p class="text-sm font-medium text-neutral-900">Network Issue Detected</p>
+                <p class="text-sm text-neutral-600 mt-1">CNC Router #4 connection unstable</p>
+            </div>
+            <button class="ml-4 text-neutral-400 hover:text-neutral-600">
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Script for interactive demo -->
+    <script>
+        // Simple demo interactions
+        document.querySelectorAll('a[href="#"]').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                // Remove active class from all nav items
+                document.querySelectorAll('nav a').forEach(navLink => {
+                    navLink.classList.remove('bg-primary-600', 'text-white', 'shadow-glow-primary');
+                    navLink.classList.add('text-neutral-300');
+                });
+                // Add active class to clicked item
+                link.classList.add('bg-primary-600', 'text-white', 'shadow-glow-primary');
+                link.classList.remove('text-neutral-300');
+            });
+        });
+
+        // Demo: Simulate progress updates
+        let progress = 65;
+        setInterval(() => {
+            const progressBar = document.querySelector('table tbody tr:first-child .bg-primary-600');
+            const progressText = document.querySelector('table tbody tr:first-child td:last-child span');
+            if (progressBar && progressText && progress < 100) {
+                progress += Math.random() * 3;
+                progressBar.style.width = Math.min(progress, 100) + '%';
+                progressText.textContent = Math.round(Math.min(progress, 100)) + '%';
+            }
+        }, 2000);
+
+        // Auto-dismiss alert after 5 seconds
+        setTimeout(() => {
+            const alert = document.querySelector('.fixed.top-4.right-4');
+            if (alert) {
+                alert.style.transform = 'translateX(100%)';
+                setTimeout(() => alert.remove(), 300);
+            }
+        }, 5000);
+    </script>
+</body>
+</html>

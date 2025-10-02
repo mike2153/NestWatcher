@@ -1,0 +1,15 @@
+appId: com.woodtron.app
+productName: WoodtronApp
+files:
+  - "packages/**/dist/**"
+  - "resources/**"
+win:
+  target: nsis
+mac:
+  target: dmg
+linux:
+  target: AppImage
+publish:
+  - provider: generic
+    url: https://example.com/updates
+

@@ -1,0 +1,22 @@
+﻿{
+    "extends":  "../tsconfig.base.json",
+    "compilerOptions":  {
+                            "module":  "CommonJS",
+                            "moduleResolution":  "node",
+                            "lib":  [
+                                        "ES2020",
+                                        "DOM"
+                                    ],
+                            "types":  [
+                                          "node",
+                                          "vitest/globals",
+                                          "@playwright/test"
+                                      ],
+                            "noEmit":  true
+                        },
+    "include":  [
+                    "../packages/renderer/src/types/global.d.ts",
+                    "./**/*.ts",
+                    "./**/*.tsx"
+                ]
+}

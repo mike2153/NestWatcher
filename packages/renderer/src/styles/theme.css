@@ -1,0 +1,192 @@
+/* Clean, Minimal Theme System - Only What's Actually Used */
+
+@layer base {
+  :root {
+    /* Core colors - Light theme with gradient effects */
+    --background: linear-gradient(135deg, theme('colors.neutral.200') 0%, theme('colors.neutral.100') 50%, theme('colors.neutral.100') 100%);  /* Header/UI elements background gradient */
+    --background-body: linear-gradient(to right, theme('colors.neutral.50'), theme('colors.neutral.100'), theme('colors.neutral.50'));  /* Main app body background - red to pink gradient */
+    --foreground: theme('colors.zinc.900');         /* Main text color - nearly black */
+    --card: linear-gradient(135deg, theme('colors.gray.600') 0%, theme('colors.neutral.700') 50%, theme('colors.neutral.300') 100%);  /* Card background - warm gradient */
+    --card-foreground: theme('colors.zinc.900');   /* Card text - dark blue-gray */
+    --primary: theme('colors.blue.500');          /* Primary action color - vibrant indigo */
+    --destructive: theme('colors.rose.600');        /* Destructive actions - red */
+    --muted: theme('colors.slate.100');             /* Muted background elements */
+    --muted-foreground: theme('colors.slate.100');  /* Muted text - gray */
+    --border: theme('colors.stone.500');            /* Border color - warm gray */
+
+    /* Status indicator colors */
+    --status-success-bg: theme('colors.emerald.100');
+    --status-success-text: theme('colors.emerald.700');
+    --status-warning-bg: theme('colors.amber.100');
+    --status-warning-text: theme('colors.amber.700');
+    --status-error-bg: theme('colors.rose.100');
+    --status-error-text: theme('colors.rose.700');
+
+    /* Table colors */
+    --table-bg:  linear-gradient(135deg, theme('colors.gray.50') 0%, theme('colors.gray.100') 50%, theme('colors.gray.300') 100%);  /* Table background gradient */
+    --table-header-bg:  linear-gradient(135deg, theme('colors.neutral.50') 0%, theme('colors.slate.300') 70%, theme('colors.slate.100') 100%);   /* Table header background - dark to match table */
+    --table-text: theme('colors.gray.800');        /* Table text - light for dark background */
+    --table-border: theme('colors.neutral.100');     /* Table outer border */
+    --table-row-border: theme('colors.neutral.300'); /* Horizontal lines between rows */
+
+    /* Sidebar colors - Metallic/Marble effect */
+    --sidebar: linear-gradient(135deg, theme('colors.neutral.900') 0%, theme('colors.neutral.700') 50%, theme('colors.neutral.900') 100%);  /* Metallic gradient background */
+    --sidebar-foreground: theme('colors.slate.100'); /* Light text on dark metallic bg */
+    --sidebar-accent: linear-gradient(135deg, theme('colors.red.700') 0%, theme('colors.red.900') 20%, theme('colors.red.700')100%);  /* Lighter metallic accent for active items */
+    --sidebar-border: theme('colors.slate.600');     /* Metallic border */
+
+    /* Input field styling */
+    --input-border: theme('colors.gray.700');       /* Input border color */
+    --input-border-width: 1.5px;                      /* Input border width */
+    --input-bg: theme('colors.gray.200');              /* Input background color */
+
+    /* Page title gradient */
+    --page-title-gradient: linear-gradient(135deg, theme('colors.stone.900') 0%, theme('colors.stone.700') 50%, theme('colors.stone.900') 100%);
+
+  /* Design tokens */
+    --radius: 0.75rem;
+    --shadow-sm: 0 1px 2px 0 rgba(0,0,0,0.05);
+    --shadow-base: 0 1px 3px 0 rgba(0,0,0,0.10), 0 1px 2px -1px rgba(0,0,0,0.10);
+    --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.10), 0 2px 4px -2px rgba(0,0,0,0.10);
+    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.10), 0 4px 6px -4px rgba(0,0,0,0.10);
+    --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.10), 0 8px 10px -6px rgba(0,0,0,0.10);
+    --transition-fast: 150ms ease;
+    --transition-normal: 200ms ease;
+    --transition-slow: 300ms ease;
+
+    /* Alpha variants - using Tailwind colors with opacity */
+    --muted-a50: color-mix(in srgb, theme('colors.cyan.900') 50%, transparent);  /* Table row hover, table footer bg, inputs */
+    --muted-a40: color-mix(in srgb, theme('colors.slate.100') 40%, transparent);  /* [unused] */
+    --muted-a30: color-mix(in srgb, theme('colors.slate.100') 30%, transparent);  /* [unused] */
+    --muted-a10: color-mix(in srgb, theme('colors.slate.100') 10%, transparent);  /* [unused] */
+    --primary-a10: color-mix(in srgb, theme('colors.indigo.500') 10%, transparent);  /* Selected row bg, gradient effects */
+    --primary-a15: color-mix(in srgb, theme('colors.indigo.500') 15%, transparent);  /* Box shadows, hover shadows */
+    --primary-a20: color-mix(in srgb, theme('colors.indigo.500') 20%, transparent);  /* Borders on focus, selected row borders, resizer hover */
+    --primary-a30: color-mix(in srgb, theme('colors.indigo.500') 30%, transparent);  /* Focus states, strong borders, box shadows */
+    --border-a05: color-mix(in srgb, theme('colors.slate.200') 5%, transparent);   /* [unused] */
+    --border-a06: color-mix(in srgb, theme('colors.slate.200') 6%, transparent);   /* Subtle box shadows */
+    --border-a08: color-mix(in srgb, theme('colors.slate.200') 8%, transparent);   /* Box shadows, elevated shadows */
+    --border-a10: color-mix(in srgb, theme('colors.slate.200') 10%, transparent);  /* Box shadows, table cell borders */
+    --border-a30: color-mix(in srgb, theme('colors.slate.200') 30%, transparent);  /* Table header borders */
+    --card-a95: color-mix(in srgb, theme('colors.white') 95%, transparent);        /* [unused] */
+    --card-a90: color-mix(in srgb, theme('colors.white') 90%, transparent);        /* [unused] */
+  }
+
+  .dark {
+    /* Dark theme - using Tailwind slate/gray colors */
+    --background: theme('colors.slate.900');        /* Dark background - deep slate */
+    --foreground: theme('colors.gray.200');         /* Light text on dark bg */
+    --card: theme('colors.gray.800');               /* Card background - dark gray */
+    --card-foreground: theme('colors.gray.200');    /* Card text - light gray */
+    --muted: theme('colors.slate.700');             /* Muted backgrounds */
+    --muted-foreground: theme('colors.slate.400');  /* Muted text */
+    --accent: theme('colors.slate.700');            /* Accent elements */
+    --border: theme('colors.slate.700');            /* Borders */
+    --table-bg: theme('colors.gray.800');           /* Table background */
+    --table-header-bg: theme('colors.slate.700');   /* Table header */
+    --table-text: theme('colors.gray.200');         /* Table text */
+    --sidebar: theme('colors.slate.900');           /* Sidebar background */
+    --sidebar-foreground: theme('colors.gray.200'); /* Sidebar text */
+    --sidebar-accent: theme('colors.gray.800');     /* Sidebar active items */
+    --sidebar-border: theme('colors.slate.700');    /* Sidebar border */
+  }
+
+  .modern {
+    /* Modern theme - using Tailwind blue/slate colors */
+    --background: theme('colors.blue.50');          /* Light blue background */
+    --foreground: theme('colors.slate.900');        /* Dark text */
+    --card: theme('colors.white');                  /* Pure white cards */
+    --card-foreground: theme('colors.slate.900');   /* Dark text on cards */
+    --primary: theme('colors.sky.500');             /* Sky blue primary */
+    --accent: theme('colors.blue.400');             /* Blue accent */
+    --muted: theme('colors.slate.50');              /* Very light muted bg */
+    --muted-foreground: theme('colors.slate.500');  /* Medium gray text */
+    --border: theme('colors.blue.200');             /* Light blue border */
+    --table-bg: theme('colors.white');              /* White table background */
+    --table-header-bg: theme('colors.slate.50');    /* Light table header */
+    --table-text: theme('colors.slate.900');        /* Dark table text */
+    --sidebar: theme('colors.blue.50');             /* Light blue sidebar */
+    --sidebar-foreground: theme('colors.slate.900'); /* Dark sidebar text */
+    --sidebar-accent: theme('colors.blue.100');     /* Light blue sidebar accent */
+    --sidebar-border: theme('colors.blue.200');     /* Light blue border */
+  }
+}
+
+@layer utilities {
+  /* Only the utility classes that are actually used */
+  .bg-background {
+    background: var(--background);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+  }
+  .bg-card {
+    background: var(--card);
+    box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  .bg-muted { background-color: var(--muted); }
+  .bg-muted\/50 { background-color: var(--muted-a50); }
+  .bg-muted\/40 { background-color: var(--muted-a40); }
+  .bg-accent { background-color: var(--table-header-bg) !important; }
+  .bg-primary { background-color: var(--primary); }
+  .bg-destructive { background-color: var(--destructive); }
+
+  .text-background { color: var(--background); }
+  .text-foreground { color: var(--foreground); }
+  .text-card-foreground { color: var(--card-foreground); }
+  .text-muted-foreground { color: var(--table-text) !important; }
+  .text-accent-foreground { color: var(--table-text) !important; }
+  .text-destructive-foreground { color: #ffffff; }
+
+  .border-border { border-color: var(--border); }
+  .border-muted { border-color: var(--muted); }
+
+  /* Sidebar utilities - with metallic/marble gradient */
+  .bg-sidebar {
+    background: var(--sidebar);
+    box-shadow: inset 1px 0 3px rgba(255, 255, 255, 0.1);
+  }
+  .text-sidebar-foreground { color: var(--sidebar-foreground); }
+  .hover\:bg-sidebar-accent:hover {
+    background: var(--sidebar-accent);
+  }
+
+  /* Main content area gradient */
+  .bg-main-gradient {
+    background: linear-gradient(135deg, theme('colors.stone.200') 0%, theme('colors.stone.100') 50%, theme('colors.stone.200') 100%);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+
+  /* Table background utility - uses background instead of background-color for gradients */
+  .bg-table {
+    background: var(--table-bg);
+  }
+
+  /* Table styles - now simple since we removed layered components */
+  .table-text {
+    color: var(--table-text);
+  }
+
+  /* Input field styling */
+  input[type="text"],
+  input[type="search"],
+  input[type="number"],
+  input[type="email"],
+  input[type="password"],
+  select,
+  textarea {
+    border: var(--input-border-width) solid var(--input-border) !important;
+    background-color: var(--input-bg) !important;
+    border-radius: 0.375rem;
+    padding: 0.5rem;
+  }
+
+  /* Page title gradient text */
+  .page-title-gradient {
+    background: var(--page-title-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    font-size: 1.5rem;
+    font-weight: 600;
+    font-family: 'aptos' ,sans-serif;  /* Add this line */
+  }
+}
