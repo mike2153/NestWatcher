@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'fs';
+import { readdirSync, readFileSync, existsSync } from 'fs';
 import { join, extname, basename, relative, dirname } from 'path';
 import { withClient } from './db';
 import { loadConfig } from './config';
@@ -6,11 +6,15 @@ import { logger } from '../logger';
 
 function walkDir(dir: string): string[] {
   const out: string[] = [];
-  const entries = readdirSync(dir, { withFileTypes: true });
-  for (const e of entries) {
-    const p = join(dir, e.name);
-    if (e.isDirectory()) out.push(...walkDir(p));
-    else if (e.isFile()) out.push(p);
+  try {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const e of entries) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) out.push(...walkDir(p));
+      else if (e.isFile()) out.push(p);
+    }
+  } catch (err) {
+    logger.warn({ err, dir }, 'Failed to read directory during walkDir');
   }
   return out;
 }
@@ -75,9 +79,18 @@ function countParts(dir: string, base: string): string | undefined {
 export async function ingestProcessedJobsRoot(): Promise<{ inserted: number; updated: number }> {
   const cfg = loadConfig();
   const root = cfg.paths.processedJobsRoot;
-  if (!root) return { inserted: 0, updated: 0 };
+  if (!root) {
+    logger.warn('No processedJobsRoot configured, skipping ingest');
+    return { inserted: 0, updated: 0 };
+  }
+  if (!existsSync(root)) {
+    logger.error({ root }, 'processedJobsRoot path does not exist');
+    return { inserted: 0, updated: 0 };
+  }
+  logger.info({ root }, 'Starting job ingest');
   let inserted = 0, updated = 0;
   const files = walkDir(root).filter(p => extname(p).toLowerCase() === '.nc');
+  logger.info({ count: files.length, root }, 'Found NC files');
   for (const nc of files) {
     const dir = dirname(nc);
     const base = toBaseNoExt(nc);
@@ -115,5 +128,6 @@ export async function ingestProcessedJobsRoot(): Promise<{ inserted: number; upd
       // Keep counters stable; treat failures as neither inserted nor updated
     }
   }
+  logger.info({ inserted, updated, total: files.length }, 'Job ingest completed');
   return { inserted, updated };
 }

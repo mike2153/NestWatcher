@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Machine, TelemetrySummaryRes } from '../../../shared/src';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import type { LegendProps } from 'recharts';
 
 type Filters = {
   from: string;
@@ -41,6 +42,7 @@ export function TelemetryPage() {
   const [data, setData] = useState<TelemetrySummaryRes | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { from: filterFrom, to: filterTo, machineIds } = filters;
 
   useEffect(() => {
     (async () => {
@@ -53,9 +55,9 @@ export function TelemetryPage() {
     setLoading(true);
     setError(null);
     const req: { from?: string; to?: string; machineIds?: number[] } = {};
-    if (filters.from) req.from = toIsoDateTimeBoundary(filters.from, false);
-    if (filters.to) req.to = toIsoDateTimeBoundary(filters.to, true);
-    if (filters.machineIds !== 'all') req.machineIds = filters.machineIds;
+    if (filterFrom) req.from = toIsoDateTimeBoundary(filterFrom, false);
+    if (filterTo) req.to = toIsoDateTimeBoundary(filterTo, true);
+    if (machineIds !== 'all') req.machineIds = machineIds;
     // eslint-disable-next-line no-console
     console.log('telemetry: subscribe', req);
     const unsubscribe = window.api.telemetry.subscribe(req, (payload) => {
@@ -63,17 +65,17 @@ export function TelemetryPage() {
         // Dev console visibility
         // eslint-disable-next-line no-console
         console.log('telemetry:update', payload);
-      } catch {}
+      } catch { /* noop */ void 0; }
       setData(payload);
       setLoading(false);
     });
     return () => unsubscribe();
-  }, [filters.from, filters.to, JSON.stringify(filters.machineIds)]);
+  }, [filterFrom, filterTo, machineIds]);
 
   const selectedMachineIds = useMemo(() => {
-    if (filters.machineIds === 'all') return new Set(machines.map((m) => m.machineId));
-    return new Set(filters.machineIds);
-  }, [filters.machineIds, machines]);
+    if (machineIds === 'all') return new Set(machines.map((m) => m.machineId));
+    return new Set(machineIds);
+  }, [machineIds, machines]);
 
   const visibleItems = useMemo(() => {
     const items = data?.items ?? [];
@@ -119,19 +121,24 @@ export function TelemetryPage() {
     return (
       <div className="border rounded p-3">
         <div className="text-sm font-medium mb-2">{name}</div>
-        <div className="w-full h-48">
+        <div className="w-full h-72">
           <ResponsiveContainer>
             <PieChart>
-              <Pie dataKey="value" data={dataset} outerRadius={80}>
+              <Pie dataKey="value" data={dataset} outerRadius={160}>
                 {dataset.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.color} />
                 ))}
               </Pie>
-              <Tooltip formatter={(v: any) => `${v} sec`} />
-              <Legend formatter={(value, entry) => {
-                const item = dataset.find((d) => d.key === (entry && (entry as any).payload?.key));
-                return `${value} ${item ? formatPct(item.value, total) : ''}`;
-              }} />
+              <Tooltip formatter={(v: unknown) => `${String(v)} sec`} />
+              <Legend
+                formatter={((value, entry) => {
+                  const payloadKey = typeof entry === 'object' && entry && 'payload' in entry
+                    ? (entry as { payload?: { key?: string } }).payload?.key
+                    : undefined;
+                  const item = dataset.find((d) => d.key === payloadKey);
+                  return `${String(value)} ${item ? formatPct(item.value, total) : ''}`;
+                }) as LegendProps['formatter']}
+              />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -168,13 +175,14 @@ export function TelemetryPage() {
             <label className="inline-flex items-center gap-1 text-sm">
               <input
                 type="checkbox"
-                checked={filters.machineIds === 'all'}
+                checked={machineIds === 'all'}
                 onChange={(e) => setFilters((prev) => ({ ...prev, machineIds: e.target.checked ? 'all' : [] }))}
               />
               All
             </label>
             {machines.map((m) => {
-              const checked = filters.machineIds === 'all' ? true : (filters.machineIds as number[]).includes(m.machineId);
+              const isAll = machineIds === 'all';
+              const checked = isAll ? true : machineIds.includes(m.machineId);
               return (
                 <label key={m.machineId} className="inline-flex items-center gap-1 text-sm">
                   <input
@@ -209,15 +217,15 @@ export function TelemetryPage() {
       {!onlyOne && (
         <div className="border rounded p-4">
           <div className="text-sm font-medium mb-2">Aggregated</div>
-          <div className="w-full h-64">
+          <div className="w-full h-96">
             <ResponsiveContainer>
               <PieChart>
-                <Pie dataKey="value" data={buildChartData(aggregate)} outerRadius={110}>
+                <Pie dataKey="value" data={buildChartData(aggregate)} outerRadius={220}>
                   {buildChartData(aggregate).map((entry, index) => (
                     <Cell key={`agg-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(v: any) => `${v} sec`} />
+                <Tooltip formatter={(v: unknown) => `${String(v)} sec`} />
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
@@ -225,7 +233,7 @@ export function TelemetryPage() {
         </div>
       )}
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid md:grid-cols-1 lg:grid-cols-2 gap-3">
         {visibleItems
           .sort((a, b) => sumSeconds(b) - sumSeconds(a))
           .map((it) => (

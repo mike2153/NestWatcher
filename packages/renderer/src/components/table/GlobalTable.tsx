@@ -83,9 +83,10 @@ export function GlobalTable<TData extends RowData>({
       <table className={cn('text-sm table-text', tableClassName)} style={tableStyle}>
         <thead
           className={cn(
-            'bg-[var(--table-header-bg)] text-[var(--table-text)] group',
+            'text-[var(--table-text)] group',
             stickyHeader && 'sticky top-0 z-10'
           )}
+          style={{ background: 'var(--table-header-bg)' }}
         >
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id} className="border-b-0 transition-colors group-hover:bg-[var(--muted-a50)]">

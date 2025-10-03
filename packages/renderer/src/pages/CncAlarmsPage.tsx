@@ -40,6 +40,7 @@ export function CncAlarmsPage() {
   const [data, setData] = useState<AlarmsHistoryRes | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { from: filterFrom, to: filterTo, machineIds } = filters;
 
   useEffect(() => {
     (async () => {
@@ -54,9 +55,9 @@ export function CncAlarmsPage() {
       setError(null);
       try {
         const req: { from?: string; to?: string; machineIds?: number[] } = {};
-        if (filters.from) req.from = toIsoDateTimeBoundary(filters.from, false);
-        if (filters.to) req.to = toIsoDateTimeBoundary(filters.to, true);
-        if (filters.machineIds !== 'all') req.machineIds = filters.machineIds;
+        if (filterFrom) req.from = toIsoDateTimeBoundary(filterFrom, false);
+        if (filterTo) req.to = toIsoDateTimeBoundary(filterTo, true);
+        if (machineIds !== 'all') req.machineIds = machineIds;
         const res = await window.api.alarms.history(req);
         if (!res.ok) {
           setError(res.error.message);
@@ -71,22 +72,22 @@ export function CncAlarmsPage() {
         setLoading(false);
       }
     })();
-  }, [filters.from, filters.to, JSON.stringify(filters.machineIds)]);
+  }, [filterFrom, filterTo, machineIds]);
 
   const columnHelper = createColumnHelper<AlarmsHistoryRes['items'][number]>();
   const columns = useMemo(() => [
     columnHelper.accessor('startAt', {
-      header: 'Time',
+      header: 'DateTime',
       cell: (ctx) => formatTime(ctx.getValue())
     }),
-    columnHelper.accessor('durationMinutes', { header: 'Duration (min)', cell: (ctx) => ctx.getValue() }),
+    columnHelper.accessor('alarmId', { header: 'Alarm ID', cell: (ctx) => ctx.getValue() ?? '' }),
+    columnHelper.accessor('description', { header: 'Description' }),
     columnHelper.accessor('machineName', {
       header: 'Machine',
       cell: (ctx) => ctx.getValue() ?? (ctx.row.original.machineId != null ? `Machine ${ctx.row.original.machineId}` : 'Unknown')
     }),
-    columnHelper.accessor('alarmId', { header: 'Alarm ID', cell: (ctx) => ctx.getValue() ?? '' }),
-    columnHelper.accessor('description', { header: 'Description' })
-  ], []);
+    columnHelper.accessor('durationMinutes', { header: 'Duration (min)', cell: (ctx) => ctx.getValue() })
+  ], [columnHelper]);
 
   const table = useReactTable({
     data: data?.items ?? [],
@@ -123,13 +124,14 @@ export function CncAlarmsPage() {
             <label className="inline-flex items-center gap-1 text-sm">
               <input
                 type="checkbox"
-                checked={filters.machineIds === 'all'}
+                checked={machineIds === 'all'}
                 onChange={(e) => setFilters((prev) => ({ ...prev, machineIds: e.target.checked ? 'all' : [] }))}
               />
               All
             </label>
             {machines.map((m) => {
-              const checked = filters.machineIds === 'all' ? true : (filters.machineIds as number[]).includes(m.machineId);
+              const isAll = machineIds === 'all';
+              const checked = isAll ? true : machineIds.includes(m.machineId);
               return (
                 <label key={m.machineId} className="inline-flex items-center gap-1 text-sm">
                   <input

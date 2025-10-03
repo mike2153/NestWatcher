@@ -46,6 +46,33 @@ function toError(serialized: SerializableError): Error {
 
 function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
   switch (message.type) {
+    case 'log': {
+      const base = { ...message.context, proc: 'Watchers' };
+      const m = String(message.msg ?? '');
+      switch (message.level) {
+        case 'trace':
+          logger.trace(base, m);
+          break;
+        case 'debug':
+          logger.debug(base, m);
+          break;
+        case 'info':
+          logger.info(base, m);
+          break;
+        case 'warn':
+          logger.warn(base, m);
+          break;
+        case 'error':
+          logger.error(base, m);
+          break;
+        case 'fatal':
+          logger.fatal(base, m);
+          break;
+        default:
+          logger.info(base, m);
+      }
+      break;
+    }
     case 'registerWatcher':
       registerWatcher(message.name, message.label);
       break;

@@ -11,6 +11,7 @@ import { registerHypernestIpc } from './ipc/hypernest';
 import { registerHistoryIpc } from './ipc/history';
 import { registerAlarmsIpc } from './ipc/alarms';
 import { registerDiagnosticsIpc } from './ipc/diagnostics';
+import { registerLogIpc } from './ipc/log';
 import { registerTelemetryIpc } from './ipc/telemetry';
 import { registerUiIpc } from './ipc/ui';
 import { initWatchers, shutdownWatchers } from './services/watchers';
@@ -93,6 +94,7 @@ app.whenReady().then(async () => {
   registerDiagnosticsIpc();
   registerUiIpc();
   registerTelemetryIpc();
+  registerLogIpc();
 
   try {
     await initializeDiagnostics();

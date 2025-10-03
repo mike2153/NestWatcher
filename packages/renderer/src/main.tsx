@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import './index.css';
+import { installRendererConsoleForwarding } from './setupLogger';
 import { AppLayout } from './shell/AppLayout';
 import { DashboardPage } from './pages/DashboardPage';
 import { JobsPage } from './pages/JobsPage';
@@ -32,9 +33,11 @@ const router = createBrowserRouter([
   }
 ]);
 
+// Forward console.* and uncaught errors to main logger
+installRendererConsoleForwarding();
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <RouterProvider router={router} />
   </React.StrictMode>
 );
-

@@ -461,6 +461,9 @@ def write_autopac_csv(auto_pac_dir: Path, machine_token: str, kind: str, bases: 
         content_lines.append(b)
     content_lines.append(machine_token)
     data = "\n".join(content_lines)
+    # Ensure CSV rows are comma-separated as Base,Machine
+    rows = [f"{b},{machine_token}" for b in bases]
+    data = "\n".join(rows)
     out_path = auto_pac_dir / filename
     if dry_run:
         print(f"[autopac] Would write {out_path}\n{data}")
@@ -493,7 +496,7 @@ def main():
     parser.add_argument("--machine", help="Machine selector: name token (e.g. WT1) or numeric id. If omitted, prompts interactively.")
     parser.add_argument("--ask-machine", action="store_true", help="Prompt for the machine even if --machine is provided.")
     parser.add_argument("--min-delay", type=int, default=0, help="Minimum seconds between steps within a cycle (default: 0)")
-    parser.add_argument("--max-delay", type=int, default=120, help="Maximum seconds between steps within a cycle (default: 120)")
+    parser.add_argument("--max-delay", type=int, default=30, help="Maximum seconds between steps within a cycle (default: 30)")
     parser.add_argument("--between-min", type=int, default=3, help="Minimum seconds between cycles (default: 3)")
     parser.add_argument("--between-max", type=int, default=15, help="Maximum seconds between cycles (default: 15)")
     parser.add_argument("--once", action="store_true", help="Run a single simulation cycle and exit")
@@ -559,7 +562,7 @@ def run_forever():
     parser.add_argument("--machine", help="Machine selector: name token (e.g. WT1) or numeric id. If omitted, prompts interactively.")
     parser.add_argument("--ask-machine", action="store_true", help="Prompt for the machine even if --machine is provided.")
     parser.add_argument("--min-delay", type=int, default=0, help="Minimum seconds between steps within a cycle (default: 0)")
-    parser.add_argument("--max-delay", type=int, default=120, help="Maximum seconds between steps within a cycle (default: 120)")
+    parser.add_argument("--max-delay", type=int, default=30, help="Maximum seconds between steps within a cycle (default: 30)")
     parser.add_argument("--between-min", type=int, default=3, help="Minimum seconds between cycles (default: 3)")
     parser.add_argument("--between-max", type=int, default=15, help="Maximum seconds between cycles (default: 15)")
     parser.add_argument("--no-stage", action="store_true", help="Skip staging step")

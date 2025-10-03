@@ -1,8 +1,8 @@
 import { clipboard, type WebContents } from 'electron';
 import { ok, err } from 'neverthrow';
-import type { AppError, CopyDiagnosticsResult, DiagnosticsLogSummary, DiagnosticsLogTailRes } from '../../../shared/src';
-import { DiagnosticsLogTailReq } from '../../../shared/src';
-import { getDiagnosticsSnapshot, subscribeDiagnostics, buildDiagnosticsCopyPayload, listDiagnosticsLogs, getDiagnosticsLogTail } from '../services/diagnostics';
+import type { AppError, CopyDiagnosticsResult, DiagnosticsLogSummary, DiagnosticsLogTailRes, DiagnosticsLogStreamReq } from '../../../shared/src';
+import { DiagnosticsLogTailReq, DiagnosticsLogStreamReq as DiagnosticsLogStreamReqSchema } from '../../../shared/src';
+import { getDiagnosticsSnapshot, subscribeDiagnostics, buildDiagnosticsCopyPayload, listDiagnosticsLogs, getDiagnosticsLogTail, subscribeLogStream } from '../services/diagnostics';
 import { logger } from '../logger';
 import { createAppError } from './errors';
 import { registerResultHandler } from './result';
@@ -14,6 +14,7 @@ type DiagnosticsSubscription = {
 };
 
 const subscribers = new Map<number, DiagnosticsSubscription>();
+const logSubscribers = new Map<number, { file: string; unsubscribe: () => void }>();
 
 function pushSnapshot(contents: WebContents) {
   if (contents.isDestroyed()) return;
@@ -108,6 +109,51 @@ export function registerDiagnosticsIpc() {
       const message = error instanceof Error ? error.message : String(error);
       return err(createAppError('diagnostics.copyFailed', message));
     }
+  });
+
+  registerResultHandler('diagnostics:log:subscribe', async (event, raw) => {
+    try {
+      const req = DiagnosticsLogStreamReqSchema.parse(raw ?? {}) as DiagnosticsLogStreamReq;
+      const file = String(req.file ?? '');
+      if (!file) throw new Error('file is required');
+      const contents = event.sender;
+      const id = contents.id;
+
+      // Clean up previous subscription for this contents
+      const prev = logSubscribers.get(id);
+      if (prev) {
+        try { prev.unsubscribe(); } catch { /* noop */ void 0; }
+        logSubscribers.delete(id);
+      }
+
+      const unsubscribe = subscribeLogStream(file, (lines) => {
+        if (!contents.isDestroyed()) contents.send('diagnostics:log:update', { file, lines });
+      });
+      logSubscribers.set(id, { file, unsubscribe });
+
+      onContentsDestroyed(contents, () => {
+        const entry = logSubscribers.get(id);
+        if (entry) {
+          try { entry.unsubscribe(); } catch { /* noop */ void 0; }
+          logSubscribers.delete(id);
+        }
+      });
+      return ok<null, AppError>(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return err({ code: 'DIAGNOSTICS_LOG_SUBSCRIBE_FAILED', message } as AppError);
+    }
+  });
+
+  registerResultHandler('diagnostics:log:unsubscribe', async (event) => {
+    const contents = event.sender;
+    const id = contents.id;
+    const entry = logSubscribers.get(id);
+    if (entry) {
+      try { entry.unsubscribe(); } catch { /* noop */ void 0; }
+      logSubscribers.delete(id);
+    }
+    return ok<null, AppError>(null);
   });
 }
 

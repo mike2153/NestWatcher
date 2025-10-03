@@ -14,6 +14,7 @@ import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLi
 import { upsertCncStats } from '../repo/cncStatsRepo';
 import { normalizeTelemetryPayload } from './telemetryParser';
 import type { WatcherWorkerToMainMessage, MainToWatcherMessage } from './watchersMessages';
+import { ingestProcessedJobsRoot } from '../services/ingest';
 
 const { access, copyFile, readFile, readdir, rename, stat, unlink } = fsp;
 
@@ -100,6 +101,7 @@ function trackWatcher(watcher: FSWatcher) {
 }
 
 let shuttingDown = false;
+let jobsIngestInterval: NodeJS.Timeout | null = null;
 
 const autoPacHashes = new Map<string, string>();
 
@@ -436,7 +438,65 @@ async function handleAutoPacCsv(path: string) {
     }
 
     const raw = await readFile(path, 'utf8');
+
+    // Validate CSV format before parsing
+    const lines = raw.split(/\r?\n/).filter(line => line.trim().length > 0);
+    if (lines.length === 0) {
+      logger.warn({ file: path, machineToken }, 'watcher: autopac CSV file is empty');
+      postMessageToMain({
+        type: 'userAlert',
+        title: 'AutoPAC CSV Format Error',
+        message: `AutoPAC CSV ${machineToken} has incorrect format: file is empty`
+      });
+      recordWatcherError(AUTOPAC_WATCHER_NAME, new Error('Empty CSV file'), {
+        path,
+        machineToken,
+        label: AUTOPAC_WATCHER_LABEL
+      });
+      await unlink(path).catch(() => {});
+      logger.info({ file: path, machineToken }, 'watcher: deleted empty autopac CSV file');
+      return;
+    }
+
+    // Check if CSV has proper delimiter (comma or semicolon)
+    const hasDelimiters = lines.some(line => line.includes(',') || line.includes(';'));
+    if (!hasDelimiters) {
+      logger.warn({ file: path, machineToken, lineCount: lines.length, sampleLine: lines[0]?.slice(0, 100) }, 'watcher: autopac CSV has no delimiters (comma or semicolon)');
+      postMessageToMain({
+        type: 'userAlert',
+        title: 'AutoPAC CSV Format Error',
+        message: `AutoPAC CSV ${machineToken} has incorrect format: no comma or semicolon delimiters found`
+      });
+      recordWatcherError(AUTOPAC_WATCHER_NAME, new Error('Invalid CSV format: no delimiters'), {
+        path,
+        machineToken,
+        label: AUTOPAC_WATCHER_LABEL
+      });
+      await unlink(path).catch(() => {});
+      logger.info({ file: path, machineToken }, 'watcher: deleted autopac CSV with no delimiters');
+      return;
+    }
+
     const rows = parseCsvContent(raw);
+
+    // Validate parsed rows have multiple columns
+    const validRows = rows.filter(row => row.length > 1);
+    if (validRows.length === 0) {
+      logger.warn({ file: path, machineToken, totalRows: rows.length, sampleRow: rows[0] }, 'watcher: autopac CSV has no multi-column rows');
+      postMessageToMain({
+        type: 'userAlert',
+        title: 'AutoPAC CSV Format Error',
+        message: `AutoPAC CSV ${machineToken} has incorrect format: no valid multi-column rows found`
+      });
+      recordWatcherError(AUTOPAC_WATCHER_NAME, new Error('Invalid CSV format: single column only'), {
+        path,
+        machineToken,
+        label: AUTOPAC_WATCHER_LABEL
+      });
+      await unlink(path).catch(() => {});
+      logger.info({ file: path, machineToken }, 'watcher: deleted autopac CSV with single column only');
+      return;
+    }
     // Enforce machine token appears in CSV and matches filename
     const wantedToken = sanitizeToken(machineToken);
     const csvHasMachine = rows.some((row) =>
@@ -446,6 +506,12 @@ async function handleAutoPacCsv(path: string) {
       })
     );
     if (!csvHasMachine) {
+      logger.warn({ file: path, machineToken, wantedToken, fileName }, 'watcher: autopac CSV machine token not found in file content');
+      postMessageToMain({
+        type: 'userAlert',
+        title: 'AutoPAC CSV Format Error',
+        message: `AutoPAC CSV ${machineToken} has incorrect format: machine name mismatch`
+      });
       setMachineHealthIssue({
         machineId: null,
         code: HEALTH_CODES.copyFailure,
@@ -458,7 +524,9 @@ async function handleAutoPacCsv(path: string) {
         expected: machineToken,
         label: AUTOPAC_WATCHER_LABEL
       });
-      return; // leave file alone
+      await unlink(path).catch(() => {});
+      logger.info({ file: path, machineToken }, 'watcher: deleted autopac CSV with machine mismatch');
+      return;
     }
     // Strict: first column is NC, only accept base or base.nc
     const bases = (() => {
@@ -473,7 +541,12 @@ async function handleAutoPacCsv(path: string) {
       return Array.from(set);
     })();
     if (!bases.length) {
-      logger.warn({ file: path }, 'watcher: autopac file had no identifiable bases');
+      logger.warn({ file: path, machineToken, rowCount: rows.length, sampleFirstColumn: rows.slice(0, 3).map(r => r[0]) }, 'watcher: autopac file had no identifiable bases');
+      postMessageToMain({
+        type: 'userAlert',
+        title: 'AutoPAC CSV Format Error',
+        message: `AutoPAC CSV ${machineToken} has incorrect format: no parts found`
+      });
       setMachineHealthIssue({
         machineId: null,
         code: HEALTH_CODES.noParts,
@@ -481,6 +554,13 @@ async function handleAutoPacCsv(path: string) {
         severity: 'warning',
         context: { file: path }
       });
+      recordWatcherError(AUTOPAC_WATCHER_NAME, new Error('No parts found'), {
+        path,
+        machineToken,
+        label: AUTOPAC_WATCHER_LABEL
+      });
+      await unlink(path).catch(() => {});
+      logger.info({ file: path, machineToken }, 'watcher: deleted autopac CSV with no identifiable parts');
       return;
     }
 
@@ -896,6 +976,10 @@ async function shutdown(reason?: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info({ reason }, 'watchersWorker: shutting down background services');
+  if (jobsIngestInterval) {
+    clearInterval(jobsIngestInterval);
+    jobsIngestInterval = null;
+  }
   const watchers = Array.from(fsWatchers);
   for (const watcher of watchers) {
     try {
@@ -1036,6 +1120,36 @@ async function setupNestpickWatchers() {
   }
 }
 
+function startJobsIngestPolling() {
+  const INGEST_INTERVAL_MS = 5000; // 5 seconds
+
+  async function runIngest() {
+    if (shuttingDown) return;
+    try {
+      const result = await ingestProcessedJobsRoot();
+      if (result.inserted > 0 || result.updated > 0) {
+        logger.info(result, 'Jobs ingest poll completed');
+      }
+    } catch (err) {
+      logger.error({ err }, 'Jobs ingest poll failed');
+    }
+  }
+
+  // Run immediately on startup
+  void runIngest();
+
+  // Then poll every 5 seconds
+  jobsIngestInterval = setInterval(() => {
+    void runIngest();
+  }, INGEST_INTERVAL_MS);
+
+  if (typeof jobsIngestInterval.unref === 'function') {
+    jobsIngestInterval.unref();
+  }
+
+  logger.info({ intervalMs: INGEST_INTERVAL_MS }, 'Jobs ingest polling started');
+}
+
 function initWatchers() {
   const cfg = loadConfig();
   if (cfg.paths.autoPacCsvDir) {
@@ -1043,6 +1157,7 @@ function initWatchers() {
   }
   void setupNestpickWatchers();
   void startTelemetryClients();
+  startJobsIngestPolling();
 }
 
 try {

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { DiagnosticsSnapshot, ReadyListRes } from '../../packages/shared/src';
+import type { DiagnosticsSnapshot, ReadyListRes, TelemetrySummaryRes } from '../../packages/shared/src';
 
 const diagnosticsSnapshot = {
   dbStatus: { online: true, checkedAt: new Date().toISOString(), latencyMs: 25, error: null },
@@ -165,8 +165,11 @@ test.beforeEach(async ({ page }) => {
         }
       },
       telemetry: {
-        summary: async () => ({ items: [] }),
-        subscribe: (_req: unknown, listener: (payload: unknown) => void) => {
+        summary: async () => ({ items: [] } as TelemetrySummaryRes),
+        subscribe: (
+          _req: { from?: string; to?: string; machineIds?: number[] },
+          listener: (payload: TelemetrySummaryRes) => void
+        ) => {
           listener({ items: [] });
           return () => {};
         }

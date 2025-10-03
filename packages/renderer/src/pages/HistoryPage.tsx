@@ -277,11 +277,9 @@ export function HistoryPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="px-2 py-2">Key</TableHead>
                 <TableHead className="px-2 py-2">NC File</TableHead>
                 <TableHead className="px-2 py-2">Machine</TableHead>
                 <TableHead className="px-2 py-2">Finish</TableHead>
-                <TableHead className="px-2 py-2">Source</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -294,21 +292,15 @@ export function HistoryPage() {
                     className={isActive ? 'data-[state=selected]:bg-[var(--muted)]' : ''}
                     onClick={() => setSelectedKey(row.key)}
                   >
-                    <TableCell className="px-2 py-2 font-mono text-xs">{row.key}</TableCell>
                     <TableCell className="px-2 py-2">{row.ncfile ?? ""}</TableCell>
                     <TableCell className="px-2 py-2">{machineLabel}</TableCell>
                     <TableCell className="px-2 py-2 text-xs">{formatDate(row.finishAt)}</TableCell>
-                    <TableCell className="px-2 py-2">
-                      <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${row.finishSource === "nestpick" ? "bg-green-100 text-green-800" : "bg-accent text-accent-foreground"}`}>
-                        {row.finishSource === "nestpick" ? "Nestpick" : "Cut"}
-                      </span>
-                    </TableCell>
                   </TableRow>
                 );
               })}
               {!rows.length && !loading && (
                 <TableRow>
-                  <TableCell colSpan={5} className="px-2 py-6 text-center text-sm text-muted-foreground">No completed jobs found.</TableCell>
+                  <TableCell colSpan={3} className="px-2 py-6 text-center text-sm text-muted-foreground">No completed jobs found.</TableCell>
                 </TableRow>
               )}
             </TableBody>

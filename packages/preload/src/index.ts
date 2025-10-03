@@ -7,6 +7,7 @@ import type {
   DiagnosticsLogsRes,
   DiagnosticsLogTailReq,
   DiagnosticsLogTailRes,
+  LogWriteReq,
   ThemePreferenceReq,
   ThemePreferenceRes,
   GrundnerListReq,
@@ -37,8 +38,7 @@ import type {
   WorklistAddResult,
   TelemetrySummaryReq,
   TelemetrySummaryRes,
-  AlarmsHistoryReq,
-  AlarmsHistoryRes
+  AlarmsHistoryReq
 } from '../../shared/src';
 import { type ResultEnvelope } from '../../shared/src/result';
 
@@ -155,6 +155,18 @@ const api = {
         ipcRenderer.removeListener(channel, handler);
         invokeResult<null>('diagnostics:unsubscribe').catch(() => {});
       };
+    },
+    subscribeLog: (file: string, listener: (payload: { file: string; lines: string[] }) => void) => {
+      const channel = 'diagnostics:log:update';
+      const handler = (_event: Electron.IpcRendererEvent, payload: { file: string; lines: string[] }) => {
+        if (payload?.file === file) listener(payload);
+      };
+      ipcRenderer.on(channel, handler);
+      invokeResult<null>('diagnostics:log:subscribe', { file }).catch(() => {});
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+        invokeResult<null>('diagnostics:log:unsubscribe').catch(() => {});
+      };
     }
   },
   ui: {
@@ -167,6 +179,16 @@ const api = {
   history: {
     list: (req?: HistoryListReq) => invokeResult<HistoryListRes>('history:list', req ?? {}),
     timeline: (key: string) => invokeResult<JobTimelineRes | null>('history:timeline', key)
+  }
+  ,
+  log: {
+    write: (req: LogWriteReq) => invokeResult<null>('log:write', req),
+    trace: (msg: string, context?: Record<string, unknown>) => invokeResult<null>('log:write', { level: 'trace', msg, context }),
+    debug: (msg: string, context?: Record<string, unknown>) => invokeResult<null>('log:write', { level: 'debug', msg, context }),
+    info: (msg: string, context?: Record<string, unknown>) => invokeResult<null>('log:write', { level: 'info', msg, context }),
+    warn: (msg: string, context?: Record<string, unknown>) => invokeResult<null>('log:write', { level: 'warn', msg, context }),
+    error: (msg: string, context?: Record<string, unknown>) => invokeResult<null>('log:write', { level: 'error', msg, context }),
+    fatal: (msg: string, context?: Record<string, unknown>) => invokeResult<null>('log:write', { level: 'fatal', msg, context })
   }
 } as const;
 

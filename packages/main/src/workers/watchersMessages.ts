@@ -9,6 +9,12 @@ export type WatcherWorkerToMainMessage =
   | { type: 'registerWatcher'; name: string; label: string }
   | { type: 'watcherReady'; name: string; label?: string }
   | {
+      type: 'log';
+      level: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+      msg: string;
+      context?: Record<string, unknown>;
+    }
+  | {
       type: 'watcherEvent';
       name: string;
       label?: string;

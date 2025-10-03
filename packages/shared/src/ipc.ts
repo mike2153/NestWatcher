@@ -524,6 +524,24 @@ export type CopyDiagnosticsResult = z.infer<typeof CopyDiagnosticsResult>;
 
 
 
+// Live log streaming
+export const DiagnosticsLogStreamReq = z.object({ file: z.string() });
+export type DiagnosticsLogStreamReq = z.infer<typeof DiagnosticsLogStreamReq>;
+
+export const DiagnosticsLogUpdate = z.object({ file: z.string(), lines: z.array(z.string()) });
+export type DiagnosticsLogUpdate = z.infer<typeof DiagnosticsLogUpdate>;
+
+// Cross‑process Logging
+export const LogLevel = z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']);
+export type LogLevel = z.infer<typeof LogLevel>;
+
+export const LogWriteReq = z.object({
+  level: LogLevel.default('info'),
+  msg: z.string().min(1),
+  context: z.record(z.unknown()).optional()
+});
+export type LogWriteReq = z.infer<typeof LogWriteReq>;
+
 
 // CNC Telemetry & Alarms
 

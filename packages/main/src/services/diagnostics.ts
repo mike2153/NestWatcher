@@ -31,6 +31,106 @@ let storePath: string | null = null;
 let initialized = false;
 const machineHealth = new Map<string, MachineHealthEntry>();
 
+// Live log tailers (push updates)
+type LogListener = (lines: string[]) => void;
+type Tailer = {
+  file: string;
+  timer: NodeJS.Timeout | null;
+  lastSize: number;
+  buf: string; // carry partial line across reads
+  listeners: Set<LogListener>;
+};
+
+const tailers = new Map<string, Tailer>();
+
+function emitLogLines(file: string, lines: string[]) {
+  const t = tailers.get(file);
+  if (!t || lines.length === 0) return;
+  for (const fn of t.listeners) {
+    try { fn(lines); } catch { /* noop */ void 0; }
+  }
+}
+
+async function pollTailer(t: Tailer) {
+  try {
+    const stats = await fsp.stat(t.file);
+    const size = stats.size;
+    if (size < t.lastSize) {
+      // rotation or truncate
+      t.lastSize = 0;
+      t.buf = '';
+    }
+    if (size > t.lastSize) {
+      const fd = await fsp.open(t.file, 'r');
+      try {
+        const toRead = size - t.lastSize;
+        const buffer = Buffer.allocUnsafe(Math.min(toRead, 1024 * 1024)); // cap read chunk
+        let offset = t.lastSize;
+        let remaining = toRead;
+        let acc = '';
+        while (remaining > 0) {
+          const len = Math.min(buffer.length, remaining);
+          const { bytesRead } = await fd.read({ buffer, position: offset, length: len });
+          if (bytesRead <= 0) break;
+          acc += buffer.subarray(0, bytesRead).toString('utf8');
+          offset += bytesRead;
+          remaining -= bytesRead;
+        }
+        t.lastSize = size;
+        const combined = t.buf + acc;
+        const parts = combined.split(/\r?\n/);
+        t.buf = parts.pop() ?? '';
+        const lines = parts.filter((s) => s.length > 0);
+        if (lines.length) emitLogLines(t.file, lines);
+      } finally {
+        await fd.close();
+      }
+    }
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code !== 'ENOENT') {
+      try { logger.warn({ err, file: t.file }, 'diagnostics: log tailer poll failed'); } catch { /* noop */ void 0; }
+    }
+  }
+}
+
+function startTailer(file: string) {
+  let t = tailers.get(file);
+  if (!t) {
+    t = { file, timer: null, lastSize: 0, buf: '', listeners: new Set() };
+    tailers.set(file, t);
+  }
+  if (!t.timer) {
+    // Initialize lastSize to current file size to only stream new lines
+    fsp.stat(file).then((st) => { t!.lastSize = st.size; }).catch(() => { t!.lastSize = 0; });
+    const id = setInterval(() => { void pollTailer(t!); }, 1000);
+    if (typeof id.unref === 'function') id.unref();
+    t.timer = id;
+  }
+  return t;
+}
+
+function stopTailerIfIdle(file: string) {
+  const t = tailers.get(file);
+  if (!t) return;
+  if (t.listeners.size === 0) {
+    if (t.timer) {
+      clearInterval(t.timer);
+      t.timer = null;
+    }
+    tailers.delete(file);
+  }
+}
+
+export function subscribeLogStream(file: string, listener: (lines: string[]) => void): () => void {
+  const t = startTailer(file);
+  t.listeners.add(listener);
+  return () => {
+    t.listeners.delete(listener);
+    stopTailerIfIdle(file);
+  };
+}
+
 function emitUpdate() {
   emitter.emit('update');
 }
@@ -150,6 +250,10 @@ function toMessage(error: unknown): { message: string; stack?: string } {
 export function watcherReady(name: string, label?: string) {
   const watcher = ensureWatcher(name, label);
   watcher.status = 'watching';
+  try {
+    const lbl = watcher.label ?? name;
+    logger.info({ watcher: name, label: lbl }, `watcher: ready - ${lbl}`);
+  } catch { /* noop */ void 0; }
   emitUpdate();
 }
 
@@ -161,6 +265,11 @@ export function recordWatcherEvent(
   watcher.status = 'watching';
   watcher.lastEventAt = new Date().toISOString();
   watcher.lastEvent = info?.message ?? null;
+  try {
+    const lbl = watcher.label ?? name;
+    const msg = info?.message ?? 'event';
+    logger.info({ watcher: name, label: lbl, context: info?.context }, `watcher:event - ${lbl}: ${msg}`);
+  } catch { /* noop */ void 0; }
   emitUpdate();
 }
 
@@ -175,6 +284,10 @@ export function recordWatcherError(
   watcher.status = 'error';
   watcher.lastErrorAt = new Date().toISOString();
   watcher.lastError = message;
+  try {
+    const lbl = watcher.label ?? name;
+    logger.error({ watcher: name, label: lbl, err: error, context: rest }, `watcher:error - ${lbl}: ${message}`);
+  } catch { /* noop */ void 0; }
   recordWorkerError(name, error, rest);
 }
 
@@ -196,6 +309,9 @@ export function subscribeDiagnostics(listener: (snapshot: DiagnosticsSnapshot) =
 
 export function registerWatcher(name: string, label: string) {
   ensureWatcher(name, label);
+  try {
+    logger.info({ watcher: name, label }, `watcher: register - ${label}`);
+  } catch { /* noop */ void 0; }
   emitUpdate();
 }
 

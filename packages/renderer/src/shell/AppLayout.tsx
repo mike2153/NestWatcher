@@ -38,6 +38,8 @@ export function AppLayout() {
   const [logSelectedFile, setLogSelectedFile] = useState<string | null>(null);
   const [logLimit, setLogLimit] = useState(200);
   const [logTail, setLogTail] = useState<DiagnosticsLogTailRes | null>(null);
+  const logTailRef = useRef<DiagnosticsLogTailRes | null>(null);
+  const [logLinesLive, setLogLinesLive] = useState<string[] | null>(null);
   const [logLoading, setLogLoading] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
   const [themePreference, setThemePreference] = useState<ThemePreference>('system');
@@ -150,8 +152,21 @@ export function AppLayout() {
         return;
       }
       const data = res.value;
-      setLogTail(data);
-      setLogLimit(data.limit);
+      // Avoid unnecessary rerenders to reduce flicker
+      const prev = logTailRef.current;
+      const unchanged =
+        prev != null &&
+        prev.file === data.file &&
+        prev.limit === data.limit &&
+        prev.available === data.available &&
+        prev.size === data.size &&
+        prev.updatedAt === data.updatedAt &&
+        prev.lines.length === data.lines.length &&
+        prev.lines[prev.lines.length - 1] === data.lines[data.lines.length - 1];
+      if (!unchanged) {
+        setLogTail(data);
+      }
+      if (data.limit !== logLimit) setLogLimit(data.limit);
       setLogList((items: DiagnosticsLogSummary[]) =>
         items.map((item) => (item.file === data.file ? { ...item, size: data.size, updatedAt: data.updatedAt } : item))
       );
@@ -161,7 +176,7 @@ export function AppLayout() {
     } finally {
       setLogLoading(false);
     }
-  }, []);
+  }, [logLimit]);
 
   const refreshLogTail = useCallback(() => {
     if (logSelectedFile) {
@@ -271,7 +286,29 @@ export function AppLayout() {
   useEffect(() => {
     if (!showDiagnostics) return;
     if (!logSelectedFile) return;
+    // Initial fetch
     fetchLogTail(logSelectedFile, logLimit);
+    // Subscribe stream if available; otherwise fallback to light polling
+    type DiagApi = { subscribeLog?: (file: string, listener: (payload: { file: string; lines: string[] }) => void) => () => void };
+    const diagApi = (window as unknown as { api?: { diagnostics?: DiagApi } }).api?.diagnostics;
+    const maybeSub = diagApi?.subscribeLog;
+    if (typeof maybeSub === 'function') {
+      const unsubscribe = maybeSub(logSelectedFile, ({ lines }: { file: string; lines: string[] }) => {
+        if (!Array.isArray(lines) || lines.length === 0) return;
+        setLogLinesLive((prev) => {
+          const next = prev ? [...lines].reverse().concat(prev) : [...lines].reverse();
+          return next.slice(0, Math.max(2000, logLimit));
+        });
+      });
+      return () => {
+        unsubscribe?.();
+      };
+    } else {
+      const id = setInterval(() => {
+        fetchLogTail(logSelectedFile, logLimit);
+      }, 1000);
+      return () => clearInterval(id);
+    }
   }, [fetchLogTail, logLimit, logSelectedFile, showDiagnostics]);
 
   const activeAlarmCount = alarms.length;
@@ -292,8 +329,13 @@ export function AppLayout() {
     () => logList.find((item) => item.file === logSelectedFile) ?? null,
     [logList, logSelectedFile]
   );
-  const logLines = logTail?.lines ?? [];
+  const logLines = useMemo(() => (logLinesLive ?? (logTail?.lines ? [...logTail.lines].reverse() : [])), [logLinesLive, logTail]);
   const logAvailable = logTail?.available ?? null;
+
+  // Keep a ref of the latest tail for equality checks
+  useEffect(() => {
+    logTailRef.current = logTail;
+  }, [logTail]);
 
   const toggleAlarmPanel = () => {
     setShowAlarmPanel((prev) => {
@@ -439,7 +481,7 @@ export function AppLayout() {
         </div>
       )}
       {showDiagnostics && (
-        <div className="fixed right-4 top-16 z-40 w-[400px] rounded border bg-background shadow-lg">
+        <div className="fixed right-4 top-16 z-40 w-[800px] rounded border bg-background shadow-lg">
           <div className="flex items-center justify-between border-b px-3 py-2">
             <div className="text-sm font-semibold">Diagnostics</div>
             <div className="flex items-center gap-2">
@@ -491,7 +533,7 @@ export function AppLayout() {
               <div className="text-xs uppercase text-muted-foreground">Machine Health</div>
               <div className="mt-1 space-y-2">
                 {machineHealthEntries.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">All systems nominal.</div>
+                  <></>
                 ) : (
                   machineHealthEntries.map((issue) => (
                     <div key={issue.id} className="rounded border p-2">
@@ -523,17 +565,17 @@ export function AppLayout() {
             </div>
             <div>
               <div className="text-xs uppercase text-muted-foreground">Watchers</div>
-              <div className="mt-1 space-y-2">
+              <div className="mt-1 grid grid-cols-2 gap-2">
                 {diagnosticsWatchers.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">No watcher metrics available.</div>
+                  <div className="text-xs text-muted-foreground col-span-2">No watcher metrics available.</div>
                 ) : (
                   diagnosticsWatchers.map((watcher) => (
                     <div key={watcher.name} className="rounded border p-2">
                       <div className="flex items-center justify-between">
-                        <span className="font-medium">{watcher.label}</span>
+                        <span className="font-medium truncate" title={watcher.label}>{watcher.label}</span>
                         <span
                           className={cn(
-                            'text-xs font-medium',
+                            'text-xs font-semibold uppercase tracking-wide',
                             watcher.status === 'error'
                               ? 'text-red-600'
                               : watcher.status === 'watching'
@@ -541,20 +583,9 @@ export function AppLayout() {
                               : 'text-muted-foreground'
                           )}
                         >
-                          {watcher.status.toUpperCase()}
+                          {watcher.status}
                         </span>
                       </div>
-                      {watcher.lastEvent && (
-                        <div className="text-xs text-muted-foreground">Last event: {watcher.lastEvent}</div>
-                      )}
-                      {watcher.lastEventAt && (
-                        <div className="text-xs text-muted-foreground">
-                          Updated {new Date(watcher.lastEventAt).toLocaleTimeString()}
-                        </div>
-                      )}
-                      {watcher.lastError && (
-                        <div className="text-xs text-red-600">Last error: {watcher.lastError}</div>
-                      )}
                     </div>
                   ))
                 )}
@@ -629,7 +660,7 @@ export function AppLayout() {
                       </div>
                     )}
                     {logError && <div className="text-xs text-red-600">{logError}</div>}
-                    <pre className="max-h-60 overflow-auto rounded border bg-muted/40 p-2 font-mono text-[11px] leading-snug whitespace-pre-wrap">
+                    <pre key={logSelectedFile ?? 'none'} className="max-h-96 overflow-auto rounded border bg-muted/40 p-2 font-mono text-[11px] leading-snug whitespace-pre-wrap">
                       {logLoading
                         ? 'Loading log...'
                         : logLines.length
@@ -665,6 +696,7 @@ export function AppLayout() {
     </SidebarProvider>
   );
 }
+
 
 
 
