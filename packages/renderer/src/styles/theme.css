@@ -28,6 +28,8 @@
     --table-text: theme('colors.gray.800');        /* Table text - light for dark background */
     --table-border: theme('colors.neutral.100');     /* Table outer border */
     --table-row-border: theme('colors.neutral.300'); /* Horizontal lines between rows */
+    --table-hover-bg: color-mix(in srgb, theme('colors.cyan.900') 50%, transparent); /* Row hover background */
+    --table-selected-bg: color-mix(in srgb, theme('colors.stone.900') 50%, transparent); /* Row selected background */
 
     /* Sidebar colors - Metallic/Marble effect */
     --sidebar: linear-gradient(135deg, theme('colors.neutral.900') 0%, theme('colors.neutral.700') 50%, theme('colors.neutral.900') 100%);  /* Metallic gradient background */
@@ -85,6 +87,8 @@
     --table-bg: theme('colors.gray.800');           /* Table background */
     --table-header-bg: theme('colors.slate.700');   /* Table header */
     --table-text: theme('colors.gray.200');         /* Table text */
+    --table-hover-bg: color-mix(in srgb, theme('colors.slate.200') 10%, transparent); /* Row hover background */
+    --table-selected-bg: color-mix(in srgb, theme('colors.indigo.400') 20%, transparent); /* Row selected background */
     --sidebar: theme('colors.slate.900');           /* Sidebar background */
     --sidebar-foreground: theme('colors.gray.200'); /* Sidebar text */
     --sidebar-accent: theme('colors.gray.800');     /* Sidebar active items */
@@ -105,6 +109,8 @@
     --table-bg: theme('colors.white');              /* White table background */
     --table-header-bg: theme('colors.slate.50');    /* Light table header */
     --table-text: theme('colors.slate.900');        /* Dark table text */
+    --table-hover-bg: color-mix(in srgb, theme('colors.slate.900') 6%, transparent); /* Row hover background */
+    --table-selected-bg: color-mix(in srgb, theme('colors.sky.500') 12%, transparent); /* Row selected background */
     --sidebar: theme('colors.blue.50');             /* Light blue sidebar */
     --sidebar-foreground: theme('colors.slate.900'); /* Dark sidebar text */
     --sidebar-accent: theme('colors.blue.100');     /* Light blue sidebar accent */

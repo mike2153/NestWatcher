@@ -79,6 +79,23 @@ function formatStatusLabel(value: string) {
   return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
 }
 
+function statusBadgeClass(status: JobStatus) {
+  switch (status) {
+    case 'CNC_FINISH':
+    case 'FORWARDED_TO_NESTPICK':
+    case 'NESTPICK_COMPLETE':
+      return 'bg-green-100 text-green-800';
+    case 'LABEL_FINISH':
+    case 'LOAD_FINISH':
+      return 'bg-amber-100 text-amber-800';
+    case 'STAGED':
+      return 'bg-blue-100 text-blue-800';
+    case 'PENDING':
+    default:
+      return 'bg-accent text-accent-foreground';
+  }
+}
+
 function loadColumnSizing(): ColumnSizingState {
   if (typeof window === 'undefined') return {};
   try {
@@ -409,8 +426,13 @@ export function JobsPage() {
       minSize: 100,
       maxSize: 180,
       cell: ({ getValue }) => {
-        const raw = getValue<string>();
-        return raw ? formatStatusLabel(raw) : '';
+        const raw = getValue<JobStatus | null>();
+        if (!raw) return <span className="text-muted-foreground">-</span>;
+        return (
+          <span className={cn('inline-flex items-center rounded px-2 py-0.5 text-sm font-medium', statusBadgeClass(raw))}>
+            {formatStatusLabel(raw)}
+          </span>
+        );
       }
     },
     {

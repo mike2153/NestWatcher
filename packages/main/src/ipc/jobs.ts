@@ -17,7 +17,8 @@ export function registerJobsIpc() {
   registerResultHandler('jobs:events', async (_e, raw) => {
     const req = JobEventsReq.parse(raw);
     const events = await getJobEvents(req.key, req.limit ?? 50);
-    return ok(events);
+    // Wrap in an object to match JobEventsRes shape expected by the renderer
+    return ok({ events });
   });
 
   registerResultHandler('jobs:list', async (_e, raw) => {

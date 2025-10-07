@@ -243,6 +243,25 @@ export const ReadyImportRes = z.object({
 });
 export type ReadyImportRes = z.infer<typeof ReadyImportRes>;
 
+export const ReadyDeleteReq = z.object({
+  machineId: z.number().int(),
+  relativePaths: z.array(z.string().min(1)).min(1)
+});
+export type ReadyDeleteReq = z.infer<typeof ReadyDeleteReq>;
+
+export const ReadyDeleteError = z.object({
+  file: z.string(),
+  message: z.string()
+});
+export type ReadyDeleteError = z.infer<typeof ReadyDeleteError>;
+
+export const ReadyDeleteRes = z.object({
+  deleted: z.number().int().nonnegative(),
+  files: z.array(z.string()),
+  errors: z.array(ReadyDeleteError)
+});
+export type ReadyDeleteRes = z.infer<typeof ReadyDeleteRes>;
+
 export const RouterListReq = z.object({
   machineId: z.number().int().optional(),
   statusIn: z.array(JobStatus).optional(),

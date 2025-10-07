@@ -87,10 +87,8 @@ export async function ingestProcessedJobsRoot(): Promise<{ inserted: number; upd
     logger.error({ root }, 'processedJobsRoot path does not exist');
     return { inserted: 0, updated: 0 };
   }
-  logger.info({ root }, 'Starting job ingest');
   let inserted = 0, updated = 0;
   const files = walkDir(root).filter(p => extname(p).toLowerCase() === '.nc');
-  logger.info({ count: files.length, root }, 'Found NC files');
   for (const nc of files) {
     const dir = dirname(nc);
     const base = toBaseNoExt(nc);
@@ -128,6 +126,5 @@ export async function ingestProcessedJobsRoot(): Promise<{ inserted: number; upd
       // Keep counters stable; treat failures as neither inserted nor updated
     }
   }
-  logger.info({ inserted, updated, total: files.length }, 'Job ingest completed');
   return { inserted, updated };
 }

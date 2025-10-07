@@ -9,12 +9,14 @@ import type {
 import { JOB_STATUS_VALUES } from '../../../shared/src';
 import { cn } from '../utils/cn';
 import { GlobalTable } from '@/components/table/GlobalTable';
-import type { ColumnDef } from '@tanstack/react-table';
+import type { ColumnDef, RowSelectionState } from '@tanstack/react-table';
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table';
 
 const AUTO_REFRESH_ENABLED_KEY = 'router:autoRefresh';
 const AUTO_REFRESH_INTERVAL_KEY = 'router:autoRefreshInterval';
 const DEFAULT_AUTO_REFRESH_SECONDS = 30;
+
+type RouterReadyFile = ReadyFile & { machineId: number };
 
 function formatIso(value: string | null) {
   if (!value) return '';
@@ -48,19 +50,21 @@ function formatStatusLabel(value: string) {
       case 'LABEL_FINISH':
       case 'LOAD_FINISH':
         return 'bg-amber-100 text-amber-800';
+      case 'STAGED':
+        return 'bg-blue-100 text-blue-800';
       default:
-      return 'bg-accent text-accent-foreground';
+        return 'bg-accent text-accent-foreground';
     }
   }
 
 export function RouterPage() {
-  const [files, setFiles] = useState<ReadyFile[]>([]);
+  const [files, setFiles] = useState<RouterReadyFile[]>([]);
   const [machines, setMachines] = useState<Machine[]>([]);
   const [_diagnostics, setDiagnostics] = useState<DiagnosticsSnapshot | null>(null);
   const [machineFilter, setMachineFilter] = useState<'all' | number>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | JobStatus>('all');
   const [loading, setLoading] = useState(false);
-  const [error, _setError] = useState<string | null>(null);
+  const [banner, setBanner] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(() => {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(AUTO_REFRESH_ENABLED_KEY) === 'true';
@@ -70,6 +74,30 @@ export function RouterPage() {
     const stored = Number(window.localStorage.getItem(AUTO_REFRESH_INTERVAL_KEY)) || 0;
     return stored >= 5 ? stored : DEFAULT_AUTO_REFRESH_SECONDS;
   });
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [deleting, setDeleting] = useState(false);
+  const [clearedByMachine, setClearedByMachine] = useState<Map<number, Map<string, number>>>(() => new Map());
+
+  const applyClearedFilter = useCallback(
+    (items: ReadyFile[], machineId: number): ReadyFile[] => {
+      const cleared = clearedByMachine.get(machineId);
+      if (!cleared?.size) return items;
+      return items.filter((item) => {
+        if (item.status !== 'NESTPICK_COMPLETE') return true;
+        const clearedMtime = cleared.get(item.relativePath);
+        return clearedMtime === undefined || clearedMtime !== item.mtimeMs;
+      });
+    },
+    [clearedByMachine]
+  );
+
+  const hasClearable = useMemo(() => {
+    if (!files.length) return false;
+    if (machineFilter === 'all') {
+      return files.some((file) => file.status === 'NESTPICK_COMPLETE');
+    }
+    return files.some((file) => file.status === 'NESTPICK_COMPLETE' && file.machineId === machineFilter);
+  }, [files, machineFilter]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -124,13 +152,11 @@ export function RouterPage() {
   // Removed unused startSubscription helper
 
   useEffect(() => {
-    // Subscribe for selected machine, or all machines when 'all'
     const unsubs: Array<() => void> = [];
-    const byMachine = new Map<number, ReadyFile[]>();
+    const byMachine = new Map<number, RouterReadyFile[]>();
 
     const emit = () => {
-      // Merge all machine files into a single list
-      const merged: ReadyFile[] = [];
+      const merged: RouterReadyFile[] = [];
       for (const list of byMachine.values()) merged.push(...list);
       setFiles(merged);
     };
@@ -138,9 +164,13 @@ export function RouterPage() {
     const subOne = (mid: number) => {
       const unsub = window.api.files.subscribeReady(mid, (payload: ReadyListRes) => {
         if (payload.machineId !== mid) return;
-        let items = payload.files;
-        if (statusFilter !== 'all') items = items.filter((f: ReadyFile) => f.status === statusFilter);
-        byMachine.set(mid, items);
+        let items = payload.files as ReadyFile[];
+        if (statusFilter !== 'all') {
+          items = items.filter((f) => f.status === statusFilter);
+        }
+        items = applyClearedFilter(items, mid);
+        const enriched = items.map((item) => ({ ...item, machineId: mid }));
+        byMachine.set(mid, enriched);
         emit();
       });
       unsubs.push(unsub);
@@ -165,7 +195,7 @@ export function RouterPage() {
         }
       }
     };
-  }, [machineFilter, machines, statusFilter]);
+  }, [machineFilter, machines, statusFilter, applyClearedFilter]);
 
   // Optional periodic refresh as a safety net
   useEffect(() => {
@@ -173,32 +203,38 @@ export function RouterPage() {
     const id = window.setInterval(async () => {
       if (loading) return;
       if (machineFilter === 'all') {
-        const all: ReadyFile[] = [];
+        const all: RouterReadyFile[] = [];
         for (const m of machines) {
           const res = await window.api.files.listReady(m.machineId);
           if (!res.ok) continue;
-          let items = res.value.files;
-          if (statusFilter !== 'all') items = items.filter((f: ReadyFile) => f.status === statusFilter);
-          all.push(...items);
+          let items = res.value.files as ReadyFile[];
+          if (statusFilter !== 'all') {
+            items = items.filter((f) => f.status === statusFilter);
+          }
+          items = applyClearedFilter(items, m.machineId);
+          all.push(...items.map((item) => ({ ...item, machineId: m.machineId })));
         }
         setFiles(all);
       } else {
         const res = await window.api.files.listReady(machineFilter);
         if (!res.ok) return;
-        let items = res.value.files;
-        if (statusFilter !== 'all') items = items.filter((f: ReadyFile) => f.status === statusFilter);
-        setFiles(items);
+        let items = res.value.files as ReadyFile[];
+        if (statusFilter !== 'all') {
+          items = items.filter((f) => f.status === statusFilter);
+        }
+        items = applyClearedFilter(items, machineFilter);
+        setFiles(items.map((item) => ({ ...item, machineId: machineFilter })));
       }
     }, autoRefreshInterval * 1000);
     return () => window.clearInterval(id);
-  }, [autoRefreshEnabled, autoRefreshInterval, loading, machineFilter, statusFilter, machines]);
+  }, [autoRefreshEnabled, autoRefreshInterval, loading, machineFilter, statusFilter, machines, applyClearedFilter]);
 
   const extractLeafFolder = useCallback((relativePath: string) => {
     const parts = relativePath.split(/[\\/]/).filter(Boolean);
     return parts.length > 1 ? parts[parts.length - 2] : '';
   }, []);
 
-  const columns = useMemo<ColumnDef<ReadyFile>[]>(() => [
+  const columns = useMemo<ColumnDef<RouterReadyFile>[]>(() => [
     {
       accessorKey: 'relativePath',
       header: 'Folder',
@@ -264,14 +300,17 @@ export function RouterPage() {
       }
     },
     {
-      accessorKey: 'jobDateadded',
-      header: 'Date Added',
+      accessorKey: 'addedAtR2R',
+      header: 'Staged',
       size: 200,
       minSize: 160,
       maxSize: 260,
       enableSorting: false,
       cell: ({ row }) => {
-        const raw = row.original.jobDateadded ?? (row.original.mtimeMs != null ? new Date(row.original.mtimeMs).toISOString() : null);
+        const raw =
+          row.original.addedAtR2R ??
+          row.original.jobDateadded ??
+          (row.original.mtimeMs != null ? new Date(row.original.mtimeMs).toISOString() : null);
         return <div className="truncate">{formatIso(raw)}</div>;
       }
     },
@@ -289,13 +328,126 @@ export function RouterPage() {
   const table = useReactTable({
     data: files,
     columns,
+    state: { rowSelection },
+    onRowSelectionChange: setRowSelection,
     getRowId: (row) => row.relativePath,
     getCoreRowModel: getCoreRowModel(),
     columnResizeMode: 'onChange',
     enableColumnResizing: true,
-    enableRowSelection: false,
+    enableRowSelection: true,
     enableSorting: false
   });
+
+  const selectedRows = table.getSelectedRowModel().rows;
+  const selectedCount = selectedRows.length;
+
+  const handleClearProcessed = () => {
+    const targets = files.filter((file) => {
+      if (file.status !== 'NESTPICK_COMPLETE') return false;
+      if (machineFilter === 'all') return typeof file.machineId === 'number';
+      return file.machineId === machineFilter;
+    });
+    if (!targets.length) return;
+
+    const entriesByMachine = new Map<number, Array<{ path: string; mtime: number }>>();
+    for (const file of targets) {
+      const mid = file.machineId;
+      if (typeof mid !== 'number') continue;
+      const list = entriesByMachine.get(mid) ?? [];
+      list.push({ path: file.relativePath, mtime: file.mtimeMs });
+      entriesByMachine.set(mid, list);
+    }
+    if (!entriesByMachine.size) return;
+
+    setClearedByMachine((prev) => {
+      const next = new Map(prev);
+      for (const [mid, entries] of entriesByMachine.entries()) {
+        const existing = new Map(next.get(mid) ?? new Map<string, number>());
+        for (const entry of entries) {
+          existing.set(entry.path, entry.mtime);
+        }
+        next.set(mid, existing);
+      }
+      return next;
+    });
+
+    setFiles((prev) =>
+      prev.filter((file) => {
+        if (file.status !== 'NESTPICK_COMPLETE') return true;
+        const mid = file.machineId;
+        if (typeof mid !== 'number') return true;
+        return !entriesByMachine.has(mid);
+      })
+    );
+    setRowSelection({});
+
+    const clearedCount = targets.length;
+    const message =
+      machineFilter === 'all'
+        ? `Cleared ${clearedCount} processed job${clearedCount === 1 ? '' : 's'} from view`
+        : `Cleared ${clearedCount} processed job${clearedCount === 1 ? '' : 's'} for ${
+            machines.find((m) => m.machineId === machineFilter)?.name ?? `Machine ${machineFilter}`
+          }`;
+    setBanner({ type: 'success', message });
+  };
+
+  const handleDeleteSelected = async () => {
+    if (!selectedCount || deleting) return;
+    const confirmed = window.confirm(
+      'Delete associated NC, CSV, image, and part files (nc/csv/bmp/jpg/png/pts/lpt) for the selected jobs?'
+    );
+    if (!confirmed) return;
+
+    setDeleting(true);
+    setBanner(null);
+
+    const grouped = new Map<number, Set<string>>();
+    for (const row of selectedRows) {
+      const rels = grouped.get(row.original.machineId) ?? new Set<string>();
+      rels.add(row.original.relativePath);
+      grouped.set(row.original.machineId, rels);
+    }
+
+    let deletedTotal = 0;
+    const errorMessages: string[] = [];
+
+    for (const [machineId, relSet] of grouped) {
+      if (relSet.size === 0) continue;
+      try {
+        const res = await window.api.files.deleteReadyAssets({
+          machineId,
+          relativePaths: Array.from(relSet)
+        });
+        if (!res.ok) {
+          errorMessages.push(`Machine ${machineId}: ${res.error.message ?? 'Failed to delete files'}`);
+          continue;
+        }
+        deletedTotal += res.value.deleted;
+        if (res.value.errors.length) {
+          for (const failure of res.value.errors) {
+            errorMessages.push(`${failure.file}: ${failure.message}`);
+          }
+        }
+      } catch (err) {
+        errorMessages.push(`Machine ${machineId}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    if (errorMessages.length) {
+      setBanner({ type: 'error', message: errorMessages.join('; ') });
+    } else {
+      setBanner({
+        type: 'success',
+        message:
+          deletedTotal > 0
+            ? `Deleted ${deletedTotal} file${deletedTotal === 1 ? '' : 's'} associated with the selected jobs.`
+            : 'No matching asset files were found for the selected jobs.'
+      });
+    }
+
+    setRowSelection({});
+    setDeleting(false);
+  };
 
   const exportCsv = () => {
     const header = 'Folder,NC File,Material,Size,Parts,Status,Date Added,In Database';
@@ -306,7 +458,11 @@ export function RouterPage() {
       f.jobSize ?? '',
       f.jobParts ?? '',
       f.status ?? '',
-      formatIso(f.jobDateadded ?? new Date(f.mtimeMs).toISOString()),
+      formatIso(
+        f.addedAtR2R ??
+          f.jobDateadded ??
+          (f.mtimeMs != null ? new Date(f.mtimeMs).toISOString() : null)
+      ),
       f.inDatabase ? 'Yes' : 'No'
     ].map(field => `"${String(field ?? '').replace(/"/g, '""')}"`).join(','));
     const csv = [header, ...lines].join('\n');
@@ -326,8 +482,17 @@ export function RouterPage() {
           <p className="text-sm text-muted-foreground">{loading ? 'Refreshing...' : `${files.length} files`}</p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          {error && (
-            <div className="border border-red-300 bg-red-50 text-red-700 text-sm px-3 py-2 rounded">{error}</div>
+          {banner && (
+            <div
+              className={cn(
+                'text-sm px-3 py-2 rounded border',
+                banner.type === 'error'
+                  ? 'border-red-300 bg-red-50 text-red-700'
+                  : 'border-emerald-300 bg-emerald-50 text-emerald-700'
+              )}
+            >
+              {banner.message}
+            </div>
           )}
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 border rounded px-2 py-1 text-xs">
@@ -357,7 +522,14 @@ export function RouterPage() {
                   onClick={async () => {
                     setLoading(true);
                     const res = await window.api.files.listReady(machineFilter as number);
-                    if (res.ok) setFiles(res.value.files);
+                    if (res.ok) {
+                      let items = res.value.files as ReadyFile[];
+                      if (statusFilter !== 'all') {
+                        items = items.filter((f) => f.status === statusFilter);
+                      }
+                      items = applyClearedFilter(items, machineFilter as number);
+                      setFiles(items.map((item) => ({ ...item, machineId: machineFilter as number })));
+                    }
                     setLoading(false);
                   }}
                   disabled={loading}
@@ -365,6 +537,20 @@ export function RouterPage() {
                   Refresh
                 </button>
               )}
+              <button
+                className="border rounded px-3 py-1"
+                onClick={handleClearProcessed}
+                disabled={!hasClearable || deleting}
+              >
+                Clear Processed
+              </button>
+              <button
+                className="border rounded px-3 py-1"
+                onClick={handleDeleteSelected}
+                disabled={deleting || selectedCount === 0}
+              >
+                {deleting ? 'Deleting...' : selectedCount > 1 ? `Delete Selected (${selectedCount})` : 'Delete Selected'}
+              </button>
               <button className="border rounded px-3 py-1" onClick={exportCsv}>
                 Export CSV
               </button>
@@ -405,8 +591,6 @@ export function RouterPage() {
         rowHeight={41}
         headerHeight={40}
         viewportPadding={200}
-        interactiveRows={false}
-        toggleRowSelectionOnClick={false}
         density="normal"
         headerHoverAlways
       />

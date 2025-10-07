@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   AppError,
   AlarmEntry,
   CopyDiagnosticsResult,
@@ -24,6 +24,8 @@ import type {
   ReadyListRes,
   ReadyImportReq,
   ReadyImportRes,
+  ReadyDeleteReq,
+  ReadyDeleteRes,
   RouterListReq,
   RouterListRes,
   SaveMachineReq,
@@ -71,6 +73,7 @@ declare global {
       files: {
         listReady: (machineId: number) => Promise<Result<ReadyListRes, AppError>>;
         importReady: (input: ReadyImportReq) => Promise<Result<ReadyImportRes, AppError>>;
+        deleteReadyAssets: (input: ReadyDeleteReq) => Promise<Result<ReadyDeleteRes, AppError>>;
         subscribeReady: (
           machineId: number,
           listener: (payload: ReadyListRes) => void
@@ -121,8 +124,4 @@ declare global {
 }
 
 export {};
-
-
-
-
 

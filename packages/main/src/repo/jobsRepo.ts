@@ -54,6 +54,8 @@ const ALLOWED_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
   NESTPICK_COMPLETE: ['FORWARDED_TO_NESTPICK', 'NESTPICK_COMPLETE']
 };
 
+const RESETTABLE_STATUSES: JobStatus[] = ['CNC_FINISH', 'FORWARDED_TO_NESTPICK', 'NESTPICK_COMPLETE'];
+
 function toIso(value: Date | string | null | undefined): string | null {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
@@ -217,16 +219,9 @@ export async function listJobs(req: JobsListReq) {
         status: jobs.status,
         machineId: jobs.machineId,
         processingSeconds: sql<number | null>`CASE 
-          WHEN ${jobs.nestpickCompletedAt} IS NULL THEN NULL
-          ELSE EXTRACT(EPOCH FROM (
-            ${jobs.nestpickCompletedAt} - (
-              SELECT je.${jobEvents.createdAt} FROM ${jobEvents} je
-              WHERE je.${jobEvents.key} = ${jobs.key}
-                AND je.${jobEvents.eventType} = 'status:LOAD_FINISH'
-              ORDER BY je.${jobEvents.createdAt} ASC
-              LIMIT 1
-            )
-          ))::int END`
+          WHEN ${jobs.nestpickCompletedAt} IS NULL OR ${jobs.stagedAt} IS NULL THEN NULL
+          ELSE EXTRACT(EPOCH FROM (${jobs.nestpickCompletedAt} - ${jobs.stagedAt}))::int
+        END`
       })
       .from(jobs);
 
@@ -424,6 +419,78 @@ export async function findJobDetailsByNcBase(base: string): Promise<JobDetails |
     thickness: row.thickness ?? null,
     dateadded: row.dateAdded ? row.dateAdded.toISOString() : null
   };
+}
+
+export async function resetJobForRestage(
+  key: string
+): Promise<{ reset: boolean; iteration?: number; previousStatus?: JobStatus }> {
+  return withDb((db) =>
+    db.transaction(async (tx) => {
+      const rows = await tx
+        .select({
+          status: jobs.status,
+          machineId: jobs.machineId,
+          stagedAt: jobs.stagedAt,
+          cutAt: jobs.cutAt,
+          nestpickCompletedAt: jobs.nestpickCompletedAt,
+          pallet: jobs.pallet
+        })
+        .from(jobs)
+        .where(eq(jobs.key, key))
+        .for('update')
+        .limit(1);
+
+      if (!rows.length) {
+        return { reset: false };
+      }
+
+      const current = rows[0];
+      const currentStatus = current.status as JobStatus;
+      if (!RESETTABLE_STATUSES.includes(currentStatus)) {
+        return { reset: false };
+      }
+
+      const dbNow = sql<Date>`now()`;
+      await tx
+        .update(jobs)
+        .set({
+          status: 'PENDING',
+          machineId: null,
+          stagedAt: null,
+          cutAt: null,
+          nestpickCompletedAt: null,
+          pallet: null,
+          updatedAt: dbNow as unknown as Date
+        })
+        .where(eq(jobs.key, key));
+
+      const resetCountRows = await tx
+        .select({ count: sql<number>`count(*)` })
+        .from(jobEvents)
+        .where(and(eq(jobEvents.key, key), eq(jobEvents.eventType, 'job:restage:reset')));
+
+      const previousResets = Number(resetCountRows[0]?.count ?? 0);
+      const iteration = previousResets + 1;
+
+      await appendJobEvent(
+        key,
+        'job:restage:reset',
+        {
+          iteration,
+          previousStatus: currentStatus,
+          previousMachineId: current.machineId ?? null,
+          previousStagedAt: toIso(current.stagedAt),
+          previousCutAt: toIso(current.cutAt),
+          previousNestpickCompletedAt: toIso(current.nestpickCompletedAt),
+          previousPallet: current.pallet ?? null
+        },
+        current.machineId ?? null,
+        tx
+      );
+
+      return { reset: true, iteration, previousStatus: currentStatus };
+    })
+  );
 }
 
 export async function updateLifecycle(

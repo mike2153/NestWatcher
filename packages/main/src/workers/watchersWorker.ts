@@ -192,6 +192,25 @@ function splitCsvLine(line: string): string[] {
   return out.map((cell) => cell.trim());
 }
 
+async function unlinkWithRetry(path: string, attempts = 3, waitMs = 200) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await unlink(path);
+      if (attempt > 1) {
+        logger.warn({ path, attempts: attempt }, 'watcher: unlink succeeded after retries');
+      }
+      return true;
+    } catch (err) {
+      if (attempt === attempts) {
+        logger.error({ err, path, attempts }, 'watcher: failed to delete file after retries');
+        return false;
+      }
+      await delay(waitMs * attempt);
+    }
+  }
+  return false;
+}
+
 function parseCsvContent(content: string) {
   return content
     .split(/\r?\n/)
@@ -223,6 +242,16 @@ function extractBases(rows: string[][], fallback: string) {
 
 function sanitizeToken(input: string | null | undefined) {
   return (input ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function isAutoPacCsvFileName(fileName: string) {
+  const lower = fileName.toLowerCase();
+  if (!lower.endsWith('.csv')) return false;
+  return (
+    lower.startsWith('load_finish') ||
+    lower.startsWith('label_finish') ||
+    lower.startsWith('cnc_finish')
+  );
 }
 
 function _inferMachineFromPath(path: string, machines: Machine[]): Machine | undefined {
@@ -418,13 +447,22 @@ async function handleAutoPacCsv(path: string) {
   const fileName = basename(path);
   // Enforce naming: load_finish<machine>.csv, label_finish<machine>.csv, cnc_finish<machine>.csv
   const lower = fileName.toLowerCase();
+  if (!lower.endsWith('.csv')) {
+    logger.debug({ file: path }, 'watcher: ignoring non-CSV AutoPAC file');
+    return;
+  }
   let to: 'LOAD_FINISH' | 'LABEL_FINISH' | 'CNC_FINISH' | null = null;
   let machineToken = '';
   if (lower.startsWith('load_finish')) { to = 'LOAD_FINISH'; machineToken = fileName.slice('load_finish'.length); }
   else if (lower.startsWith('label_finish')) { to = 'LABEL_FINISH'; machineToken = fileName.slice('label_finish'.length); }
   else if (lower.startsWith('cnc_finish')) { to = 'CNC_FINISH'; machineToken = fileName.slice('cnc_finish'.length); }
   if (!to) return;
-  machineToken = machineToken.replace(/^[-_\s]+/, '').replace(/\.csv$/i, '').trim();
+  machineToken = machineToken.replace(/^[-_\s]+/, '');
+  const csvSuffix = machineToken.toLowerCase().indexOf('.csv');
+  if (csvSuffix !== -1) {
+    machineToken = machineToken.slice(0, csvSuffix);
+  }
+  machineToken = machineToken.trim();
   if (!machineToken) return; // machine must be specified
 
   try {
@@ -453,7 +491,8 @@ async function handleAutoPacCsv(path: string) {
         machineToken,
         label: AUTOPAC_WATCHER_LABEL
       });
-      await unlink(path).catch(() => {});
+      await unlinkWithRetry(path);
+      autoPacHashes.delete(path);
       logger.info({ file: path, machineToken }, 'watcher: deleted empty autopac CSV file');
       return;
     }
@@ -472,7 +511,8 @@ async function handleAutoPacCsv(path: string) {
         machineToken,
         label: AUTOPAC_WATCHER_LABEL
       });
-      await unlink(path).catch(() => {});
+      await unlinkWithRetry(path);
+      autoPacHashes.delete(path);
       logger.info({ file: path, machineToken }, 'watcher: deleted autopac CSV with no delimiters');
       return;
     }
@@ -493,7 +533,8 @@ async function handleAutoPacCsv(path: string) {
         machineToken,
         label: AUTOPAC_WATCHER_LABEL
       });
-      await unlink(path).catch(() => {});
+      await unlinkWithRetry(path);
+      autoPacHashes.delete(path);
       logger.info({ file: path, machineToken }, 'watcher: deleted autopac CSV with single column only');
       return;
     }
@@ -524,7 +565,8 @@ async function handleAutoPacCsv(path: string) {
         expected: machineToken,
         label: AUTOPAC_WATCHER_LABEL
       });
-      await unlink(path).catch(() => {});
+      await unlinkWithRetry(path);
+      autoPacHashes.delete(path);
       logger.info({ file: path, machineToken }, 'watcher: deleted autopac CSV with machine mismatch');
       return;
     }
@@ -559,7 +601,8 @@ async function handleAutoPacCsv(path: string) {
         machineToken,
         label: AUTOPAC_WATCHER_LABEL
       });
-      await unlink(path).catch(() => {});
+      await unlinkWithRetry(path);
+      autoPacHashes.delete(path);
       logger.info({ file: path, machineToken }, 'watcher: deleted autopac CSV with no identifiable parts');
       return;
     }
@@ -606,9 +649,14 @@ async function handleAutoPacCsv(path: string) {
     if (processedAny) {
       clearMachineHealthIssue(null, HEALTH_CODES.noParts);
       // Delete the source CSV after successful processing
-      try { await unlink(path); } catch (e) { void e; }
+      try {
+        await unlinkWithRetry(path);
+      } finally {
+        autoPacHashes.delete(path);
+      }
     }
   } catch (err) {
+    autoPacHashes.delete(path);
     recordWatcherError(AUTOPAC_WATCHER_NAME, err, { path, label: AUTOPAC_WATCHER_LABEL });
     logger.error({ err, file: path }, 'watcher: AutoPAC processing failed');
   }
@@ -1000,6 +1048,31 @@ async function shutdown(reason?: string) {
   telemetryClients.length = 0;
 }
 
+async function collectAutoPacCsvs(root: string, depth = 0, maxDepth = 3): Promise<string[]> {
+  let entries: import('fs').Dirent[];
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (err) {
+    logger.warn({ err, dir: root }, 'AutoPAC watcher: failed to read directory during startup scan');
+    return [];
+  }
+  const results: string[] = [];
+  for (const entry of entries) {
+    const entryPath = join(root, entry.name);
+    if (entry.isDirectory()) {
+      if (depth < maxDepth) {
+        const nested = await collectAutoPacCsvs(entryPath, depth + 1, maxDepth);
+        if (nested.length) results.push(...nested);
+      }
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    if (!isAutoPacCsvFileName(entry.name)) continue;
+    results.push(entryPath);
+  }
+  return results;
+}
+
 function setupAutoPacWatcher(dir: string) {
   registerWatcher(AUTOPAC_WATCHER_NAME, AUTOPAC_WATCHER_LABEL);
   const onAdd = stableProcess(handleAutoPacCsv, 250, {
@@ -1013,6 +1086,7 @@ function setupAutoPacWatcher(dir: string) {
   });
   trackWatcher(watcher);
   watcher.on('add', onAdd);
+  watcher.on('change', onAdd);
   watcher.on('error', (err) => {
     const code = (err as NodeJS.ErrnoException)?.code;
     setMachineHealthIssue({
@@ -1028,6 +1102,14 @@ function setupAutoPacWatcher(dir: string) {
   watcher.on('ready', () => {
     watcherReady(AUTOPAC_WATCHER_NAME, AUTOPAC_WATCHER_LABEL);
     clearMachineHealthIssue(null, HEALTH_CODES.copyFailure);
+    void (async () => {
+      const existing = await collectAutoPacCsvs(dir);
+      if (!existing.length) return;
+      logger.info({ dir, count: existing.length }, 'AutoPAC watcher: processing existing CSV files on startup');
+      for (const file of existing) {
+        onAdd(file);
+      }
+    })();
   });
   logger.info({ dir }, 'AutoPAC watcher started');
 }
@@ -1126,10 +1208,7 @@ function startJobsIngestPolling() {
   async function runIngest() {
     if (shuttingDown) return;
     try {
-      const result = await ingestProcessedJobsRoot();
-      if (result.inserted > 0 || result.updated > 0) {
-        logger.info(result, 'Jobs ingest poll completed');
-      }
+      await ingestProcessedJobsRoot();
     } catch (err) {
       logger.error({ err }, 'Jobs ingest poll failed');
     }

@@ -31,6 +31,8 @@ import type {
   ReadyListRes,
   ReadyImportReq,
   ReadyImportRes,
+  ReadyDeleteReq,
+  ReadyDeleteRes,
   RouterListReq,
   RouterListRes,
   SaveMachineReq,
@@ -91,6 +93,7 @@ const api = {
   files: {
     listReady: (machineId: number) => invokeResult<ReadyListRes>('files:listReady', machineId),
     importReady: (input: ReadyImportReq) => invokeResult<ReadyImportRes>('files:importReady', input),
+    deleteReadyAssets: (input: ReadyDeleteReq) => invokeResult<ReadyDeleteRes>('files:ready:delete', input),
     subscribeReady: (machineId: number, listener: (payload: ReadyListRes) => void) => {
       const channel = 'files:ready:update';
       const handler = (_e: Electron.IpcRendererEvent, payload: ReadyListRes) => listener(payload);

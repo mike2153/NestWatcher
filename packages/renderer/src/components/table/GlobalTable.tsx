@@ -89,7 +89,7 @@ export function GlobalTable<TData extends RowData>({
           style={{ background: 'var(--table-header-bg)' }}
         >
           {table.getHeaderGroups().map((headerGroup) => (
-            <tr key={headerGroup.id} className="border-b-0 transition-colors group-hover:bg-[var(--muted-a50)]">
+            <tr key={headerGroup.id} className="border-b-0 transition-colors group-hover:bg-[var(--table-hover-bg)]">
               {headerGroup.headers.map((header) => {
                 const dir = header.column.getIsSorted();
                 const canSort = header.column.getCanSort();
@@ -108,8 +108,8 @@ export function GlobalTable<TData extends RowData>({
                       <span className="truncate font-medium">
                         {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                       </span>
-                      {dir === 'asc' && <span className="text-xs text-primary">{''}</span>}
-                      {dir === 'desc' && <span className="text-xs text-primary">{''}</span>}
+                      {dir === 'asc' && <span className="text-xs text-primary">{'▲'}</span>}
+                      {dir === 'desc' && <span className="text-xs text-primary">{'▼'}</span>}
                     </div>
                     {header.column.getCanResize() && (
                       <div
@@ -132,9 +132,9 @@ export function GlobalTable<TData extends RowData>({
             <tr
               key={row.id}
               className={cn(
-                'border-b border-[var(--table-row-border)] hover:bg-[var(--muted-a50)] transition-colors',
+                'border-b border-[var(--table-row-border)] hover:bg-[var(--table-hover-bg)] transition-colors',
                 interactiveRows && 'cursor-pointer',
-                row.getIsSelected() && 'bg-[var(--muted)] data-[state=selected]:bg-[var(--muted)]',
+                row.getIsSelected() && 'bg-[var(--table-selected-bg)] data-[state=selected]:bg-[var(--table-selected-bg)]',
                 getRowClassName?.(row)
               )}
               onClick={(event) => {

@@ -4,7 +4,7 @@ import { basename, dirname, extname, isAbsolute, join, normalize, relative, reso
 import type { WorklistAddResult, WorklistCollisionInfo, WorklistSkippedFile } from '../../../shared/src';
 import { appendJobEvent } from '../repo/jobEventsRepo';
 import { listMachines } from '../repo/machinesRepo';
-import { updateLifecycle } from '../repo/jobsRepo';
+import { resetJobForRestage, updateLifecycle } from '../repo/jobsRepo';
 import { logger } from '../logger';
 import { loadConfig } from './config';
 import { withClient } from './db';
@@ -140,6 +140,19 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
   if (!destDir) return { ok: false, error: 'Machine ap_jobfolder is empty' };
 
   if (!job.ncfile) return { ok: false, error: 'Job ncfile missing' };
+
+  const resetResult = await resetJobForRestage(job.key);
+  if (resetResult.reset) {
+    logger.info(
+      {
+        jobKey: job.key,
+        iteration: resetResult.iteration,
+        previousStatus: resetResult.previousStatus,
+        machineId
+      },
+      'worklist: lifecycle reset for restaging'
+    );
+  }
 
   const cfg = loadConfig();
   const sourceRoot = resolveSourceRoot(job.folder, cfg.paths.processedJobsRoot || '', job.key);
