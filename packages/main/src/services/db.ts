@@ -94,26 +94,56 @@ export async function testConnection(settings = loadConfig().db): Promise<{ ok: 
   }
 }
 
+function shouldResetPoolForError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  const lowered = msg.toLowerCase();
+  // Common transient connection issues worth a quick reset+retry
+  return (
+    lowered.includes('connection terminated unexpectedly') ||
+    lowered.includes('connection terminated due to connection timeout') ||
+    lowered.includes('terminating connection due to administrator command') ||
+    lowered.includes('timeout') ||
+    lowered.includes('ecconnreset') ||
+    lowered.includes('econnrefused')
+  );
+}
+
 export async function withClient<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
-  // Wait for pool to be available (handles async pool creation)
-  let currentPool = getPool();
-  if (!currentPool) {
-    // Pool is being created asynchronously, wait for it
-    await poolMutex;
-    currentPool = getPool();
+  // Up to two attempts to handle transient connection failures
+  let attempt = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    attempt += 1;
+    // Wait for pool to be available (handles async pool creation)
+    let currentPool = getPool();
     if (!currentPool) {
-      throw new Error('Failed to create database pool');
+      // Pool is being created asynchronously, wait for it
+      await poolMutex;
+      currentPool = getPool();
+      if (!currentPool) {
+        throw new Error('Failed to create database pool');
+      }
     }
-  }
-  
-  const c = await currentPool.connect();
-  try {
-    await c.query(`SET statement_timeout TO ${loadConfig().db.statementTimeoutMs}`);
-    // Ensure queries target the expected schema regardless of cluster defaults
-    await c.query('SET search_path TO public');
-    return await fn(c);
-  } finally {
-    c.release();
+
+    try {
+      const c = await currentPool.connect();
+      try {
+        await c.query(`SET statement_timeout TO ${loadConfig().db.statementTimeoutMs}`);
+        // Ensure queries target the expected schema regardless of cluster defaults
+        await c.query('SET search_path TO public');
+        return await fn(c);
+      } finally {
+        c.release();
+      }
+    } catch (err) {
+      if (attempt >= 2 || !shouldResetPoolForError(err)) {
+        throw err;
+      }
+      // Reset pool and try once more after a short delay
+      logger.warn({ err, attempt }, 'PG connect failed; resetting pool and retrying');
+      await resetPool();
+      await new Promise((r) => setTimeout(r, 200));
+    }
   }
 }
 

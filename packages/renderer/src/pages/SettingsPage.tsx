@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Trash2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -487,6 +488,17 @@ export function SettingsPage() {
     await loadMachines();
   };
 
+  const deleteMachineById = async (id: number, name?: string | null) => {
+    if (!confirm(`Delete machine "${name ?? id}"?`)) return;
+    const raw = await window.api.machines.delete(id);
+    const res = extractResult<null>(raw as unknown);
+    if (!res.ok) {
+      alert(`Failed to delete machine: ${res.error.message}`);
+      return;
+    }
+    await loadMachines();
+  };
+
   const handleSelectMachine = (machineId: number) => {
     const machine = machines.find((m) => m.machineId === machineId);
     if (!machine) return;
@@ -536,17 +548,31 @@ export function SettingsPage() {
           <div className="h-[calc(100%-2.5rem)] overflow-auto">
             <ul className="space-y-1">
               {machines.map((machine) => (
-                <li key={machine.machineId}>
+                <li key={machine.machineId} className="relative group">
                   <button
                     type="button"
-                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                    className={`w-full text-left pr-10 pl-3 py-2 rounded-lg text-sm transition-colors ${
                       machine.machineId === selectedMachineId
                         ? 'bg-primary text-primary-foreground'
                         : 'hover:bg-muted text-foreground'
                     }`}
                     onClick={() => handleSelectMachine(machine.machineId)}
+                    title={machine.name}
                   >
                     {machine.name}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Delete machine"
+                    title="Delete machine"
+                    className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded transition-colors ${
+                      machine.machineId === selectedMachineId
+                        ? 'text-primary-foreground/90 hover:text-destructive hover:bg-destructive/10'
+                        : 'text-muted-foreground hover:text-destructive hover:bg-destructive/10'
+                    }`}
+                    onClick={(e) => { e.stopPropagation(); void deleteMachineById(machine.machineId, machine.name); }}
+                  >
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </li>
               ))}
@@ -885,6 +911,5 @@ export function SettingsPage() {
     </div>
   );
 }
-
 
 

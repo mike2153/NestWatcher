@@ -65,7 +65,9 @@ export function normalizeTelemetryPayload(machine: Machine, payload: unknown): C
   const flat = flattenTelemetry(payload);
   const result: CncStatsUpsert = {
     key: fallbackKey(machine, flat),
-    apiIp: pick(flat, ['apiIp', 'api_ip', 'ip']) ?? machine.pcIp ?? null,
+    // Normalize API IP to the configured machine PC IP to ensure DB join works
+    // regardless of what the telemetry payload reports (URL, hostname, localhost, etc.).
+    apiIp: machine.pcIp ?? pick(flat, ['apiIp', 'api_ip', 'ip']),
     currentProgram: pick(flat, ['currentProgram', 'current_program', 'program', 'activeProgram', 'prog']),
     mode: pick(flat, ['mode', 'machineMode', 'operatingMode']),
     status: pick(flat, ['status', 'state', 'machineStatus']),

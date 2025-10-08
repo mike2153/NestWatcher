@@ -297,7 +297,7 @@ def choose_machine_interactive(conn) -> Machine:
         if not raw:
             # default to first
             return machines[0]
-        # try id
+        # try id1
         if raw.isdigit():
             for m in machines:
                 if m.machine_id == int(raw):

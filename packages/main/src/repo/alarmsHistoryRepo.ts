@@ -75,7 +75,7 @@ export async function listAlarmIntervals(req: AlarmsHistoryReq): Promise<AlarmIn
       cs.alarm
     FROM public.cncstats cs
     LEFT JOIN public.machines m
-      ON lower(btrim(m.pc_ip::text)) = split_part(regexp_replace(lower(btrim(cs.api_ip)), '^https?://', ''), ':', 1)
+      ON lower(btrim(m.pc_ip::text)) = split_part(split_part(regexp_replace(lower(btrim(cs.api_ip)), '^https?://', ''), '/', 1), ':', 1)
     ${where}
     ORDER BY m.machine_id NULLS LAST, ts ASC
   `;

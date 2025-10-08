@@ -1,4 +1,5 @@
 ﻿import { withClient } from '../services/db';
+import type { PoolClient } from 'pg';
 
 export interface CncStatsUpsert {
   key: string;
@@ -26,7 +27,7 @@ function sanitize(value: string | null | undefined, limit: number): string | nul
   return trimmed.slice(0, limit);
 }
 
-export async function upsertCncStats(row: CncStatsUpsert): Promise<void> {
+export async function upsertCncStats(row: CncStatsUpsert, client?: PoolClient): Promise<void> {
   const key = sanitize(row.key, 100);
   if (!key) {
     throw new Error('CNC telemetry key cannot be empty');
@@ -69,6 +70,10 @@ export async function upsertCncStats(row: CncStatsUpsert): Promise<void> {
     sanitize(row.conveyorTime, 50),
     sanitize(row.greaseTime, 50)
   ];
-  await withClient((client) => client.query(sql, params));
+  if (client) {
+    await client.query({ name: 'upsert_cncstats_v1', text: sql, values: params });
+  } else {
+    await withClient((c) => c.query({ name: 'upsert_cncstats_v1', text: sql, values: params }));
+  }
 }
 

@@ -2,16 +2,20 @@
 import { createHash } from 'crypto';
 import { existsSync, mkdirSync } from 'fs';
 import { promises as fsp } from 'fs';
+import type { Dirent } from 'fs';
 import net from 'net';
-import { basename, join, normalize } from 'path';
+import { basename, dirname, extname, join, normalize } from 'path';
+import type { PoolClient } from 'pg';
 import { parentPort } from 'worker_threads';
 import type { Machine, MachineHealthCode } from '../../../shared/src';
 import { loadConfig } from '../services/config';
 import { logger } from '../logger';
+import { testConnection, withClient } from '../services/db';
 import { appendJobEvent } from '../repo/jobEventsRepo';
 import { listMachines } from '../repo/machinesRepo';
 import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLifecycle } from '../repo/jobsRepo';
 import { upsertCncStats } from '../repo/cncStatsRepo';
+import type { CncStatsUpsert } from '../repo/cncStatsRepo';
 import { normalizeTelemetryPayload } from './telemetryParser';
 import type { WatcherWorkerToMainMessage, MainToWatcherMessage } from './watchersMessages';
 import { ingestProcessedJobsRoot } from '../services/ingest';
@@ -115,6 +119,22 @@ const HEALTH_CODES: Record<'noParts' | 'nestpickShare' | 'copyFailure', MachineH
   copyFailure: 'COPY_FAILURE'
 };
 
+const TESTDATA_WATCHER_NAME = 'watcher:testdata';
+const TESTDATA_WATCHER_LABEL = 'Test Data Telemetry';
+const TESTDATA_PROCESSED_DIR = 'processed';
+const TESTDATA_FAILED_DIR = 'failed';
+const TESTDATA_SKIP_DIRS = new Set([TESTDATA_PROCESSED_DIR, TESTDATA_FAILED_DIR]);
+
+// Serial processing queue for test data files
+const testDataQueue: string[] = [];
+const testDataQueued = new Set<string>();
+let testDataProcessing = false;
+// testDataRoot tracks the configured root for test data files
+let testDataRoot: string | null = null;
+let testDataIndex: string[] = [];
+let testDataIndexPos = 0;
+let testDataIndexBuilt = false;
+
 function machineLabel(machine: Machine) {
   return machine.name ? `${machine.name} (#${machine.machineId})` : `Machine ${machine.machineId}`;
 }
@@ -137,6 +157,27 @@ function nestpickUnstackWatcherLabel(machine: Machine) {
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForDbReady(maxAttempts = 10, initialDelayMs = 500) {
+  const maxDelay = 5000;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const result = await testConnection();
+      if (result.ok) {
+        if (attempt > 1) {
+          logger.info({ attempt }, 'watchers: database connection established after retries');
+        }
+        return;
+      }
+      throw new Error(result.error);
+    } catch (err) {
+      const delayMs = Math.min(initialDelayMs * Math.pow(2, attempt - 1), maxDelay);
+      logger.warn({ err, attempt, maxAttempts, delayMs }, 'watchers: database not ready, retrying');
+      await delay(delayMs);
+    }
+  }
+  throw new Error('watchers: database not ready after maximum retries');
 }
 
 async function fileExists(path: string) {
@@ -181,7 +222,7 @@ function splitCsvLine(line: string): string[] {
       } else {
         inQuotes = !inQuotes;
       }
-    } else if ((ch === ',' || ch === ';') && !inQuotes) {
+    } else if ((ch === ',' || ch === ';' || ch === '\t') && !inQuotes) {
       out.push(current);
       current = '';
     } else {
@@ -238,6 +279,218 @@ function extractBases(rows: string[][], fallback: string) {
     if (fileBase) bases.add(fileBase);
   }
   return Array.from(bases);
+}
+
+function toPosixLower(path: string) {
+  return path.replace(/\\/g, '/').toLowerCase();
+}
+
+function isTestDataInternalPath(path: string) {
+  const lower = toPosixLower(path);
+  for (const segment of TESTDATA_SKIP_DIRS) {
+    if (lower.includes(`/${segment}/`) || lower.endsWith(`/${segment}`)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isTestDataFileName(filePath: string) {
+  const name = basename(filePath).toLowerCase();
+  if (!name.startsWith('cnc_data') && !name.startsWith('cnc_stats')) return false;
+  const extension = extname(name);
+  if (!extension) return true;
+  return extension === '.csv' || extension === '.json' || extension === '.ndjson' || extension === '.txt';
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function pickCaseInsensitive(source: Record<string, unknown> | null, candidates: string[]): unknown {
+  if (!source) return undefined;
+  for (const candidate of candidates) {
+    const lower = candidate.toLowerCase();
+    for (const [key, val] of Object.entries(source)) {
+      if (key.toLowerCase() === lower) {
+        return val;
+      }
+    }
+  }
+  return undefined;
+}
+
+function toStringOrNull(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (typeof value === 'number' || typeof value === 'bigint') {
+    return Number.isFinite(Number(value)) ? String(value) : null;
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false';
+  }
+  return null;
+}
+
+function inferTimestampFromFileName(fileName: string): string | null {
+  const match = fileName.match(/(\d{4})[._-]?(\d{2})[._-]?(\d{2})[T_\- ]?(\d{2})[._-]?(\d{2})[._-]?(\d{2})/);
+  if (!match) return null;
+  return `${match[1]}.${match[2]}.${match[3]} ${match[4]}:${match[5]}:${match[6]}`;
+}
+
+function stripCsvCell(value: string | undefined): string {
+  if (typeof value !== 'string') return '';
+  return value.replace(/^"|"$/g, '').trim();
+}
+
+function normalizeHeaderName(name: string, index: number, seen: Map<string, number>): string {
+  let base = stripCsvCell(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (!base) {
+    base = `column_${index + 1}`;
+  }
+  const count = (seen.get(base) ?? 0) + 1;
+  seen.set(base, count);
+  if (count > 1) {
+    return `${base}_${count}`;
+  }
+  return base;
+}
+
+function parseTestDataCsv(raw: string): Record<string, unknown>[] {
+  const rows = parseCsvContent(raw);
+  if (rows.length <= 1) return [];
+  const headers = rows[0];
+  const seen = new Map<string, number>();
+  const keys = headers.map((header, idx) => normalizeHeaderName(header, idx, seen));
+  const records: Record<string, unknown>[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const record: Record<string, unknown> = {};
+    let hasValue = false;
+    for (let j = 0; j < keys.length; j++) {
+      const key = keys[j];
+      const rawCell = row[j] ?? '';
+      const value = stripCsvCell(rawCell);
+      if (value.length === 0) continue;
+      record[key] = value;
+      hasValue = true;
+    }
+    if (hasValue) records.push(record);
+  }
+  return records;
+}
+
+function parseTestDataPayloads(raw: string, fileName: string): unknown[] {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return [];
+  }
+  const normalized = trimmed.replace(/^\uFEFF/, '');
+  try {
+    const parsed = JSON.parse(normalized);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    const lines = normalized.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const out: unknown[] = [];
+    for (const line of lines) {
+      try {
+        out.push(JSON.parse(line));
+      } catch {
+        /* ignore non-JSON lines */
+      }
+    }
+    if (out.length) return out;
+  }
+  const csvRecords = parseTestDataCsv(raw);
+  if (csvRecords.length) return csvRecords;
+  throw new Error(`Unable to parse test data file ${fileName}; expected JSON, NDJSON, or CSV payload`);
+}
+
+function pickString(sources: Array<Record<string, unknown> | null>, candidates: string[]): string | null {
+  for (const source of sources) {
+    if (!source) continue;
+    const value = toStringOrNull(pickCaseInsensitive(source, candidates));
+    if (value != null) return value;
+  }
+  return null;
+}
+
+function buildTestDataUpsert(entry: unknown, fileName: string): CncStatsUpsert | null {
+  const record = toRecord(entry);
+  if (!record) {
+    logger.warn({ file: fileName }, 'test-data: payload is not an object, skipping');
+    return null;
+  }
+
+  const machineStatus = toRecord(pickCaseInsensitive(record, ['MachineStatus', 'machineStatus', 'machine_status']));
+  const timers = toRecord(pickCaseInsensitive(record, ['Timers', 'timers', 'timer']));
+
+  let timestampValue =
+    pickString([record], ['timestamp', 'time', 'ts', 'key']) ??
+    inferTimestampFromFileName(basename(fileName));
+  if (!timestampValue) {
+    timestampValue = new Date().toISOString();
+    logger.info({ file: fileName, timestamp: timestampValue }, 'test-data: missing timestamp; using current time');
+  }
+
+  const apiIp = pickString(
+    [record, machineStatus],
+    ['CNC_IP', 'cnc_ip', 'api_ip', 'ip']
+  );
+  // Key is timestamp only (no IP component)
+  const key = timestampValue;
+
+  const alarmHistoryRaw = pickCaseInsensitive(record, ['AlarmHistoryDictionary', 'alarmHistory', 'AlarmHistory']);
+  const alarmHistory =
+    alarmHistoryRaw && typeof alarmHistoryRaw === 'object' && Object.keys(alarmHistoryRaw as Record<string, unknown>).length
+      ? JSON.stringify(alarmHistoryRaw)
+      : null;
+
+  const upsert: CncStatsUpsert = {
+    key,
+    apiIp,
+    currentProgram: pickString(
+      [machineStatus, record],
+      ['CurrentProgram', 'currentProgram', 'Program', 'program', 'MainProgram']
+    ),
+    mode: pickString([machineStatus, record], ['Mode', 'mode', 'OperatingMode']),
+    status: pickString([machineStatus, record], ['Status', 'status', 'MachineStatus', 'state']),
+    alarm: pickString([machineStatus, record], ['Alarm', 'alarm']),
+    emg: pickString([machineStatus, record], ['EMG', 'emg', 'Emergency', 'emergency']),
+    powerOnTime: pickString(
+      [timers, record],
+      ['PowerOnTime_sec', 'powerOnTime', 'power_on', 'PowerOn', 'powerontime']
+    ),
+    cuttingTime: pickString(
+      [timers, record],
+      ['CycleCuttingTime_sec', 'cycleCuttingTime', 'AccumulatedCuttingTime_sec', 'cuttingTime', 'cut_time']
+    ),
+    alarmHistory,
+    vacuumTime: pickString([timers, record], ['VacTime_sec', 'vacTime', 'VacuumTime']),
+    drillHeadTime: pickString([timers, record], ['DrillTime_sec', 'drillTime', 'DrillHeadTime']),
+    spindleTime: pickString([timers, record], ['SpindleTime_sec', 'spindleTime']),
+    conveyorTime: pickString([timers, record], ['ConveyorTime_sec', 'conveyorTime']),
+    greaseTime: pickString([timers, record], ['GreaseTime_sec', 'greaseTime'])
+  };
+  logger.info(
+    {
+      file: fileName,
+      key: upsert.key,
+      apiIp: upsert.apiIp ?? undefined,
+      mode: upsert.mode ?? undefined,
+      status: upsert.status ?? undefined,
+      currentProgram: upsert.currentProgram ?? undefined
+    },
+    'test-data: built upsert payload'
+  );
+  return upsert;
 }
 
 function sanitizeToken(input: string | null | undefined) {
@@ -769,8 +1022,10 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
         );
         logger.info({ jobKey: job.key, base, sourcePlace: sourcePlaceValue, row: i + 1 }, 'watcher: unstack row processed');
         // Progress lifecycle to NESTPICK_COMPLETE when unstack is recorded
+        // Do NOT override machine assignment here. Unstack is reported by the Nestpick system
+        // and does not identify the CNC machine. Leaving machineId unspecified preserves any
+        // previously determined CNC machine (from AutoPAC or forwarding) for History display.
         const lifecycle = await updateLifecycle(job.key, 'NESTPICK_COMPLETE', {
-          machineId: null,
           source: 'nestpick-unstack',
           payload: { file: path, sourcePlace: sourcePlaceValue }
         });
@@ -1048,8 +1303,276 @@ async function shutdown(reason?: string) {
   telemetryClients.length = 0;
 }
 
+let testDataProcessedCount = 0;
+
+async function handleTestDataFile(path: string, client?: PoolClient, options?: { skipDelete?: boolean }): Promise<boolean> {
+  const baseName = basename(path);
+  try {
+    // Rely on chokidar awaitWriteFinish for stability; do not add extra waits here
+    const raw = await readFile(path, 'utf8');
+    const payloads = parseTestDataPayloads(raw, baseName);
+    if (!payloads.length) {
+      logger.warn({ file: path }, 'test-data: file contained no payloads');
+      return false;
+    }
+
+    let processed = 0;
+    for (let index = 0; index < payloads.length; index++) {
+      const upsert = buildTestDataUpsert(payloads[index], baseName);
+      if (!upsert) continue;
+      try {
+        logger.debug({ file: path, index, key: upsert.key }, 'test-data: upserting telemetry row');
+        await upsertCncStats(upsert, client);
+        processed += 1;
+        logger.debug({ file: path, index, key: upsert.key }, 'test-data: upsert succeeded');
+      } catch (err) {
+        recordWorkerError(TESTDATA_WATCHER_NAME, err, {
+          path,
+          key: upsert.key,
+          label: TESTDATA_WATCHER_LABEL,
+          index
+        });
+        logger.error({ err, file: path, key: upsert.key }, 'test-data: failed to upsert telemetry entry');
+      }
+    }
+
+    if (processed > 0) {
+      if (!options?.skipDelete) {
+        try {
+          await unlinkWithRetry(path);
+        } catch (e) {
+          logger.warn({ err: e, file: path }, 'test-data: failed to delete source file after success');
+        }
+        testDataProcessedCount += processed;
+        if (testDataProcessedCount % 100 === 0) {
+          const message = `Processed ${testDataProcessedCount} test-data files`;
+          logger.info({ total: testDataProcessedCount }, 'test-data: processed files milestone');
+          recordWatcherEvent(TESTDATA_WATCHER_NAME, { label: TESTDATA_WATCHER_LABEL, message });
+        }
+      }
+      if (options?.skipDelete) {
+        // When deferring deletion, defer milestone counting as well (outer loop will handle)
+      }
+      if (testDataProcessedCount % 100 === 0 && !options?.skipDelete) {
+        const message = `Processed ${testDataProcessedCount} test-data files`;
+        // already emitted above
+      }
+      return true;
+    } else {
+      const err = new Error('No valid telemetry rows found');
+      recordWatcherError(TESTDATA_WATCHER_NAME, err, { path, label: TESTDATA_WATCHER_LABEL });
+      logger.warn({ file: path }, 'test-data: skipping file because no valid rows were ingested');
+      return false;
+    }
+  } catch (err) {
+    recordWatcherError(TESTDATA_WATCHER_NAME, err, { path, label: TESTDATA_WATCHER_LABEL });
+    logger.error({ err, file: path }, 'test-data: failed to ingest file');
+    return false;
+  }
+}
+
+function enqueueTestDataFile(file: string, reason: string) {
+  const normalized = normalize(file);
+  if (testDataQueued.has(normalized)) {
+    logger.debug({ file: normalized, reason }, 'test-data: already queued');
+    return;
+  }
+  testDataQueued.add(normalized);
+  testDataQueue.push(normalized);
+  logger.info({ file: normalized, reason, queueSize: testDataQueue.length }, 'test-data: queued file');
+  void processNextTestData();
+}
+
+const TESTDATA_BATCH_SIZE = 100;
+
+async function processNextTestData() {
+  if (testDataProcessing) return;
+  testDataProcessing = true;
+  try {
+    await withClient(async (client) => {
+      // Batch files per transaction for fewer commits
+      outer: while (true) {
+        const toDelete: string[] = [];
+        let processedInBatch = 0;
+        await client.query('BEGIN');
+        try {
+          while (processedInBatch < TESTDATA_BATCH_SIZE) {
+            let next = testDataQueue.shift() ?? null;
+            if (!next && testDataIndexBuilt) {
+              while (testDataIndexPos < testDataIndex.length && !next) {
+                const candidate = testDataIndex[testDataIndexPos++];
+                if (!candidate) continue;
+                if (testDataQueued.has(normalize(candidate))) continue;
+                if (isTestDataInternalPath(candidate)) continue;
+                if (!isTestDataFileName(candidate)) continue;
+                next = candidate;
+              }
+            }
+            if (!next) break; // End of batch and possibly all work
+            try {
+              const ok = await handleTestDataFile(next, client, { skipDelete: true });
+              if (ok) toDelete.push(next);
+            } finally {
+              testDataQueued.delete(next!);
+            }
+            processedInBatch += 1;
+          }
+          await client.query('COMMIT');
+        } catch (err) {
+          await client.query('ROLLBACK');
+          logger.warn({ err }, 'test-data: batch failed and was rolled back');
+        }
+
+        // Delete files after commit to ensure at-least-once semantics
+        if (toDelete.length > 0) {
+          for (const file of toDelete) {
+            try {
+              await unlinkWithRetry(file);
+            } catch (e) {
+              logger.warn({ err: e, file }, 'test-data: failed to delete file after commit');
+            }
+            testDataProcessedCount += 1;
+            if (testDataProcessedCount % 100 === 0) {
+              const message = `Processed ${testDataProcessedCount} test-data files`;
+              logger.info({ total: testDataProcessedCount }, 'test-data: processed files milestone');
+              recordWatcherEvent(TESTDATA_WATCHER_NAME, { label: TESTDATA_WATCHER_LABEL, message });
+            }
+          }
+        }
+
+        // If batch was empty (no next file), exit
+        if (processedInBatch === 0) break outer;
+      }
+    });
+  } finally {
+    testDataProcessing = false;
+  }
+}
+
+async function collectTestDataFilesNoLog(root: string, depth = 0, maxDepth = 4): Promise<string[]> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const results: string[] = [];
+  const subdirs: string[] = [];
+  for (const entry of entries) {
+    const p = join(root, entry.name);
+    if (entry.isDirectory()) {
+      const lower = entry.name.toLowerCase();
+      if (TESTDATA_SKIP_DIRS.has(lower)) continue;
+      if (depth < maxDepth) subdirs.push(p);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    if (!isTestDataFileName(p)) continue;
+    if (isTestDataInternalPath(p)) continue;
+    results.push(p);
+  }
+  for (const d of subdirs.sort()) {
+    const nested = await collectTestDataFilesNoLog(d, depth + 1, maxDepth);
+    if (nested.length) results.push(...nested);
+  }
+  return results;
+}
+
+async function buildInitialTestDataIndex(root: string) {
+  testDataIndexBuilt = false;
+  testDataIndex = await collectTestDataFilesNoLog(root);
+  testDataIndexPos = 0;
+  testDataIndexBuilt = true;
+  logger.info({ folder: root, files: testDataIndex.length }, 'test-data: initial index built');
+}
+
+async function collectTestDataFiles(root: string, depth = 0, maxDepth = 3): Promise<string[]> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (err) {
+    logger.warn({ err, dir: root }, 'test-data: failed to read directory during startup scan');
+    return [];
+  }
+  const results: string[] = [];
+  for (const entry of entries) {
+    const entryPath = join(root, entry.name);
+    const lowerName = entry.name.toLowerCase();
+    if (entry.isDirectory()) {
+      if (TESTDATA_SKIP_DIRS.has(lowerName)) {
+        logger.info({ dir: entryPath }, 'test-data: skipping internal directory');
+        continue;
+      }
+      if (depth < maxDepth) {
+        const nested = await collectTestDataFiles(entryPath, depth + 1, maxDepth);
+        if (nested.length) results.push(...nested);
+      }
+      continue;
+    }
+    if (entry.isFile()) {
+      const matches = isTestDataFileName(entryPath);
+      const internal = isTestDataInternalPath(entryPath);
+      if (matches && !internal) {
+        // Do not log each file at info level during startup scan to avoid log spam with large folders
+        results.push(entryPath);
+      }
+    }
+  }
+  return results;
+}
+
+function setupTestDataWatcher(root: string) {
+  registerWatcher(TESTDATA_WATCHER_NAME, TESTDATA_WATCHER_LABEL);
+  const trimmed = root?.trim?.() ?? '';
+  if (!trimmed) {
+    const err = new Error('Test data folder path is empty');
+    recordWatcherError(TESTDATA_WATCHER_NAME, err, { folder: trimmed, label: TESTDATA_WATCHER_LABEL });
+    logger.warn('test-data: useTestDataMode enabled but folder path is empty');
+    return;
+  }
+  const normalizedRoot = normalize(trimmed);
+  if (!existsSync(normalizedRoot)) {
+    const err = new Error('Test data folder does not exist');
+    recordWatcherError(TESTDATA_WATCHER_NAME, err, { folder: normalizedRoot, label: TESTDATA_WATCHER_LABEL });
+    logger.warn({ folder: normalizedRoot }, 'test-data: folder does not exist');
+    return;
+  }
+
+  testDataRoot = normalizedRoot;
+  const processIfMatches = (file: string, event: 'add' | 'change') => {
+    const matches = isTestDataFileName(file);
+    const internal = isTestDataInternalPath(file);
+    if (!matches) {
+      return;
+    }
+    if (internal) {
+      return;
+    }
+    if (event === 'add') enqueueTestDataFile(file, 'watcher:add');
+  };
+
+  const watcher = chokidar.watch(normalizedRoot, {
+    ignoreInitial: true,
+    depth: 4
+  });
+  trackWatcher(watcher);
+  watcher.on('add', (file) => processIfMatches(file, 'add'));
+  watcher.on('error', (err) => {
+    recordWatcherError(TESTDATA_WATCHER_NAME, err, { folder: normalizedRoot, label: TESTDATA_WATCHER_LABEL });
+    logger.error({ err, folder: normalizedRoot }, 'test-data: watcher error');
+  });
+  watcher.on('ready', () => {
+    watcherReady(TESTDATA_WATCHER_NAME, TESTDATA_WATCHER_LABEL);
+    void (async () => {
+      await buildInitialTestDataIndex(normalizedRoot);
+      await processNextTestData();
+    })();
+  });
+  logger.info({ folder: normalizedRoot }, 'Test data watcher started');
+}
+
 async function collectAutoPacCsvs(root: string, depth = 0, maxDepth = 3): Promise<string[]> {
-  let entries: import('fs').Dirent[];
+  let entries: Dirent[];
   try {
     entries = await readdir(root, { withFileTypes: true });
   } catch (err) {
@@ -1229,22 +1752,29 @@ function startJobsIngestPolling() {
   logger.info({ intervalMs: INGEST_INTERVAL_MS }, 'Jobs ingest polling started');
 }
 
-function initWatchers() {
+async function initWatchers() {
+  logger.info('watchers: waiting for database readiness before starting');
+  await waitForDbReady();
   const cfg = loadConfig();
   if (cfg.paths.autoPacCsvDir) {
     setupAutoPacWatcher(cfg.paths.autoPacCsvDir);
   }
+  if (cfg.test.useTestDataMode) {
+    setupTestDataWatcher(cfg.test.testDataFolderPath);
+  }
   void setupNestpickWatchers();
-  void startTelemetryClients();
+  if (cfg.test.useTestDataMode) {
+    logger.info('Telemetry disabled: running in test data mode');
+  } else {
+    void startTelemetryClients();
+  }
   startJobsIngestPolling();
 }
 
-try {
-  initWatchers();
-} catch (err) {
+void initWatchers().catch((err) => {
   recordWorkerError('watchers:init', err);
   logger.error({ err }, 'watchersWorker: failed to initialize watchers');
-}
+});
 
 if (channel) {
   channel.on('message', (message: MainToWatcherMessage) => {
