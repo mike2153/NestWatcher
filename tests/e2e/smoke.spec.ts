@@ -160,6 +160,7 @@ test.beforeEach(async ({ page }) => {
       files: {
         listReady: async () => ({ machineId: 1, files: [] }),
         importReady: async () => ({ imported: 0, errors: [] }),
+        deleteReadyAssets: async () => ({ deleted: 0, files: [], errors: [] }),
         subscribeReady: (_machineId: number, _listener: (payload: ReadyListRes) => void) => {
           return () => {};
         }

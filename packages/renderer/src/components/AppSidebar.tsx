@@ -15,6 +15,7 @@ const nav = [
   { to: '/jobs', label: 'Jobs', icon: Briefcase },
   { to: '/router', label: 'Router', icon: Router },
   { to: '/history', label: 'History', icon: History },
+  { to: '/grundner', label: 'Grundner', icon: PieChart },
   { to: '/telemetry', label: 'Telemetry', icon: PieChart },
   { to: '/cnc-alarms', label: 'CNC Alarms', icon: AlarmClock },
   { to: '/settings', label: 'Settings', icon: Settings },
@@ -66,7 +67,6 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
-
 
 
 

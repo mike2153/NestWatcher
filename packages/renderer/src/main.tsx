@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import { createBrowserRouter, createHashRouter, RouterProvider } from 'react-router-dom';
 import './index.css';
 import { installRendererConsoleForwarding } from './setupLogger';
 import { AppLayout } from './shell/AppLayout';
@@ -13,8 +13,10 @@ import { MachinesPage } from './pages/MachinesPage';
 import ThemeShowcase from './pages/ThemeShowcase';
 import TelemetryPage from './pages/TelemetryPage';
 import CncAlarmsPage from './pages/CncAlarmsPage';
+import { GrundnerPage } from './pages/GrundnerPage';
 
-const router = createBrowserRouter([
+// Use BrowserRouter in dev for nicer URLs; HashRouter in production for file:// packaging
+const makeRoutes = () => ([
   {
     path: '/',
     element: <AppLayout />,
@@ -25,6 +27,7 @@ const router = createBrowserRouter([
       { path: '/history', element: <HistoryPage /> },
       { path: '/telemetry', element: <TelemetryPage /> },
       { path: '/cnc-alarms', element: <CncAlarmsPage /> },
+      { path: '/grundner', element: <GrundnerPage /> },
       { path: '/settings', element: <SettingsPage /> },
       { path: '/settings/machines', element: <MachinesPage /> },
       { path: '/theme', element: <ThemeShowcase /> },
@@ -32,6 +35,10 @@ const router = createBrowserRouter([
     ]
   }
 ]);
+
+const router = import.meta.env?.DEV
+  ? createBrowserRouter(makeRoutes())
+  : createHashRouter(makeRoutes());
 
 // Forward console.* and uncaught errors to main logger
 installRendererConsoleForwarding();

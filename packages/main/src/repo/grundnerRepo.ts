@@ -136,3 +136,70 @@ export async function resyncGrundnerReserved(id?: number) {
     return updated;
   });
 }
+
+// Rows parsed from Grundner stock.csv
+export type GrundnerCsvRow = {
+  typeData: number | null;
+  customerId: string | null;
+  lengthMm: number | null;
+  widthMm: number | null;
+  thicknessMm: number | null;
+  stock: number | null;
+  stockAvailable: number | null;
+};
+
+export async function upsertGrundnerInventory(rows: GrundnerCsvRow[]): Promise<{ inserted: number; updated: number }> {
+  if (!rows.length) return { inserted: 0, updated: 0 };
+  const columns = ['type_data', 'customer_id', 'length_mm', 'width_mm', 'thickness_mm', 'stock', 'stock_available'] as const;
+  const chunkSize = 200; // avoid huge single statements
+  let inserted = 0;
+  let updated = 0;
+
+  await withClient(async (c) => {
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      const batch = rows.slice(i, i + chunkSize);
+      const params: Array<string | number | null> = [];
+      const tuples = batch.map((r, idx) => {
+        const base = idx * columns.length;
+        params.push(
+          r.typeData,
+          r.customerId,
+          r.lengthMm,
+          r.widthMm,
+          r.thicknessMm,
+          r.stock,
+          r.stockAvailable
+        );
+        const ph = columns.map((_, j) => `$${base + j + 1}`).join(',');
+        return `(${ph}, now())`;
+      }).join(',');
+
+      const sql = `
+        INSERT INTO public.grundner (${columns.join(', ')}, last_updated)
+        VALUES ${tuples}
+        ON CONFLICT (type_data, customer_id) DO UPDATE SET
+          length_mm = EXCLUDED.length_mm,
+          width_mm = EXCLUDED.width_mm,
+          thickness_mm = EXCLUDED.thickness_mm,
+          stock = EXCLUDED.stock,
+          stock_available = EXCLUDED.stock_available,
+          last_updated = now()
+        WHERE (
+          COALESCE(grundner.length_mm, -1) IS DISTINCT FROM EXCLUDED.length_mm OR
+          COALESCE(grundner.width_mm, -1) IS DISTINCT FROM EXCLUDED.width_mm OR
+          COALESCE(grundner.thickness_mm, -1) IS DISTINCT FROM EXCLUDED.thickness_mm OR
+          COALESCE(grundner.stock, -1) IS DISTINCT FROM EXCLUDED.stock OR
+          COALESCE(grundner.stock_available, -1) IS DISTINCT FROM EXCLUDED.stock_available
+        )
+        RETURNING (xmax = 0) AS inserted;
+      `;
+
+      const res = await c.query<{ inserted: boolean }>(sql, params);
+      for (const row of res.rows ?? []) {
+        if (row.inserted) inserted += 1; else updated += 1;
+      }
+    }
+  });
+
+  return { inserted, updated };
+}

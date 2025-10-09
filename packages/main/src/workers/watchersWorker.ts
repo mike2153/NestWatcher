@@ -12,6 +12,7 @@ import { loadConfig } from '../services/config';
 import { logger } from '../logger';
 import { testConnection, withClient } from '../services/db';
 import { appendJobEvent } from '../repo/jobEventsRepo';
+import { upsertGrundnerInventory, type GrundnerCsvRow } from '../repo/grundnerRepo';
 import { listMachines } from '../repo/machinesRepo';
 import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLifecycle } from '../repo/jobsRepo';
 import { upsertCncStats } from '../repo/cncStatsRepo';
@@ -134,6 +135,12 @@ let testDataRoot: string | null = null;
 let testDataIndex: string[] = [];
 let testDataIndexPos = 0;
 let testDataIndexBuilt = false;
+
+// Grundner poller
+const GRUNDNER_WATCHER_NAME = 'watcher:grundner';
+const GRUNDNER_WATCHER_LABEL = 'Grundner Stock Poller';
+let grundnerTimer: NodeJS.Timeout | null = null;
+let grundnerLastHash: string | null = null;
 
 function machineLabel(machine: Machine) {
   return machine.name ? `${machine.name} (#${machine.machineId})` : `Machine ${machine.machineId}`;
@@ -1283,6 +1290,10 @@ async function shutdown(reason?: string) {
     clearInterval(jobsIngestInterval);
     jobsIngestInterval = null;
   }
+  if (grundnerTimer) {
+    clearInterval(grundnerTimer);
+    grundnerTimer = null;
+  }
   const watchers = Array.from(fsWatchers);
   for (const watcher of watchers) {
     try {
@@ -1390,8 +1401,9 @@ async function processNextTestData() {
   testDataProcessing = true;
   try {
     await withClient(async (client) => {
-      // Batch files per transaction for fewer commits
-      outer: while (true) {
+  // Batch files per transaction for fewer commits
+  let keepRunning = true;
+  outer: while (keepRunning) {
         const toDelete: string[] = [];
         let processedInBatch = 0;
         await client.query('BEGIN');
@@ -1441,7 +1453,10 @@ async function processNextTestData() {
         }
 
         // If batch was empty (no next file), exit
-        if (processedInBatch === 0) break outer;
+        if (processedInBatch === 0) {
+          keepRunning = false;
+          break outer;
+        }
       }
     });
   } finally {
@@ -1725,6 +1740,136 @@ async function setupNestpickWatchers() {
   }
 }
 
+function normalizeNumber(value: string | undefined): number | null {
+  if (value == null) return null;
+  const t = value.trim();
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
+function indexOfHeader(header: string[], candidates: string[]): number {
+  const lower = header.map((h) => stripCsvCell(h).toLowerCase());
+  for (const cand of candidates) {
+    const i = lower.findIndex((h) => h === cand.toLowerCase());
+    if (i !== -1) return i;
+  }
+  return -1;
+}
+
+function parseGrundnerCsv(raw: string): GrundnerCsvRow[] {
+  const rows = parseCsvContent(raw);
+  if (!rows.length) return [];
+  const header = rows[0];
+  const hasHeader = header.some((c) => /[A-Za-z]/.test(c));
+  const body = hasHeader ? rows.slice(1) : rows;
+
+  let idxType = -1,
+    idxCust = -1,
+    idxLen = -1,
+    idxWid = -1,
+    idxThk = -1,
+    idxStock = -1,
+    idxAvail = -1;
+  if (hasHeader) {
+    idxType = indexOfHeader(header, ['type_data', 'type']);
+    idxCust = indexOfHeader(header, ['customer_id', 'customer']);
+    idxLen = indexOfHeader(header, ['length_mm', 'length']);
+    idxWid = indexOfHeader(header, ['width_mm', 'width']);
+    idxThk = indexOfHeader(header, ['thickness_mm', 'thickness']);
+    idxStock = indexOfHeader(header, ['stock']);
+    idxAvail = indexOfHeader(header, ['stock_available', 'available']);
+  } else {
+    // Fallback positions if no header present
+    idxType = 0;
+    idxCust = 1;
+    idxLen = 3;
+    idxWid = 4;
+    idxThk = 5;
+    idxStock = 7;
+    idxAvail = 8;
+  }
+
+  const out: GrundnerCsvRow[] = [];
+  for (const row of body) {
+    const typeData = normalizeNumber(row[idxType]);
+    const customerIdRaw = idxCust >= 0 ? stripCsvCell(row[idxCust]) : '';
+    const customerId = customerIdRaw ? customerIdRaw : null;
+    const lengthMm = normalizeNumber(row[idxLen]);
+    const widthMm = normalizeNumber(row[idxWid]);
+    const thicknessMm = normalizeNumber(row[idxThk]);
+    const stock = normalizeNumber(row[idxStock]);
+    const stockAvailable = normalizeNumber(row[idxAvail]);
+    if (typeData == null) continue;
+    out.push({ typeData, customerId, lengthMm, widthMm, thicknessMm, stock, stockAvailable });
+  }
+  return out;
+}
+
+async function grundnerPollOnce(folder: string) {
+  try {
+    const reqPath = join(folder, 'stock_request.csv');
+    const stockPath = join(folder, 'stock.csv');
+
+    // If a pending request exists, do nothing and wait for next interval
+    if (await fileExists(reqPath)) {
+      recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Request in flight; skipping' });
+      return;
+    }
+
+    // 1) Drop request CSV (matching documented example content)
+    const tmp = `${reqPath}.tmp-${Date.now()}`;
+    await fsp.writeFile(tmp, '0\r\n!E', 'utf8');
+    await rename(tmp, reqPath).catch(async () => {
+      await fsp.writeFile(reqPath, '0\r\n!E', 'utf8');
+    });
+    recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Request dropped' });
+
+    // 2) Wait 3 seconds and check for reply
+    await delay(3000);
+    if (!(await fileExists(stockPath))) return;
+    await waitForStableFile(stockPath);
+    const raw = await readFile(stockPath, 'utf8');
+    const hash = createHash('sha1').update(raw).digest('hex');
+    if (grundnerLastHash === hash) return;
+    grundnerLastHash = hash;
+    const items = parseGrundnerCsv(raw);
+    if (!items.length) return;
+    const { inserted, updated } = await upsertGrundnerInventory(items);
+    recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
+      label: GRUNDNER_WATCHER_LABEL,
+      message: `Synced Grundner stock (inserted ${inserted}, updated ${updated})`
+    });
+  } catch (err) {
+    recordWatcherError(GRUNDNER_WATCHER_NAME, err, { label: GRUNDNER_WATCHER_LABEL });
+  }
+}
+
+function startGrundnerPoller(folder: string) {
+  registerWatcher(GRUNDNER_WATCHER_NAME, GRUNDNER_WATCHER_LABEL);
+  const trimmed = folder?.trim?.() ?? '';
+  if (!trimmed) {
+    recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Disabled (folder not configured)' });
+    return;
+  }
+  const normalizedRoot = normalize(trimmed);
+  if (!existsSync(normalizedRoot)) {
+    const err = new Error('Grundner folder does not exist');
+    recordWatcherError(GRUNDNER_WATCHER_NAME, err, { folder: normalizedRoot, label: GRUNDNER_WATCHER_LABEL });
+    return;
+  }
+
+  const run = () => {
+    if (shuttingDown) return;
+    void grundnerPollOnce(normalizedRoot);
+  };
+  // immediate + interval
+  void run();
+  grundnerTimer = setInterval(run, 10_000);
+  if (typeof grundnerTimer.unref === 'function') grundnerTimer.unref();
+  watcherReady(GRUNDNER_WATCHER_NAME, GRUNDNER_WATCHER_LABEL);
+}
+
 function startJobsIngestPolling() {
   const INGEST_INTERVAL_MS = 5000; // 5 seconds
 
@@ -1758,6 +1903,9 @@ async function initWatchers() {
   const cfg = loadConfig();
   if (cfg.paths.autoPacCsvDir) {
     setupAutoPacWatcher(cfg.paths.autoPacCsvDir);
+  }
+  if (cfg.paths.grundnerFolderPath) {
+    startGrundnerPoller(cfg.paths.grundnerFolderPath);
   }
   if (cfg.test.useTestDataMode) {
     setupTestDataWatcher(cfg.test.testDataFolderPath);

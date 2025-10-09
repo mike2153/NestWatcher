@@ -14,6 +14,7 @@ import { registerDiagnosticsIpc } from './ipc/diagnostics';
 import { registerLogIpc } from './ipc/log';
 import { registerTelemetryIpc } from './ipc/telemetry';
 import { registerUiIpc } from './ipc/ui';
+import { registerGrundnerIpc } from './ipc/grundner';
 import { initWatchers, shutdownWatchers } from './services/watchers';
 import { startDbWatchdog, stopDbWatchdog } from './services/dbWatchdog';
 import { logger } from './logger';
@@ -26,11 +27,6 @@ import {
 } from './security';
 
 let win: BrowserWindow | null = null;
-
-// Allow local file XHR/fetch when loading Hypernest via file://
-// If you prefer to keep WebSecurity strict, remove this and instead
-// read any needed files via an explicit IPC from main.
-app.commandLine.appendSwitch('allow-file-access-from-files');
 
 function createWindow() {
   const state = getStoredWindowState();
@@ -95,6 +91,7 @@ app.whenReady().then(async () => {
   registerUiIpc();
   registerTelemetryIpc();
   registerLogIpc();
+  registerGrundnerIpc();
 
   try {
     await initializeDiagnostics();

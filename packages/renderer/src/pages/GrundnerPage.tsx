@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  getCoreRowModel,
+  getSortedRowModel,
+  useReactTable
+} from '@tanstack/react-table';
+import type { ColumnDef, SortingState } from '@tanstack/react-table';
+import { GlobalTable } from '@/components/table/GlobalTable';
 import type { GrundnerListReq, GrundnerRow } from '../../../shared/src';
 
 type Filters = {
@@ -19,6 +25,7 @@ export function GrundnerPage() {
   const [limit, setLimit] = useState(200);
   const [editing, setEditing] = useState<Record<number, EditState>>({});
   const [loading, setLoading] = useState(false);
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'typeData', desc: false }]);
 
   const totalStock = useMemo(() => rows.reduce((sum, row) => sum + (row.stock ?? 0), 0), [rows]);
   const totalAvailable = useMemo(() => rows.reduce((sum, row) => sum + (row.stockAvailable ?? 0), 0), [rows]);
@@ -54,7 +61,7 @@ export function GrundnerPage() {
     return numeric;
   };
 
-  const updateRow = async (row: GrundnerRow) => {
+  const updateRow = useCallback(async (row: GrundnerRow) => {
     const edit = editing[row.id] ?? {};
     const payload: { stockAvailable?: number | null; reservedStock?: number | null } = {};
     let dirty = false;
@@ -88,7 +95,7 @@ export function GrundnerPage() {
       return next;
     });
     await load();
-  };
+  }, [editing, load]);
 
   const resyncReserved = async (id?: number) => {
     const res = await window.api.grundner.resync(id ? { id } : undefined);
@@ -98,19 +105,111 @@ export function GrundnerPage() {
     }
     await load();
   };
+  const columns = useMemo<ColumnDef<GrundnerRow>[]>(() => [
+    {
+      id: 'typeData',
+      accessorKey: 'typeData',
+      header: 'Type',
+      cell: (ctx) => <span className="font-mono text-xs">{ctx.getValue<number | null>() ?? ''}</span>,
+      size: 120
+    },
+    {
+      id: 'customerId',
+      accessorKey: 'customerId',
+      header: 'Customer',
+      cell: (ctx) => ctx.getValue<string | null>() ?? '',
+      size: 200
+    },
+    {
+      id: 'thicknessMm',
+      accessorKey: 'thicknessMm',
+      header: 'Thickness',
+      cell: (ctx) => ctx.getValue<number | null>() ?? '',
+      size: 110
+    },
+    {
+      id: 'stock',
+      accessorKey: 'stock',
+      header: 'Stock',
+      cell: (ctx) => ctx.getValue<number | null>() ?? '',
+      size: 90
+    },
+    {
+      id: 'stockAvailable',
+      accessorKey: 'stockAvailable',
+      header: 'Available',
+      size: 120,
+      cell: (ctx) => ctx.getValue<number | null>() ?? ''
+    },
+    {
+      id: 'reservedStock',
+      accessorKey: 'reservedStock',
+      header: 'Reserved',
+      size: 120,
+      cell: (ctx) => {
+        const row = ctx.row.original;
+        const edit = editing[row.id] ?? {};
+        const val = edit.reservedStock ?? (row.reservedStock != null ? String(row.reservedStock) : '');
+        return (
+          <input
+            className="border rounded px-1 py-0.5 w-16 text-right text-xs h-7"
+            type="number"
+            value={val}
+            onChange={(e) => setEditing((prev) => ({ ...prev, [row.id]: { ...prev[row.id], reservedStock: e.target.value } }))}
+          />
+        );
+      }
+    },
+    {
+      id: 'lastUpdated',
+      accessorKey: 'lastUpdated',
+      header: 'Last Updated',
+      cell: (ctx) => <span className="text-xs text-muted-foreground">{ctx.getValue<string | null>() ?? ''}</span>,
+      size: 180
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      size: 200,
+      cell: (ctx) => {
+        const row = ctx.row.original;
+        return (
+          <div className="flex gap-2">
+            <button className="border rounded px-2 py-1 text-sm" onClick={() => { /* TODO: implement Reserve */ }}>
+              Reserve
+            </button>
+            <button className="border rounded px-2 py-1 text-sm" onClick={() => { /* TODO: implement Lock */ }}>
+              Lock
+            </button>
+            <button className="border rounded px-2 py-1 text-sm" onClick={() => updateRow(row)}>
+              Apply
+            </button>
+          </div>
+        );
+      }
+    }
+  ], [editing, updateRow]);
+
+  const table = useReactTable({
+    data: rows,
+    columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    defaultColumn: { size: 120 }
+  });
 
   return (
     <div className="space-y-4 w-full">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Grundner Inventory</h1>
-          <p className="text-sm text-muted-foreground">
-            {rows.length} rows - stock {totalStock} - available {totalAvailable} - reserved {totalReserved}
-          </p>
+          <p className="text-sm text-muted-foreground">stock {totalStock} • available {totalAvailable} • reserved {totalReserved}</p>
         </div>
         <div className="flex gap-2">
           <button className="border rounded px-3 py-1" onClick={() => resyncReserved()}>Resync All</button>
-          <button className="border rounded px-3 py-1" onClick={load} disabled={loading}>{loading ? 'Loading???' : 'Refresh'}</button>
+          <button className="border rounded px-3 py-1" onClick={load} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</button>
         </div>
       </div>
 
@@ -137,65 +236,7 @@ export function GrundnerPage() {
         </label>
       </div>
 
-      <div className="border rounded overflow-auto bg-table text-[var(--table-text)]">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="px-2 py-2">Type</TableHead>
-              <TableHead className="px-2 py-2">Customer</TableHead>
-              <TableHead className="px-2 py-2">Thickness</TableHead>
-              <TableHead className="px-2 py-2">Stock</TableHead>
-              <TableHead className="px-2 py-2">Available</TableHead>
-              <TableHead className="px-2 py-2">Reserved</TableHead>
-              <TableHead className="px-2 py-2">Last Updated</TableHead>
-              <TableHead className="px-2 py-2">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((row) => {
-              const edit = editing[row.id] ?? {};
-              const stockAvailableValue = edit.stockAvailable ?? (row.stockAvailable != null ? String(row.stockAvailable) : '');
-              const reservedValue = edit.reservedStock ?? (row.reservedStock != null ? String(row.reservedStock) : '');
-              return (
-                <TableRow key={row.id}>
-                  <TableCell className="px-2 py-1 font-mono text-xs">{row.typeData ?? ''}</TableCell>
-                  <TableCell className="px-2 py-1">{row.customerId ?? ''}</TableCell>
-                  <TableCell className="px-2 py-1">{row.thicknessMm ?? ''}</TableCell>
-                  <TableCell className="px-2 py-1">{row.stock ?? ''}</TableCell>
-                  <TableCell className="px-2 py-1">
-                    <input
-                      className="border rounded px-2 py-1 w-24 text-right"
-                      type="number"
-                      value={stockAvailableValue}
-                      onChange={(e) => setEditing((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stockAvailable: e.target.value } }))}
-                    />
-                  </TableCell>
-                  <TableCell className="px-2 py-1">
-                    <input
-                      className="border rounded px-2 py-1 w-24 text-right"
-                      type="number"
-                      value={reservedValue}
-                      onChange={(e) => setEditing((prev) => ({ ...prev, [row.id]: { ...prev[row.id], reservedStock: e.target.value } }))}
-                    />
-                  </TableCell>
-                  <TableCell className="px-2 py-1 text-xs text-muted-foreground">{row.lastUpdated ?? ''}</TableCell>
-                  <TableCell className="px-2 py-1">
-                    <div className="flex gap-2">
-                      <button className="border rounded px-2 py-1 text-sm" onClick={() => updateRow(row)}>Save</button>
-                      <button className="border rounded px-2 py-1 text-sm" onClick={() => resyncReserved(row.id)}>Resync</button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-            {!rows.length && (
-              <TableRow>
-                <TableCell colSpan={8} className="px-2 py-6 text-center text-sm text-muted-foreground">No Grundner rows found.</TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <GlobalTable table={table} stickyHeader fillEmptyRows />
     </div>
   );
 }

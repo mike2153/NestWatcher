@@ -4,6 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 
 const ENV_KEY = 'WOODTRON_USER_DATA_PATH';
+const CONFIG_ENV_KEY = 'WOODTRON_CONFIG_PATH';
 
 describe('config service', () => {
   let tempDir: string;
@@ -11,11 +12,14 @@ describe('config service', () => {
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'woodtron-config-'));
     process.env[ENV_KEY] = tempDir;
+    // Point config directly at a file inside this temp dir to avoid cross-test interference
+    process.env[CONFIG_ENV_KEY] = join(tempDir, 'settings.json');
     vi.resetModules();
   });
 
   afterEach(() => {
     delete process.env[ENV_KEY];
+    delete process.env[CONFIG_ENV_KEY];
     rmSync(tempDir, { recursive: true, force: true });
   });
 

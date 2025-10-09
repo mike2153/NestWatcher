@@ -69,11 +69,22 @@ export function getConfigPath() {
     return override;
   }
 
+  // Prefer Electron's userData directory in both dev and prod to avoid polluting the repo
+  try {
+    const userDataDir = app?.getPath?.('userData');
+    if (userDataDir && typeof userDataDir === 'string') {
+      return join(userDataDir, 'settings.json');
+    }
+  } catch {
+    // fall through to process.execPath below
+  }
+
   const isPackaged = app?.isPackaged ?? false;
   if (isPackaged) {
     return join(dirname(process.execPath), 'settings.json');
   }
 
+  // Last resort in dev environments without Electron context
   return join(__dirname, '../../../settings.json');
 }
 
