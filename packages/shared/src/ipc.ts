@@ -84,7 +84,7 @@ export const JobsListFilter = z.object({
 
 export const JobsListReq = z.object({
   search: z.string().optional(),
-  sortBy: z.enum(['folder', 'ncfile', 'material', 'parts', 'size', 'thickness', 'dateadded', 'reserved', 'status']).default('dateadded'),
+  sortBy: z.enum(['folder', 'ncfile', 'material', 'parts', 'size', 'thickness', 'dateadded', 'preReserved', 'locked', 'status']).default('dateadded'),
   sortDir: z.enum(['asc', 'desc']).default('desc'),
   cursor: z.string().nullable().optional(),
   limit: z.number().int().min(1).max(200).default(50),
@@ -101,7 +101,8 @@ export const JobRow = z.object({
   size: z.string().nullable(),
   thickness: z.string().nullable(),
   dateadded: z.string().nullable(),
-  reserved: z.boolean(),
+  preReserved: z.boolean(),
+  locked: z.boolean(),
   status: JobStatus,
   machineId: z.number().int().nullable(),
   processingSeconds: z.number().int().nullable().optional()
@@ -128,6 +129,15 @@ export type ReserveReq = z.infer<typeof ReserveReq>;
 
 export const UnreserveReq = z.object({ key: z.string().min(1) });
 export type UnreserveReq = z.infer<typeof UnreserveReq>;
+
+export const LockReq = z.object({ key: z.string().min(1) });
+export type LockReq = z.infer<typeof LockReq>;
+
+export const UnlockReq = z.object({ key: z.string().min(1) });
+export type UnlockReq = z.infer<typeof UnlockReq>;
+
+export const LockBatchReq = z.object({ keys: z.array(z.string().min(1)).min(1) });
+export type LockBatchReq = z.infer<typeof LockBatchReq>;
 
 export const JobEvent = z.object({
   id: z.number().int(),

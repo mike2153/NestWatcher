@@ -79,6 +79,10 @@ const api = {
     events: (req: JobEventsReq) => invokeResult<JobEventsRes>('jobs:events', req),
     reserve: (key: string) => invokeResult<null>('jobs:reserve', { key }),
     unreserve: (key: string) => invokeResult<null>('jobs:unreserve', { key }),
+    lock: (key: string) => invokeResult<null>('jobs:lock', { key }),
+    unlock: (key: string) => invokeResult<null>('jobs:unlock', { key }),
+    lockBatch: (keys: string[]) => invokeResult<null>('jobs:lockBatch', { keys }),
+    rerun: (key: string) => invokeResult<null>('jobs:rerun', { key }),
     addToWorklist: (key: string, machineId: number) => invokeResult<WorklistAddResult>('jobs:addToWorklist', { key, machineId }),
     resync: () => invokeResult<{ inserted: number; updated: number }>('jobs:resync')
   },

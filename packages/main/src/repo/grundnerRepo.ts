@@ -126,7 +126,7 @@ export async function resyncGrundnerReserved(id?: number) {
       const res = await c.query(
         `UPDATE public.grundner
            SET reserved_stock = (
-             SELECT COUNT(*) FROM public.jobs WHERE material = $1 AND is_reserved = TRUE
+             SELECT COUNT(*) FROM public.jobs WHERE material = $1 AND pre_reserved = TRUE
            ), last_updated = now()
          WHERE id = $2`,
         [material, row.id]

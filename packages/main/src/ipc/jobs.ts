@@ -1,8 +1,13 @@
 import { ok, err } from 'neverthrow';
 import type { AppError, WorklistAddResult } from '../../../shared/src';
-import { JobEventsReq, JobsListReq, ReserveReq, UnreserveReq } from '../../../shared/src';
+import { JobEventsReq, JobsListReq, ReserveReq, UnreserveReq, LockReq, UnlockReq, LockBatchReq } from '../../../shared/src';
 import { getJobEvents } from '../repo/jobEventsRepo';
-import { listJobFilters, listJobs, reserveJob, unreserveJob } from '../repo/jobsRepo';
+import { listJobFilters, listJobs, reserveJob, unreserveJob, lockJob, unlockJob } from '../repo/jobsRepo';
+import { withDb } from '../services/db';
+import { inArray } from 'drizzle-orm';
+import { jobs } from '../db/schema';
+import { placeOrderSawCsv } from '../services/orderSaw';
+import { rerunJob } from '../services/rerun';
 import { addJobToWorklist } from '../services/worklist';
 import { ingestProcessedJobsRoot } from '../services/ingest';
 import { createAppError } from './errors';
@@ -42,6 +47,65 @@ export function registerJobsIpc() {
     if (!success) {
       return err(createAppError('jobs.notReserved', 'Job is not currently reserved.'));
     }
+    return ok<null, AppError>(null);
+  });
+
+  registerResultHandler('jobs:lock', async (_e, raw) => {
+    const req = LockReq.parse(raw);
+    const success = await lockJob(req.key);
+    if (!success) {
+      return err(createAppError('jobs.alreadyLocked', 'Job is already locked.'));
+    }
+    return ok<null, AppError>(null);
+  });
+
+  registerResultHandler('jobs:unlock', async (_e, raw) => {
+    const req = UnlockReq.parse(raw);
+    const success = await unlockJob(req.key);
+    if (!success) {
+      return err(createAppError('jobs.notLocked', 'Job is not currently locked.'));
+    }
+    return ok<null, AppError>(null);
+  });
+
+  registerResultHandler('jobs:lockBatch', async (_e, raw) => {
+    const req = LockBatchReq.parse(raw);
+    const keys = Array.from(new Set(req.keys));
+    if (keys.length === 0) return err(createAppError('jobs.invalidArguments', 'No jobs provided.'));
+
+    // Gather rows for CSV
+    const rows = await withDb((db) =>
+      db
+        .select({ key: jobs.key, ncfile: jobs.ncfile, material: jobs.material })
+        .from(jobs)
+        .where(inArray(jobs.key, keys))
+    );
+    if (rows.length === 0) return err(createAppError('jobs.notFound', 'No matching jobs found.'));
+
+    try {
+      const result = await placeOrderSawCsv(rows);
+      if (!result.confirmed) {
+        const message = result.erl ? result.erl : 'Timed out waiting for confirmation (.erl)';
+        return err(createAppError('grundner.orderFailed', message));
+      }
+
+      // Mark locked after confirmation
+      for (const k of keys) {
+        await lockJob(k);
+      }
+      return ok<null, AppError>(null);
+    } catch (ex) {
+      return err(createAppError('grundner.orderError', (ex as Error)?.message ?? String(ex)));
+    }
+  });
+
+  registerResultHandler('jobs:rerun', async (_e, raw) => {
+    if (typeof raw !== 'object' || raw === null || typeof (raw as any).key !== 'string') {
+      return err(createAppError('jobs.invalidArguments', 'Invalid arguments supplied.'));
+    }
+    const key = (raw as any).key as string;
+    const res = await rerunJob(key);
+    if (!res.ok) return err(createAppError('jobs.rerunFailed', res.error));
     return ok<null, AppError>(null);
   });
 

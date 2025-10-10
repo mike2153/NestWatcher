@@ -4,7 +4,7 @@ import { existsSync, mkdirSync } from 'fs';
 import { promises as fsp } from 'fs';
 import type { Dirent } from 'fs';
 import net from 'net';
-import { basename, dirname, extname, join, normalize } from 'path';
+import { basename, extname, join, normalize } from 'path';
 import type { PoolClient } from 'pg';
 import { parentPort } from 'worker_threads';
 import type { Machine, MachineHealthCode } from '../../../shared/src';
@@ -107,6 +107,8 @@ function trackWatcher(watcher: FSWatcher) {
 
 let shuttingDown = false;
 let jobsIngestInterval: NodeJS.Timeout | null = null;
+let stageSanityTimer: NodeJS.Timeout | null = null;
+let sourceSanityTimer: NodeJS.Timeout | null = null;
 
 const autoPacHashes = new Map<string, string>();
 
@@ -130,8 +132,7 @@ const TESTDATA_SKIP_DIRS = new Set([TESTDATA_PROCESSED_DIR, TESTDATA_FAILED_DIR]
 const testDataQueue: string[] = [];
 const testDataQueued = new Set<string>();
 let testDataProcessing = false;
-// testDataRoot tracks the configured root for test data files
-let testDataRoot: string | null = null;
+//
 let testDataIndex: string[] = [];
 let testDataIndexPos = 0;
 let testDataIndexBuilt = false;
@@ -141,6 +142,11 @@ const GRUNDNER_WATCHER_NAME = 'watcher:grundner';
 const GRUNDNER_WATCHER_LABEL = 'Grundner Stock Poller';
 let grundnerTimer: NodeJS.Timeout | null = null;
 let grundnerLastHash: string | null = null;
+
+const STAGE_SANITY_WATCHER_NAME = 'watcher:stage-sanity';
+const STAGE_SANITY_WATCHER_LABEL = 'Stage Sanity';
+const SOURCE_SANITY_WATCHER_NAME = 'watcher:source-sanity';
+const SOURCE_SANITY_WATCHER_LABEL = 'Source Sanity';
 
 function machineLabel(machine: Machine) {
   return machine.name ? `${machine.name} (#${machine.machineId})` : `Machine ${machine.machineId}`;
@@ -1364,10 +1370,7 @@ async function handleTestDataFile(path: string, client?: PoolClient, options?: {
       if (options?.skipDelete) {
         // When deferring deletion, defer milestone counting as well (outer loop will handle)
       }
-      if (testDataProcessedCount % 100 === 0 && !options?.skipDelete) {
-        const message = `Processed ${testDataProcessedCount} test-data files`;
-        // already emitted above
-      }
+      
       return true;
     } else {
       const err = new Error('No valid telemetry rows found');
@@ -1501,40 +1504,7 @@ async function buildInitialTestDataIndex(root: string) {
   logger.info({ folder: root, files: testDataIndex.length }, 'test-data: initial index built');
 }
 
-async function collectTestDataFiles(root: string, depth = 0, maxDepth = 3): Promise<string[]> {
-  let entries: Dirent[];
-  try {
-    entries = await readdir(root, { withFileTypes: true });
-  } catch (err) {
-    logger.warn({ err, dir: root }, 'test-data: failed to read directory during startup scan');
-    return [];
-  }
-  const results: string[] = [];
-  for (const entry of entries) {
-    const entryPath = join(root, entry.name);
-    const lowerName = entry.name.toLowerCase();
-    if (entry.isDirectory()) {
-      if (TESTDATA_SKIP_DIRS.has(lowerName)) {
-        logger.info({ dir: entryPath }, 'test-data: skipping internal directory');
-        continue;
-      }
-      if (depth < maxDepth) {
-        const nested = await collectTestDataFiles(entryPath, depth + 1, maxDepth);
-        if (nested.length) results.push(...nested);
-      }
-      continue;
-    }
-    if (entry.isFile()) {
-      const matches = isTestDataFileName(entryPath);
-      const internal = isTestDataInternalPath(entryPath);
-      if (matches && !internal) {
-        // Do not log each file at info level during startup scan to avoid log spam with large folders
-        results.push(entryPath);
-      }
-    }
-  }
-  return results;
-}
+//
 
 function setupTestDataWatcher(root: string) {
   registerWatcher(TESTDATA_WATCHER_NAME, TESTDATA_WATCHER_LABEL);
@@ -1553,7 +1523,6 @@ function setupTestDataWatcher(root: string) {
     return;
   }
 
-  testDataRoot = normalizedRoot;
   const processIfMatches = (file: string, event: 'add' | 'change') => {
     const matches = isTestDataFileName(file);
     const internal = isTestDataInternalPath(file);
@@ -1806,6 +1775,192 @@ function parseGrundnerCsv(raw: string): GrundnerCsvRow[] {
   return out;
 }
 
+async function collectNcBaseNames(root: string): Promise<Set<string>> {
+  const bases = new Set<string>();
+  async function walk(dir: string) {
+    let entries: Dirent[] = [] as unknown as Dirent[];
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const p = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(p);
+      } else if (entry.isFile()) {
+        const name = entry.name.toLowerCase();
+        if (name.endsWith('.nc')) {
+          const base = name.replace(/\.nc$/i, '');
+          bases.add(base);
+        }
+      }
+    }
+  }
+  await walk(root);
+  return bases;
+}
+
+async function stageSanityPollOnce() {
+  try {
+    // Fetch staged jobs with machine assignment
+    const staged = await withClient(async (c) =>
+      c
+        .query<{ key: string; ncfile: string | null; machine_id: number | null }>(
+          `SELECT key, ncfile, machine_id FROM public.jobs WHERE status = 'STAGED' AND machine_id IS NOT NULL`
+        )
+        .then((r) => r.rows)
+    );
+    if (!staged.length) return;
+
+    // Group by machineId
+    const byMachine = new Map<number, { key: string; nc: string }[]>();
+    for (const row of staged) {
+      const mid = row.machine_id!;
+      const ncBase = (row.ncfile ?? '').toLowerCase().replace(/\.nc$/i, '');
+      if (!ncBase) continue;
+      const list = byMachine.get(mid) ?? [];
+      list.push({ key: row.key, nc: ncBase });
+      byMachine.set(mid, list);
+    }
+    if (!byMachine.size) return;
+
+    // Resolve machines
+    const machines = await listMachines();
+    let reverted = 0;
+    for (const [machineId, items] of byMachine.entries()) {
+      const m = machines.find((mm) => mm.machineId === machineId);
+      const folder = m?.apJobfolder?.trim?.();
+      if (!m || !folder) continue;
+      const present = await collectNcBaseNames(folder);
+      // Missing items
+      const missing = items.filter((it) => !present.has(it.nc));
+      for (const miss of missing) {
+        // Revert to PENDING if still STAGED
+        const res = await withClient((c) =>
+          c.query(
+            `UPDATE public.jobs SET status = 'PENDING', machine_id = NULL, staged_at = NULL WHERE key = $1 AND status = 'STAGED'`,
+            [miss.key]
+          )
+        );
+        if ((res.rowCount ?? 0) > 0) {
+          reverted += 1;
+          try {
+            await appendJobEvent(
+              miss.key,
+              'worklist:revert:missing-nc',
+              { reason: 'NC file missing in Ready-To-Run', machineId },
+              machineId,
+              undefined
+            );
+          } catch {}
+        }
+      }
+    }
+    if (reverted > 0) {
+      recordWatcherEvent(STAGE_SANITY_WATCHER_NAME, {
+        label: STAGE_SANITY_WATCHER_LABEL,
+        message: `Reverted ${reverted} staged job(s) to PENDING due to missing NC in R2R`
+      });
+    }
+  } catch (err) {
+    recordWatcherError(STAGE_SANITY_WATCHER_NAME, err, { label: STAGE_SANITY_WATCHER_LABEL });
+  }
+}
+
+function startStageSanityPoller() {
+  registerWatcher(STAGE_SANITY_WATCHER_NAME, STAGE_SANITY_WATCHER_LABEL);
+  const run = () => {
+    if (shuttingDown) return;
+    void stageSanityPollOnce();
+  };
+  void run();
+  stageSanityTimer = setInterval(run, 10_000);
+  if (typeof stageSanityTimer.unref === 'function') stageSanityTimer.unref();
+  watcherReady(STAGE_SANITY_WATCHER_NAME, STAGE_SANITY_WATCHER_LABEL);
+}
+
+async function collectProcessedJobKeys(root: string): Promise<Set<string>> {
+  const keys = new Set<string>();
+  async function walk(dir: string) {
+    let entries: Dirent[] = [] as unknown as Dirent[];
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) {
+        await walk(p);
+      } else if (e.isFile()) {
+        if (e.name.toLowerCase().endsWith('.nc')) {
+          // Build job key the same way as ingestProcessedJobsRoot
+          const relDir = toPosixLower(p).replace(toPosixLower(root), '').replace(/^\//, '');
+          const dirOnly = relDir.substring(0, relDir.lastIndexOf('/'));
+          const base = e.name.replace(/\.nc$/i, '');
+          const folder = dirOnly.split('/').filter(Boolean).pop() ?? '';
+          const relFolder = dirOnly || folder;
+          const key = `${relFolder}/${base}`.replace(/^\//, '').slice(0, 100);
+          keys.add(key);
+        }
+      }
+    }
+  }
+  await walk(root);
+  return keys;
+}
+
+async function sourceSanityPollOnce() {
+  try {
+    const cfg = loadConfig();
+    const root = cfg.paths.processedJobsRoot?.trim?.() ?? '';
+    if (!root || !(await fileExists(root))) return;
+
+    const presentKeys = await collectProcessedJobKeys(root);
+    // Find PENDING jobs whose key is not present on disk
+    const pending = await withClient((c) =>
+      c
+        .query<{ key: string }>(`SELECT key FROM public.jobs WHERE status = 'PENDING'`)
+        .then((r) => r.rows)
+    );
+    const missing = pending.map((r) => r.key).filter((k) => !presentKeys.has(k));
+    if (!missing.length) return;
+
+    // Delete missing PENDING jobs
+    let removed = 0;
+    for (const k of missing) {
+      const res = await withClient((c) => c.query(`DELETE FROM public.jobs WHERE key = $1 AND status = 'PENDING'`, [k]));
+      if ((res.rowCount ?? 0) > 0) {
+        removed += 1;
+        try {
+          await appendJobEvent(k, 'jobs:prune:missing-source', { reason: 'NC file missing in processed root' }, null, undefined);
+        } catch {}
+      }
+    }
+    if (removed > 0) {
+      recordWatcherEvent(SOURCE_SANITY_WATCHER_NAME, {
+        label: SOURCE_SANITY_WATCHER_LABEL,
+        message: `Pruned ${removed} PENDING job(s) missing from processed root`
+      });
+    }
+  } catch (err) {
+    recordWatcherError(SOURCE_SANITY_WATCHER_NAME, err, { label: SOURCE_SANITY_WATCHER_LABEL });
+  }
+}
+
+function startSourceSanityPoller() {
+  registerWatcher(SOURCE_SANITY_WATCHER_NAME, SOURCE_SANITY_WATCHER_LABEL);
+  const run = () => {
+    if (shuttingDown) return;
+    void sourceSanityPollOnce();
+  };
+  void run();
+  sourceSanityTimer = setInterval(run, 30_000);
+  if (typeof sourceSanityTimer.unref === 'function') sourceSanityTimer.unref();
+  watcherReady(SOURCE_SANITY_WATCHER_NAME, SOURCE_SANITY_WATCHER_LABEL);
+}
+
 async function grundnerPollOnce(folder: string) {
   try {
     const reqPath = join(folder, 'stock_request.csv');
@@ -1917,6 +2072,8 @@ async function initWatchers() {
     void startTelemetryClients();
   }
   startJobsIngestPolling();
+  startStageSanityPoller();
+  startSourceSanityPoller();
 }
 
 void initWatchers().catch((err) => {

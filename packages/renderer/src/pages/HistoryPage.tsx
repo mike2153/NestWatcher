@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@\/components\/ui\/table';
+import { Button } from '@\/components\/ui\/button';
 import type { HistoryListReq, HistoryRow, JobTimelineRes, Machine } from "../../../shared/src";
 
 function formatDate(value: string | null | undefined) {
@@ -266,17 +267,31 @@ export function HistoryPage() {
             ))}
           </select>
         </label>
+        <div className="ml-auto">
+          <Button variant="default" size="sm" disabled={!selectedKey} onClick={async () => {
+            if (!selectedKey) return;
+            const res = await window.api.jobs.rerun(selectedKey);
+            if (!res.ok) {
+              alert(`Re-run failed: ${res.error.message}`);
+            } else {
+              alert('Re-run created successfully. The new job will appear after ingest.');
+            }
+          }}>Re-run</Button>
+        </div>
       </div>
+
+      
 
       {error && (
         <div className="border border-red-300 bg-red-50 text-red-700 text-sm px-3 py-2 rounded">{error}</div>
       )}
 
       <div className="grid gap-4 lg:grid-cols-[2fr_3fr]">
-        <div className="border rounded bg-table text-[var(--table-text)] overflow-hidden">
+        <div className="border rounded bg-table text-[var(--table-text)] overflow-hidden h-[calc(100vh-300px)] overflow-auto">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="px-2 py-2">Folder</TableHead>
                 <TableHead className="px-2 py-2">NC File</TableHead>
                 <TableHead className="px-2 py-2">Machine</TableHead>
                 <TableHead className="px-2 py-2">Finish</TableHead>
@@ -289,9 +304,10 @@ export function HistoryPage() {
                 return (
                   <TableRow
                     key={row.key}
-                    className={isActive ? 'data-[state=selected]:bg-[var(--muted)]' : ''}
+                    className={isActive ? 'bg-[var(--table-selected-bg)]' : 'hover:bg-[var(--table-hover-bg)]'}
                     onClick={() => setSelectedKey(row.key)}
                   >
+                    <TableCell className="px-2 py-2">{row.folder ?? ''}</TableCell>
                     <TableCell className="px-2 py-2">{row.ncfile ?? ""}</TableCell>
                     <TableCell className="px-2 py-2">{machineLabel}</TableCell>
                     <TableCell className="px-2 py-2 text-xs">{formatDate(row.finishAt)}</TableCell>
@@ -300,14 +316,14 @@ export function HistoryPage() {
               })}
               {!rows.length && !loading && (
                 <TableRow>
-                  <TableCell colSpan={3} className="px-2 py-6 text-center text-sm text-muted-foreground">No completed jobs found.</TableCell>
+                  <TableCell colSpan={4} className="px-2 py-6 text-center text-sm text-muted-foreground">No completed jobs found.</TableCell>
                 </TableRow>
               )}
             </TableBody>
           </Table>
         </div>
 
-        <div className="border rounded p-4 space-y-3 min-h-[320px]">
+        <div className="border rounded p-4 space-y-3 h-[calc(100vh-300px)] overflow-auto">
           {!selectedRow && <div className="text-sm text-muted-foreground">Select a job to view its timeline.</div>}
           {selectedRow && (
             <>
@@ -344,3 +360,4 @@ export function HistoryPage() {
     </div>
   );
 }
+

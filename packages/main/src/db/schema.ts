@@ -44,15 +44,19 @@ export const jobs = pgTable('jobs', {
   parts: varchar('parts', { length: 255 }),
   size: varchar('size', { length: 255 }),
   thickness: varchar('thickness', { length: 255 }),
-  isReserved: boolean('is_reserved').default(false).notNull(),
   machineId: integer('machine_id').references(() => machines.machineId, { onDelete: 'set null' }),
   dateAdded: timestamp('dateadded', { withTimezone: true }),
+  // New pre-reservation flag (separate from locked)
+  preReserved: boolean('pre_reserved').default(false).notNull(),
+  // Renamed from is_reserved -> is_locked
+  isLocked: boolean('is_locked').default(false).notNull(),
   stagedAt: timestamp('staged_at', { withTimezone: true }),
   cutAt: timestamp('cut_at', { withTimezone: true }),
   nestpickCompletedAt: timestamp('nestpick_completed_at', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   pallet: varchar('pallet', { length: 50 }),
   lastError: text('last_error'),
+  qty: integer('qty').default(0).notNull(),
   status: jobStatusEnum('status').default('PENDING').notNull()
 });
 

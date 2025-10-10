@@ -2,12 +2,14 @@ import type { Dirent } from 'fs';
 import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, readFileSync } from 'fs';
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve, sep } from 'path';
 import type { WorklistAddResult, WorklistCollisionInfo, WorklistSkippedFile } from '../../../shared/src';
+import { dialog } from 'electron';
 import { appendJobEvent } from '../repo/jobEventsRepo';
 import { listMachines } from '../repo/machinesRepo';
-import { resetJobForRestage, updateLifecycle } from '../repo/jobsRepo';
+import { resetJobForRestage, updateLifecycle, lockJob } from '../repo/jobsRepo';
 import { logger } from '../logger';
 import { loadConfig } from './config';
 import { withClient } from './db';
+import { placeOrderSawCsv } from './orderSaw';
 
 const OVERWRITE_PATTERNS: RegExp[] = [
   /^planit.*\.csv$/i,
@@ -126,10 +128,10 @@ function chooseDestination(baseDir: string): { path: string; collision?: Worklis
 export async function addJobToWorklist(key: string, machineId: number): Promise<WorklistAddResult> {
   const job = await withClient(async (c) => {
     const r = await c.query(
-      `SELECT key, folder, ncfile FROM public.jobs WHERE key = $1`,
+      `SELECT key, folder, ncfile, material FROM public.jobs WHERE key = $1`,
       [key]
     );
-    return r.rows[0] as { key: string; folder: string | null; ncfile: string | null } | undefined;
+    return r.rows[0] as { key: string; folder: string | null; ncfile: string | null; material: string | null } | undefined;
   });
   if (!job) return { ok: false, error: 'Job not found' };
 
@@ -477,6 +479,22 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
     await appendJobEvent(job.key, 'worklist:staged', { dest: finalDestBaseDir, copied, skipped }, machineId);
   } catch (err) {
     logger.warn({ err, key: job.key }, 'worklist: failed to append job event');
+  }
+
+  // After staging, place Grundner order_saw CSV and lock on confirmation.
+  // This should not fail the staging result; show a dialog to the user with outcome.
+  try {
+    const res = await placeOrderSawCsv([{ key: job.key, ncfile: job.ncfile, material: job.material ?? null }]);
+    if (res.confirmed) {
+      await lockJob(job.key);
+      void dialog.showMessageBox({ type: 'info', title: 'Order Saw', message: `Order confirmed for ${job.key}.` });
+    } else {
+      const message = res.erl ? res.erl : 'Timed out waiting for confirmation (.erl).';
+      void dialog.showMessageBox({ type: 'warning', title: 'Order Saw Failed', message });
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    void dialog.showMessageBox({ type: 'warning', title: 'Order Saw Error', message: msg });
   }
 
   return {

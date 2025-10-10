@@ -108,7 +108,7 @@ async function syncGrundnerReservedStock(db: AppDb, material: string | null, del
   const [{ count }] = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(jobs)
-    .where(and(eq(jobs.material, trimmed), eq(jobs.isReserved, true)));
+    .where(and(eq(jobs.material, trimmed), eq(jobs.preReserved, true)));
 
   await db
     .update(grundner)
@@ -144,6 +144,9 @@ export async function listJobs(req: JobsListReq) {
   const safeLimit = Math.max(1, Math.min(limit ?? 50, 200));
 
   const conditions: SqlExpression[] = [];
+
+  // Hide completed jobs from Jobs view
+  conditions.push(sql`${jobs.status} <> 'NESTPICK_COMPLETE'`);
 
   if (filter.folder) {
     conditions.push(eq(jobs.folder, filter.folder));
@@ -194,8 +197,10 @@ export async function listJobs(req: JobsListReq) {
         return jobs.size;
       case 'thickness':
         return jobs.thickness;
-      case 'reserved':
-        return jobs.isReserved;
+      case 'preReserved':
+        return jobs.preReserved;
+      case 'locked':
+        return jobs.isLocked;
       case 'dateadded':
       default:
         return jobs.dateAdded;
@@ -215,7 +220,8 @@ export async function listJobs(req: JobsListReq) {
         size: jobs.size,
         thickness: jobs.thickness,
         dateAdded: jobs.dateAdded,
-        isReserved: jobs.isReserved,
+        preReserved: jobs.preReserved,
+        isLocked: jobs.isLocked,
         status: jobs.status,
         machineId: jobs.machineId,
         processingSeconds: sql<number | null>`CASE 
@@ -241,7 +247,8 @@ export async function listJobs(req: JobsListReq) {
     size: row.size,
     thickness: row.thickness,
     dateadded: row.dateAdded ? row.dateAdded.toISOString() : null,
-    reserved: !!row.isReserved,
+    preReserved: !!row.preReserved,
+    locked: !!row.isLocked,
     status: row.status as JobStatus,
     machineId: row.machineId ?? null,
     processingSeconds: row.processingSeconds ?? null
@@ -256,8 +263,8 @@ export async function reserveJob(key: string) {
     db.transaction(async (tx) => {
     const updated = await tx
       .update(jobs)
-      .set({ isReserved: true, updatedAt: sql<Date>`now()` as unknown as Date })
-        .where(and(eq(jobs.key, key), eq(jobs.isReserved, false)))
+      .set({ preReserved: true, updatedAt: sql<Date>`now()` as unknown as Date })
+        .where(and(eq(jobs.key, key), eq(jobs.preReserved, false), eq(jobs.status, 'PENDING')))
         .returning({ material: jobs.material });
 
       if (!updated.length) {
@@ -275,8 +282,8 @@ export async function unreserveJob(key: string) {
     db.transaction(async (tx) => {
     const updated = await tx
       .update(jobs)
-      .set({ isReserved: false, updatedAt: sql<Date>`now()` as unknown as Date })
-        .where(and(eq(jobs.key, key), eq(jobs.isReserved, true)))
+      .set({ preReserved: false, updatedAt: sql<Date>`now()` as unknown as Date })
+        .where(and(eq(jobs.key, key), eq(jobs.preReserved, true)))
         .returning({ material: jobs.material });
 
       if (!updated.length) {
@@ -287,6 +294,28 @@ export async function unreserveJob(key: string) {
       return true;
     })
   );
+}
+
+export async function lockJob(key: string) {
+  const updated = await withDb((db) =>
+    db
+      .update(jobs)
+      .set({ isLocked: true, updatedAt: sql<Date>`now()` as unknown as Date })
+      .where(and(eq(jobs.key, key), eq(jobs.isLocked, false)))
+      .returning({ key: jobs.key })
+  );
+  return updated.length > 0;
+}
+
+export async function unlockJob(key: string) {
+  const updated = await withDb((db) =>
+    db
+      .update(jobs)
+      .set({ isLocked: false, updatedAt: sql<Date>`now()` as unknown as Date })
+      .where(and(eq(jobs.key, key), eq(jobs.isLocked, true)))
+      .returning({ key: jobs.key })
+  );
+  return updated.length > 0;
 }
 
 export async function findJobByNcBase(base: string): Promise<JobLookupRow | null> {
@@ -507,7 +536,11 @@ export async function updateLifecycle(
           stagedAt: jobs.stagedAt,
           cutAt: jobs.cutAt,
           nestpickCompletedAt: jobs.nestpickCompletedAt,
-          updatedAt: jobs.updatedAt
+          updatedAt: jobs.updatedAt,
+          preReserved: jobs.preReserved,
+          isLocked: jobs.isLocked,
+          material: jobs.material,
+          ncfile: jobs.ncfile
         })
         .from(jobs)
         .where(eq(jobs.key, key))
@@ -557,6 +590,20 @@ export async function updateLifecycle(
       if (Object.prototype.hasOwnProperty.call(options, 'machineId') && options.machineId !== current.machineId) {
         nextMachineId = options.machineId ?? null;
         patch.machineId = nextMachineId;
+        touched = true;
+      }
+
+      // Enforce business rules:
+      // - Leaving PENDING: clear preReserved
+      // - On NESTPICK_COMPLETE: clear lock
+      let shouldDecrementReserved = false;
+      if (to !== 'PENDING' && current.preReserved) {
+        patch.preReserved = false;
+        shouldDecrementReserved = true;
+        touched = true;
+      }
+      if (to === 'NESTPICK_COMPLETE' && current.isLocked) {
+        patch.isLocked = false;
         touched = true;
       }
 
@@ -611,6 +658,22 @@ export async function updateLifecycle(
       }
       if (options.payload !== undefined) {
         eventPayload.payload = options.payload;
+      }
+
+      if (shouldDecrementReserved) {
+        await syncGrundnerReservedStock(tx, current.material ?? null, -1);
+      }
+
+      // On completion, increment qty on the original (base) job
+      if (to === 'NESTPICK_COMPLETE') {
+        const base = (current.ncfile ?? '').replace(/^run\d+_/i, '');
+        if (base) {
+          const lastSlash = key.lastIndexOf('/');
+          const relFolder = lastSlash >= 0 ? key.slice(0, lastSlash) : '';
+          const originalKey = (relFolder ? `${relFolder}/${base}` : base).slice(0, 100);
+          await tx
+            .execute(sql`UPDATE public.jobs SET qty = COALESCE(qty, 0) + 1, updated_at = now() WHERE key = ${originalKey}`);
+        }
       }
 
       await appendJobEvent(key, `status:${newStatus}`, eventPayload, machineId, tx);

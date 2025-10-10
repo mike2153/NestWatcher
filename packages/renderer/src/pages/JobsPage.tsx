@@ -412,8 +412,16 @@ export function JobsPage() {
       }
     },
     {
-      accessorKey: 'reserved',
-      header: 'Reserved',
+      accessorKey: 'preReserved',
+      header: 'Pre-Reserved',
+      size: 110,
+      minSize: 90,
+      maxSize: 140,
+      cell: ({ getValue }) => (getValue<boolean>() ? 'Yes' : 'No')
+    },
+    {
+      accessorKey: 'locked',
+      header: 'Locked',
       size: 80,
       minSize: 70,
       maxSize: 100,
@@ -513,12 +521,14 @@ export function JobsPage() {
   const selectedRows = table.getSelectedRowModel().rows;
   const selectedKeys = selectedRows.map((row) => row.original.key);
   const selectedCount = selectedKeys.length;
-  const anyReserved = selectedRows.some((row) => row.original.reserved);
-  const anyUnreserved = selectedRows.some((row) => !row.original.reserved);
+  const anyPreReserved = selectedRows.some((row) => row.original.preReserved);
+  const anyNotPreReserved = selectedRows.some((row) => !row.original.preReserved);
+  const anyLocked = selectedRows.some((row) => row.original.locked);
+  const anyUnlocked = selectedRows.some((row) => !row.original.locked);
   const allPendingForSelection =
     selectedRows.length > 0 && selectedRows.every((row) => row.original.status === 'PENDING');
   const historyKey = selectedKeys[0] ?? null;
-  const canBulkReserve = anyUnreserved && allPendingForSelection;
+  const canBulkReserve = anyNotPreReserved && allPendingForSelection;
 
 
   const performReserve = useCallback(
@@ -559,6 +569,34 @@ export function JobsPage() {
       }
     },
     [jobByKey, refresh]
+  );
+
+  const performLock = useCallback(
+    async (targetKeys: string[], mode: 'lock' | 'unlock') => {
+      if (!targetKeys.length) return;
+      setActionBusy(true);
+      try {
+        if (mode === 'lock') {
+          const res = await window.api.jobs.lockBatch(targetKeys);
+          if (!res.ok) {
+            alert(`Lock failed: ${res.error.message}`);
+          }
+        } else {
+          const failures: string[] = [];
+          for (const key of targetKeys) {
+            const res = await window.api.jobs.unlock(key);
+            if (!res.ok) failures.push(`${key}: ${res.error.message}`);
+          }
+          if (failures.length) alert(`Failed to unlock ${failures.length} job(s): ${failures.join(', ')}`);
+        }
+        await refresh();
+        setRowSelection({});
+      } finally {
+        setActionBusy(false);
+        setContextMenu(null);
+      }
+    },
+    [refresh]
   );
 
   const performWorklist = useCallback(async (targetKeys: string[], machineId: number) => {
@@ -763,11 +801,7 @@ export function JobsPage() {
             Reset
           </Button>
         </div>
-      </div>
-
-      {selectedCount > 0 && (
-        <div className="flex flex-wrap items-center gap-3 border rounded px-3 py-2 bg-muted/40">
-          <span className="text-sm font-medium">{selectedCount} selected</span>
+        <div className="ml-auto flex gap-2 items-end">
           <Button
             variant="outline"
             size="sm"
@@ -781,11 +815,35 @@ export function JobsPage() {
             variant="outline"
             size="sm"
             onClick={() => performReserve(selectedKeys, 'unreserve')}
-            disabled={actionBusy || !anyReserved}
+            disabled={actionBusy || !anyPreReserved}
           >
             <Unlock />
             Unreserve
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => performLock(selectedKeys, 'lock')}
+            disabled={actionBusy || !anyUnlocked}
+          >
+            <Lock />
+            Lock
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => performLock(selectedKeys, 'unlock')}
+            disabled={actionBusy || !anyLocked}
+          >
+            <Unlock />
+            Unlock
+          </Button>
+        </div>
+      </div>
+
+      {selectedCount > 0 && (
+        <div className="flex flex-wrap items-center gap-3 border rounded px-3 py-2 bg-muted/40">
+          <span className="text-sm font-medium">{selectedCount} selected</span>
           <div className="flex items-center gap-2">
             <select
               value={bulkMachine === '' ? '' : String(bulkMachine)}

@@ -59,6 +59,10 @@ declare global {
         events: (req: JobEventsReq) => Promise<Result<JobEventsRes, AppError>>;
         reserve: (key: string) => Promise<Result<null, AppError>>;
         unreserve: (key: string) => Promise<Result<null, AppError>>;
+        lock: (key: string) => Promise<Result<null, AppError>>;
+        unlock: (key: string) => Promise<Result<null, AppError>>;
+        lockBatch: (keys: string[]) => Promise<Result<null, AppError>>;
+        rerun: (key: string) => Promise<Result<null, AppError>>;
         addToWorklist: (key: string, machineId: number) => Promise<Result<WorklistAddResult, AppError>>;
         resync: () => Promise<Result<{ inserted: number; updated: number }, AppError>>;
       };
