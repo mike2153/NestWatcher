@@ -65,10 +65,8 @@ export function GlobalTable<TData extends RowData>({
 
   const emptyRowCount = fillEmptyRows ? Math.max(0, effectiveMinVisibleRows - rows.length) : 0;
 
-  const totalWidth = table.getCenterTotalSize();
   const tableStyle = {
-    width: Number.isFinite(totalWidth) && totalWidth > 0 ? totalWidth : undefined,
-    minWidth: '100%',
+    width: '100%',
     tableLayout: 'fixed' as const
   };
 
@@ -99,9 +97,9 @@ export function GlobalTable<TData extends RowData>({
                     className={cn(
                       'relative text-left align-middle font-medium whitespace-nowrap text-[var(--table-text)] overflow-hidden',
                       density === 'compact' ? 'h-9 px-2 py-1' : 'h-10 px-4 py-2',
-                      (headerHoverAlways || canSort) && 'cursor-pointer select-none'
+                      (headerHoverAlways || canSort) && 'cursor-pointer select-none',
+                      header.column.columnDef.meta && (header.column.columnDef.meta as any).widthClass
                     )}
-                    style={{ width: header.getSize() }}
                     onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
                   >
                     <div className="flex items-center gap-2 min-w-0">
@@ -155,9 +153,9 @@ export function GlobalTable<TData extends RowData>({
                   key={cell.id}
                   className={cn(
                     'align-middle whitespace-nowrap font-medium overflow-hidden',
-                    density === 'compact' ? 'px-2 py-1' : 'px-4 py-2'
+                    density === 'compact' ? 'px-2 py-1' : 'px-4 py-2',
+                    cell.column.columnDef.meta && (cell.column.columnDef.meta as any).widthClass
                   )}
-                  style={{ width: cell.column.getSize(), maxWidth: cell.column.getSize() }}
                 >
                   <div className="min-w-0 truncate overflow-hidden text-ellipsis">
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -171,8 +169,7 @@ export function GlobalTable<TData extends RowData>({
               {table.getVisibleFlatColumns().map((column) => (
                 <td
                   key={column.id}
-                  className="px-4 py-3 align-middle whitespace-nowrap overflow-hidden"
-                  style={{ width: column.getSize(), maxWidth: column.getSize() }}
+                  className={cn('px-4 py-3 align-middle whitespace-nowrap overflow-hidden', (column.columnDef.meta as any)?.widthClass)}
                 >
                   &nbsp;
                 </td>

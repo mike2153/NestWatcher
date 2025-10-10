@@ -12,12 +12,14 @@ type RawAlarmRow = {
   alarmhistory: string | null;
 };
 
-const INACTIVE_VALUES = new Set<string>(['', 'ok', 'ready', 'none', 'no alarm', '0']);
+const INACTIVE_VALUES = new Set<string>(['', 'ok', 'ready', 'none', 'no alarm', '0', '****']);
 
 function normalizeAlarm(value: string | null | undefined): string | null {
   if (!value) return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
+  // Treat lines of only asterisks as non-alarms
+  if (/^\*+$/.test(trimmed)) return null;
   if (INACTIVE_VALUES.has(trimmed.toLowerCase())) return null;
   return trimmed;
 }
@@ -78,3 +80,4 @@ export async function listActiveAlarms(): Promise<AlarmEntry[]> {
     return [];
   }
 }
+

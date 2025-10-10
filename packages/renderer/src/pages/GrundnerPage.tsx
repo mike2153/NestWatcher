@@ -7,7 +7,19 @@ import {
 import type { ColumnDef, SortingState } from '@tanstack/react-table';
 import { GlobalTable } from '@/components/table/GlobalTable';
 import type { GrundnerListReq, GrundnerRow } from '../../../shared/src';
-
+function formatTimestamp(value: string) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const day = d.getDate();
+  const mon = months[d.getMonth()];
+  const year = d.getFullYear();
+  let h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'pm' : 'am';
+  h = h % 12; if (h === 0) h = 12;
+  return `${day} ${mon} ${year} ${h}:${m}${ampm}`;
+}
 type Filters = {
   search: string;
   onlyAvailable: boolean;
@@ -164,7 +176,10 @@ export function GrundnerPage() {
       id: 'lastUpdated',
       accessorKey: 'lastUpdated',
       header: 'Last Updated',
-      cell: (ctx) => <span className="text-xs text-muted-foreground">{ctx.getValue<string | null>() ?? ''}</span>,
+      cell: (ctx) => {
+        const v = ctx.getValue<string | null>();
+        return v ? formatTimestamp(v) : '';
+      },
       size: 180
     },
     {
@@ -240,3 +255,6 @@ export function GrundnerPage() {
     </div>
   );
 }
+
+
+

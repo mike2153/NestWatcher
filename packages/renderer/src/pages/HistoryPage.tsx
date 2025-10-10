@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@\/components\/ui\/table';
-import { Button } from '@\/components\/ui\/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
 import type { HistoryListReq, HistoryRow, JobTimelineRes, Machine } from "../../../shared/src";
 
 function formatDate(value: string | null | undefined) {
@@ -286,15 +286,15 @@ export function HistoryPage() {
         <div className="border border-red-300 bg-red-50 text-red-700 text-sm px-3 py-2 rounded">{error}</div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[2fr_3fr]">
-        <div className="border rounded bg-table text-[var(--table-text)] overflow-hidden h-[calc(100vh-300px)] overflow-auto">
-          <Table>
+      <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+        <div className="border rounded bg-table text-[var(--table-text)] h-[calc(100vh-250px)] overflow-y-auto">
+          <Table className="table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead className="px-2 py-2">Folder</TableHead>
-                <TableHead className="px-2 py-2">NC File</TableHead>
-                <TableHead className="px-2 py-2">Machine</TableHead>
-                <TableHead className="px-2 py-2">Finish</TableHead>
+                <TableHead className="px-2 py-2 w-[35%]">Folder</TableHead>
+                <TableHead className="px-2 py-2 w-[25%]">NC File</TableHead>
+                <TableHead className="px-2 py-2 w-[20%]">Machine</TableHead>
+                <TableHead className="px-2 py-2 w-[20%]">Finish</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -307,10 +307,10 @@ export function HistoryPage() {
                     className={isActive ? 'bg-[var(--table-selected-bg)]' : 'hover:bg-[var(--table-hover-bg)]'}
                     onClick={() => setSelectedKey(row.key)}
                   >
-                    <TableCell className="px-2 py-2">{row.folder ?? ''}</TableCell>
-                    <TableCell className="px-2 py-2">{row.ncfile ?? ""}</TableCell>
-                    <TableCell className="px-2 py-2">{machineLabel}</TableCell>
-                    <TableCell className="px-2 py-2 text-xs">{formatDate(row.finishAt)}</TableCell>
+                    <TableCell className="px-2 py-2 truncate">{row.folder ?? ''}</TableCell>
+                    <TableCell className="px-2 py-2 truncate">{row.ncfile ?? ""}</TableCell>
+                    <TableCell className="px-2 py-2 truncate">{machineLabel}</TableCell>
+                    <TableCell className="px-2 py-2 text-xs truncate">{formatDate(row.finishAt)}</TableCell>
                   </TableRow>
                 );
               })}
@@ -323,14 +323,14 @@ export function HistoryPage() {
           </Table>
         </div>
 
-        <div className="border rounded p-4 space-y-3 h-[calc(100vh-300px)] overflow-auto">
+        <div className="border rounded p-4 space-y-3 h-[calc(100vh-250px)] overflow-y-auto">
           {!selectedRow && <div className="text-sm text-muted-foreground">Select a job to view its timeline.</div>}
           {selectedRow && (
             <>
               <div>
-                <h2 className="text-lg font-semibold">{selectedRow.key}</h2>
+                <h2 className="text-lg font-semibold">{selectedRow.ncfile ?? selectedRow.key}</h2>
                 <div className="text-xs text-muted-foreground space-y-1">
-                  <p>NC File: {selectedRow.ncfile ?? "-"}</p>
+                  <p>Folder: {selectedRow.folder ?? "-"}</p>
                   <p>Machine: {selectedRow.machineName ?? (selectedRow.machineId != null ? `Machine #${selectedRow.machineId}` : "Unassigned")}</p>
                   <p>Finished: {formatDate(selectedRow.finishAt)} ({selectedRow.finishSource === "nestpick" ? "Nestpick completion" : "Cut completion"})</p>
                 </div>
@@ -360,4 +360,9 @@ export function HistoryPage() {
     </div>
   );
 }
+
+
+
+
+
 

@@ -36,17 +36,21 @@ function parseNc(ncPath: string): { material?: string; size?: string; thickness?
       const l = ln.trim();
       const m = l.match(/ID\s*=\s*([A-Za-z0-9_.-]+)/i);
       if (m && !material) material = m[1];
-      const g = l.match(/G100\s+X([0-9]+(?:\.[0-9]+)?)\s+Y([0-9]+(?:\.[0-9]+)?)\s+Z([0-9]+(?:\.[0-9]+)?)/i);
+      // Accept X/Y/Z numbers like 2400, 2400., 2400.0, 2400.00
+      const g = l.match(/G100\s+X(\d+(?:\.\d*)?)\s+Y(\d+(?:\.\d*)?)\s+Z(\d+(?:\.\d*)?)/i);
       if (g && !size) {
         const x = Number.parseFloat(g[1]);
         const y = Number.parseFloat(g[2]);
-        const z = g[3];
+        const zNum = Number.parseFloat(g[3]);
         const xInt = Number.isNaN(x) ? null : Math.round(x);
         const yInt = Number.isNaN(y) ? null : Math.round(y);
         if (xInt != null && yInt != null) {
           size = `${xInt}x${yInt}`;
         }
-        thickness = z;
+        if (!Number.isNaN(zNum)) {
+          const zInt = Math.round(zNum);
+          thickness = String(zInt);
+        }
       }
     }
     return { material, size, thickness };
