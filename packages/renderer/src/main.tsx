@@ -11,8 +11,8 @@ import { HistoryPage } from './pages/HistoryPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { MachinesPage } from './pages/MachinesPage';
 import ThemeShowcase from './pages/ThemeShowcase';
-import TelemetryPage from './pages/TelemetryPage';
-import CncAlarmsPage from './pages/CncAlarmsPage';
+import { TelemetryPage } from './pages/TelemetryPage';
+import { CncAlarmsPage } from './pages/CncAlarmsPage';
 import { GrundnerPage } from './pages/GrundnerPage';
 
 // Use BrowserRouter in dev for nicer URLs; HashRouter in production for file:// packaging

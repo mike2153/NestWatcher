@@ -163,4 +163,4 @@ export function CncAlarmsPage() {
   );
 }
 
-export default CncAlarmsPage;
+// Use named export only to reduce duplicate exports

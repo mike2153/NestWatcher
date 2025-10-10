@@ -520,17 +520,7 @@ function isAutoPacCsvFileName(fileName: string) {
   );
 }
 
-function _inferMachineFromPath(path: string, machines: Machine[]): Machine | undefined {
-  const normalizedPath = sanitizeToken(path);
-  for (const machine of machines) {
-    const candidates = [String(machine.machineId), machine.name];
-    for (const candidate of candidates) {
-      const token = sanitizeToken(candidate);
-      if (token && normalizedPath.includes(token)) return machine;
-    }
-  }
-  return undefined;
-}
+// _inferMachineFromPath was unused and removed during cleanup
 
 function deriveJobLeaf(folder: string | null, ncfile: string | null, key: string) {
   if (folder) {

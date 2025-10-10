@@ -117,7 +117,7 @@ export function JobsPage() {
   const [filters, setFilters] = useState<FiltersState>({ ...defaultFilters });
   const [filterOptions, setFilterOptions] = useState<JobsFiltersRes['options']>({ materials: [], statuses: JOB_STATUS_VALUES });
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(loadColumnSizing);
+  const [columnSizing, _setColumnSizing] = useState<ColumnSizingState>(loadColumnSizing);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   
   const [bulkMachine, setBulkMachine] = useState<number | ''>('');

@@ -244,4 +244,4 @@ export function TelemetryPage() {
   );
 }
 
-export default TelemetryPage;
+// Use named export only to reduce duplicate exports
