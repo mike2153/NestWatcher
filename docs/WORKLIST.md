@@ -27,7 +27,7 @@ When an operator chooses “Add To Worklist”, we copy a job’s files from the
 
 ### Overwrite Semantics
 - Some files (e.g., CSV/NC/LPT/PTS/images) can be overwritten; existing destination files may be skipped if not in the overwrite list
+- Planit family CSV (`prefix.csv`, e.g., `RJT.csv`) is not overwritten if it already exists in the destination folder
 
 ### Lifecycle and Events
 - On success, lifecycle transitions to `STAGED` and we append a `worklist:staged` job event with details (copied/skipped counts)
-
