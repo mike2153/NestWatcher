@@ -15,6 +15,7 @@ type GrundnerRowDb = {
   stock: number | null;
   stock_available: number | null;
   reserved_stock: number | null;
+  pre_reserved: number | null;
   last_updated: string | null;
 };
 
@@ -35,6 +36,7 @@ function mapRow(row: GrundnerRowDb): GrundnerRow {
     stock: row.stock,
     stockAvailable: row.stock_available,
     reservedStock: row.reserved_stock,
+    preReserved: row.pre_reserved ?? 0,
     lastUpdated: row.last_updated
   };
 }
@@ -68,7 +70,7 @@ export async function listGrundner(req: GrundnerListReq) {
 
   const sql = `
     SELECT id, type_data, customer_id, length_mm, width_mm, thickness_mm,
-           stock, stock_available, reserved_stock, last_updated
+           stock, stock_available, reserved_stock, pre_reserved, last_updated
     FROM public.grundner
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY type_data ASC, customer_id ASC NULLS LAST
@@ -92,10 +94,6 @@ export async function updateGrundnerRow(input: GrundnerUpdateReq) {
   if (Object.prototype.hasOwnProperty.call(input, 'stockAvailable')) {
     params.push(input.stockAvailable ?? null);
     sets.push(`stock_available = $${params.length}`);
-  }
-  if (Object.prototype.hasOwnProperty.call(input, 'reservedStock')) {
-    params.push(input.reservedStock ?? null);
-    sets.push(`reserved_stock = $${params.length}`);
   }
   if (!sets.length) return { ok: false as const, updated: 0 };
 
@@ -125,7 +123,7 @@ export async function resyncGrundnerReserved(id?: number) {
       if (!material) continue;
       const res = await c.query(
         `UPDATE public.grundner
-           SET reserved_stock = (
+           SET pre_reserved = (
              SELECT COUNT(*) FROM public.jobs WHERE material = $1 AND pre_reserved = TRUE
            ), last_updated = now()
          WHERE id = $2`,
@@ -146,11 +144,12 @@ export type GrundnerCsvRow = {
   thicknessMm: number | null;
   stock: number | null;
   stockAvailable: number | null;
+  reservedStock: number | null;
 };
 
 export async function upsertGrundnerInventory(rows: GrundnerCsvRow[]): Promise<{ inserted: number; updated: number }> {
   if (!rows.length) return { inserted: 0, updated: 0 };
-  const columns = ['type_data', 'customer_id', 'length_mm', 'width_mm', 'thickness_mm', 'stock', 'stock_available'] as const;
+  const columns = ['type_data', 'customer_id', 'length_mm', 'width_mm', 'thickness_mm', 'stock', 'stock_available', 'reserved_stock'] as const;
   const chunkSize = 200; // avoid huge single statements
   let inserted = 0;
   let updated = 0;
@@ -168,7 +167,8 @@ export async function upsertGrundnerInventory(rows: GrundnerCsvRow[]): Promise<{
           r.widthMm,
           r.thicknessMm,
           r.stock,
-          r.stockAvailable
+          r.stockAvailable,
+          r.reservedStock
         );
         const ph = columns.map((_, j) => `$${base + j + 1}`).join(',');
         return `(${ph}, now())`;
@@ -183,13 +183,15 @@ export async function upsertGrundnerInventory(rows: GrundnerCsvRow[]): Promise<{
           thickness_mm = EXCLUDED.thickness_mm,
           stock = EXCLUDED.stock,
           stock_available = EXCLUDED.stock_available,
+          reserved_stock = EXCLUDED.reserved_stock,
           last_updated = now()
         WHERE (
           COALESCE(grundner.length_mm, -1) IS DISTINCT FROM EXCLUDED.length_mm OR
           COALESCE(grundner.width_mm, -1) IS DISTINCT FROM EXCLUDED.width_mm OR
           COALESCE(grundner.thickness_mm, -1) IS DISTINCT FROM EXCLUDED.thickness_mm OR
           COALESCE(grundner.stock, -1) IS DISTINCT FROM EXCLUDED.stock OR
-          COALESCE(grundner.stock_available, -1) IS DISTINCT FROM EXCLUDED.stock_available
+          COALESCE(grundner.stock_available, -1) IS DISTINCT FROM EXCLUDED.stock_available OR
+          COALESCE(grundner.reserved_stock, -1) IS DISTINCT FROM EXCLUDED.reserved_stock
         )
         RETURNING (xmax = 0) AS inserted;
       `;

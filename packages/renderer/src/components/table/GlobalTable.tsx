@@ -87,7 +87,7 @@ export function GlobalTable<TData extends RowData>({
           style={{ background: 'var(--table-header-bg)' }}
         >
           {table.getHeaderGroups().map((headerGroup) => (
-            <tr key={headerGroup.id} className="border-b-0 transition-colors group-hover:bg-[var(--table-hover-bg)]">
+            <tr key={headerGroup.id} className="border-b-0 transition-colors group-hover:[background:var(--table-hover-bg)]">
               {headerGroup.headers.map((header) => {
                 const dir = header.column.getIsSorted();
                 const canSort = header.column.getCanSort();
@@ -130,9 +130,9 @@ export function GlobalTable<TData extends RowData>({
             <tr
               key={row.id}
               className={cn(
-                'border-b border-[var(--table-row-border)] hover:bg-[var(--table-hover-bg)] transition-colors',
+                'border-b border-[var(--table-row-border)] hover:[background:var(--table-hover-bg)] transition-colors',
                 interactiveRows && 'cursor-pointer',
-                row.getIsSelected() && 'bg-[var(--table-selected-bg)] data-[state=selected]:bg-[var(--table-selected-bg)]',
+                row.getIsSelected() && '[background:var(--table-selected-bg)] data-[state=selected]:[background:var(--table-selected-bg)]',
                 getRowClassName?.(row)
               )}
               onClick={(event) => {

@@ -31,7 +31,7 @@ function toNcName(base: string | null): string {
   return /\.nc$/i.test(name) ? name : `${name}.nc`;
 }
 
-export async function placeOrderSawCsv(items: OrderItem[], timeoutMs = 60_000): Promise<{ confirmed: boolean; erl?: string; csv?: string; folder: string }>{
+export async function placeOrderSawCsv(items: OrderItem[], timeoutMs = 10_000): Promise<{ confirmed: boolean; erl?: string; csv?: string; folder: string }>{
   if (!items.length) throw new Error('No items to order');
   const cfg = loadConfig();
   const folderRaw = cfg.paths.grundnerFolderPath?.trim() ?? '';

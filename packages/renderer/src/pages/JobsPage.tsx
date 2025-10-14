@@ -336,7 +336,7 @@ export function JobsPage() {
     {
       accessorKey: 'folder',
       header: 'Folder',
-      meta: { widthClass: 'w-[12%]' },
+      meta: { widthClass: 'w-[180px]' },
       cell: ({ getValue }) => {
         const value = getValue<string | null>();
         return formatFolderLabel(value);
@@ -345,32 +345,32 @@ export function JobsPage() {
     {
       accessorKey: 'ncfile',
       header: 'NC File',
-      meta: { widthClass: 'w-[12%]' }
+      meta: { widthClass: 'w-[180px]' }
     },
     {
       accessorKey: 'material',
       header: 'Material',
-      meta: { widthClass: 'w-[7%]' }
+      meta: { widthClass: 'w-[120px]' }
     },
     {
       accessorKey: 'parts',
       header: 'Parts',
-      meta: { widthClass: 'w-[5%]' }
+      meta: { widthClass: 'w-[80px]' }
     },
     {
       accessorKey: 'size',
       header: 'Size',
-      meta: { widthClass: 'w-[7%]' }
+      meta: { widthClass: 'w-[120px]' }
     },
     {
       accessorKey: 'thickness',
       header: 'Thickness',
-      meta: { widthClass: 'w-[7%]' }
+      meta: { widthClass: 'w-[120px]' }
     },
     {
       accessorKey: 'processingSeconds',
       header: 'Processing Time',
-      meta: { widthClass: 'w-[9%]' },
+      meta: { widthClass: 'w-[120px]' },
       enableSorting: false,
       cell: ({ getValue }) => {
         const seconds = getValue<number | null | undefined>();
@@ -388,7 +388,7 @@ export function JobsPage() {
     {
       accessorKey: 'dateadded',
       header: 'Date Added',
-      meta: { widthClass: 'w-[12%]' },
+      meta: { widthClass: 'w-[180px]' },
       cell: ({ getValue }) => {
         const value = getValue<string | null>();
         if (!value) return '';
@@ -398,19 +398,19 @@ export function JobsPage() {
     {
       accessorKey: 'preReserved',
       header: 'Pre-Reserved',
-      meta: { widthClass: 'w-[5%]' },
+      meta: { widthClass: 'w-[80px]' },
       cell: ({ getValue }) => (getValue<boolean>() ? 'Yes' : 'No')
     },
     {
       accessorKey: 'locked',
       header: 'Locked',
-      meta: { widthClass: 'w-[5%]' },
+      meta: { widthClass: 'w-[80px]' },
       cell: ({ getValue }) => (getValue<boolean>() ? 'Yes' : 'No')
     },
     {
       accessorKey: 'status',
       header: 'Status',
-      meta: { widthClass: 'w-[9%]' },
+      meta: { widthClass: 'w-[120px]' },
       cell: ({ getValue }) => {
         const raw = getValue<JobStatus | null>();
         if (!raw) return <span className="text-muted-foreground">-</span>;
@@ -424,7 +424,7 @@ export function JobsPage() {
     {
       accessorKey: 'machineId',
       header: 'Machine',
-      meta: { widthClass: 'w-[10%]' },
+      meta: { widthClass: 'w-[160px]' },
       enableSorting: false,
       cell: ({ getValue }) => {
         const id = getValue<number | null>();
@@ -670,14 +670,15 @@ export function JobsPage() {
   const materialOptions = filterOptions?.materials || [];
 
   return (
-    <div className="space-y-4 w-full">
+    <div className="space-y-3 w-full">
       <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground">{loading ? 'Refreshing?' : `${data.length} rows`}</p>
+        <div />
+        <div className="flex items-center gap-3">
+          {listError && (
+            <div className="border border-red-300 bg-red-50 text-red-700 text-sm px-3 py-1.5 rounded">{listError}</div>
+          )}
+          <p className="text-sm text-muted-foreground">{loading ? 'Refreshing…' : `${data.length} rows`}</p>
         </div>
-        {listError && (
-          <div className="border border-red-300 bg-red-50 text-red-700 text-sm px-3 py-2 rounded">{listError}</div>
-        )}
       </div>
 
       <div className="flex flex-nowrap gap-2 items-end overflow-x-auto">
@@ -775,76 +776,73 @@ export function JobsPage() {
             Reset
           </Button>
         </div>
-        <div className="ml-auto flex gap-2 items-end">
-          {selectedCount > 0 && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => performReserve(selectedKeys, 'reserve')}
-                disabled={actionBusy || !canBulkReserve}
-              >
-                <Lock />
-                Reserve
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => performReserve(selectedKeys, 'unreserve')}
-                disabled={actionBusy || !anyPreReserved}
-              >
-                <Unlock />
-                Unreserve
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => performLock(selectedKeys, 'lock')}
-                disabled={actionBusy || !anyUnlocked}
-              >
-                <Lock />
-                Lock
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => performLock(selectedKeys, 'unlock')}
-                disabled={actionBusy || !anyLocked}
-              >
-                <Unlock />
-                Unlock
-              </Button>
-              <div className="flex items-center gap-2">
-                <select
-                  value={bulkMachine === '' ? '' : String(bulkMachine)}
-                  onChange={(e) => setBulkMachine(e.target.value ? Number(e.target.value) : '')}
-                  className="border rounded px-2 py-1 text-sm w-48"
-                >
-                  <option value="">Select machine</option>
-                  {machines.map((machine) => (
-                    <option key={machine.machineId} value={machine.machineId}>{machine.name}</option>
-                  ))}
-                </select>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => {
-                    if (typeof bulkMachine === 'number') {
-                      performWorklist(selectedKeys, bulkMachine);
-                    }
-                  }}
-                  disabled={actionBusy || typeof bulkMachine !== 'number'}
-                >
-                  <Plus />
-                  Add to Worklist
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
+        <div className="ml-auto flex gap-2 items-end" />
       </div>
 
-      {/* Selection actions moved into filters row */}
+      {/* Always-visible actions bar */}
+      <div className="flex gap-3 items-center">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => performReserve(selectedKeys, 'reserve')}
+          disabled={actionBusy || !canBulkReserve}
+        >
+          <Lock />
+          Pre-Reserved
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => performReserve(selectedKeys, 'unreserve')}
+          disabled={actionBusy || !anyPreReserved}
+        >
+          <Unlock />
+          Unreserve
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => performLock(selectedKeys, 'lock')}
+          disabled={actionBusy || !anyUnlocked}
+        >
+          <Lock />
+          Locked
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => performLock(selectedKeys, 'unlock')}
+          disabled={actionBusy || !anyLocked}
+        >
+          <Unlock />
+          Unlock
+        </Button>
+        <div className="ml-2 flex items-center gap-2">
+          <select
+            value={bulkMachine === '' ? '' : String(bulkMachine)}
+            onChange={(e) => setBulkMachine(e.target.value ? Number(e.target.value) : '')}
+            className="border rounded px-2 py-1 text-sm w-48"
+          >
+            <option value="">Select machine</option>
+            {machines.map((machine) => (
+              <option key={machine.machineId} value={machine.machineId}>{machine.name}</option>
+            ))}
+          </select>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => {
+              if (typeof bulkMachine === 'number') {
+                performWorklist(selectedKeys, bulkMachine);
+              }
+            }}
+            disabled={actionBusy || typeof bulkMachine !== 'number' || selectedKeys.length === 0}
+          >
+            <Plus />
+            Add to Worklist
+          </Button>
+        </div>
+      </div>
 
       <GlobalTable
         table={table}

@@ -304,7 +304,7 @@ export function HistoryPage() {
                 return (
                   <TableRow
                     key={row.key}
-                    className={isActive ? 'bg-[var(--table-selected-bg)]' : 'hover:bg-[var(--table-hover-bg)]'}
+                    className={isActive ? '[background:var(--table-selected-bg)]' : 'hover:[background:var(--table-hover-bg)]'}
                     onClick={() => setSelectedKey(row.key)}
                   >
                     <TableCell className="px-2 py-2 truncate">{row.folder ?? ''}</TableCell>

@@ -1729,7 +1729,8 @@ function parseGrundnerCsv(raw: string): GrundnerCsvRow[] {
     idxWid = -1,
     idxThk = -1,
     idxStock = -1,
-    idxAvail = -1;
+    idxAvail = -1,
+    idxReserved = -1;
   if (hasHeader) {
     idxType = indexOfHeader(header, ['type_data', 'type']);
     idxCust = indexOfHeader(header, ['customer_id', 'customer']);
@@ -1738,6 +1739,8 @@ function parseGrundnerCsv(raw: string): GrundnerCsvRow[] {
     idxThk = indexOfHeader(header, ['thickness_mm', 'thickness']);
     idxStock = indexOfHeader(header, ['stock']);
     idxAvail = indexOfHeader(header, ['stock_available', 'available']);
+    // CSV may label this as 'reserved stock' (with space) or underscores
+    idxReserved = indexOfHeader(header, ['reserved_stock', 'reserved stock', 'reserved']);
   } else {
     // Fallback positions if no header present
     idxType = 0;
@@ -1747,6 +1750,8 @@ function parseGrundnerCsv(raw: string): GrundnerCsvRow[] {
     idxThk = 5;
     idxStock = 7;
     idxAvail = 8;
+    // Grundner CSV spec: column 15 (1-based) => index 14 (0-based)
+    idxReserved = 14;
   }
 
   const out: GrundnerCsvRow[] = [];
@@ -1759,8 +1764,9 @@ function parseGrundnerCsv(raw: string): GrundnerCsvRow[] {
     const thicknessMm = normalizeNumber(row[idxThk]);
     const stock = normalizeNumber(row[idxStock]);
     const stockAvailable = normalizeNumber(row[idxAvail]);
+    const reservedStock = normalizeNumber(row[idxReserved]);
     if (typeData == null) continue;
-    out.push({ typeData, customerId, lengthMm, widthMm, thicknessMm, stock, stockAvailable });
+    out.push({ typeData, customerId, lengthMm, widthMm, thicknessMm, stock, stockAvailable, reservedStock });
   }
   return out;
 }

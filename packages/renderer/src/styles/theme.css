@@ -28,8 +28,8 @@
     --table-text: theme('colors.gray.800');        /* Table text - light for dark background */
     --table-border: theme('colors.neutral.100');     /* Table outer border */
     --table-row-border: theme('colors.neutral.300'); /* Horizontal lines between rows */
-    --table-hover-bg: linear-gradient(135deg, theme('colors.slate.400') 0%, theme('colors.slate.500') 30%, theme('colors.slate.400') 100%); /* Row hover background */
-    --table-selected-bg: color-mix(in srgb, theme('colors.slate.600') 50%, transparent); /* Row selected background */
+    --table-hover-bg: linear-gradient(135deg, theme('colors.gray.300') 0%, theme('colors.gray.400') 30%, theme('colors.gray.300') 100%);  /* Row hover background */
+    --table-selected-bg: linear-gradient(135deg, theme('colors.gray.400') 0%, theme('colors.gray.300') 50%, theme('colors.gray.400') 100%); /* Row selected background */
 
     /* Sidebar colors - Metallic/Marble effect */
     --sidebar: linear-gradient(135deg, theme('colors.neutral.900') 0%, theme('colors.neutral.700') 50%, theme('colors.neutral.900') 100%);  /* Metallic gradient background */

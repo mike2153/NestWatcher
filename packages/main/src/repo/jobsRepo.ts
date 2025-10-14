@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import type { JobStatus, JobsFilterOptions, JobsListReq } from '../../../shared/src';
 import { appendJobEvent } from './jobEventsRepo';
-import { getGrundnerLookupColumn, getGrundnerMode } from '../services/grundner';
+import { getGrundnerLookupColumn } from '../services/grundner';
 import { withDb, type AppDb } from '../services/db';
 import { grundner, jobs, jobEvents } from '../db/schema';
 
@@ -71,12 +71,11 @@ function combineClauses(clauses: SqlExpression[]): SqlExpression {
   return rest.reduce<SqlExpression>((acc, clause) => and(acc, clause) as SqlExpression, initial);
 }
 
-async function syncGrundnerReservedStock(db: AppDb, material: string | null, delta: number) {
+async function syncGrundnerPreReservedCount(db: AppDb, material: string | null) {
   const trimmed = material?.trim();
   if (!trimmed) return;
 
   const lookupColumn = getGrundnerLookupColumn();
-  const mode = getGrundnerMode();
 
   let condition: SQL | null = null;
   if (lookupColumn === 'customer_id') {
@@ -91,20 +90,6 @@ async function syncGrundnerReservedStock(db: AppDb, material: string | null, del
 
   if (!condition) return;
 
-  if (mode === 'delta') {
-    const updated = await db
-      .update(grundner)
-      .set({
-        reservedStock: sql<number>`GREATEST(COALESCE(${grundner.reservedStock}, 0) + ${delta}, 0)`
-      })
-      .where(condition)
-      .returning({ id: grundner.id });
-
-    if (updated.length > 0) {
-      return;
-    }
-  }
-
   const [{ count }] = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(jobs)
@@ -112,7 +97,7 @@ async function syncGrundnerReservedStock(db: AppDb, material: string | null, del
 
   await db
     .update(grundner)
-    .set({ reservedStock: count })
+    .set({ preReserved: count })
     .where(condition);
 }
 
@@ -271,7 +256,7 @@ export async function reserveJob(key: string) {
         return false;
       }
 
-      await syncGrundnerReservedStock(tx, updated[0].material ?? null, 1);
+      await syncGrundnerPreReservedCount(tx, updated[0].material ?? null);
       return true;
     })
   );
@@ -290,7 +275,7 @@ export async function unreserveJob(key: string) {
         return false;
       }
 
-      await syncGrundnerReservedStock(tx, updated[0].material ?? null, -1);
+      await syncGrundnerPreReservedCount(tx, updated[0].material ?? null);
       return true;
     })
   );
@@ -661,7 +646,7 @@ export async function updateLifecycle(
       }
 
       if (shouldDecrementReserved) {
-        await syncGrundnerReservedStock(tx, current.material ?? null, -1);
+        await syncGrundnerPreReservedCount(tx, current.material ?? null);
       }
 
       // On completion, increment qty on the original (base) job
