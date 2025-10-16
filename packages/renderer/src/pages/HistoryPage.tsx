@@ -323,7 +323,7 @@ export function HistoryPage() {
           </Table>
         </div>
 
-        <div className="border rounded p-4 space-y-3 h-[calc(100vh-250px)] overflow-y-auto">
+        <div className="rounded border bg-background shadow-lg p-4 space-y-3 h-[calc(100vh-250px)] overflow-y-auto">
           {!selectedRow && <div className="text-sm text-muted-foreground">Select a job to view its timeline.</div>}
           {selectedRow && (
             <>

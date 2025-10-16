@@ -394,7 +394,7 @@ export function RouterPage() {
   const handleDeleteSelected = async () => {
     if (!selectedCount || deleting) return;
     const confirmed = window.confirm(
-      'Delete associated NC, CSV, image, and part files (nc/csv/bmp/jpg/png/pts/lpt) for the selected jobs?'
+      'Delete associated NC, CSV, image, and part files (nc/csv/bmp/jpg/jpeg/png/gif/pts/lpt/txt) for the selected jobs?'
     );
     if (!confirmed) return;
 

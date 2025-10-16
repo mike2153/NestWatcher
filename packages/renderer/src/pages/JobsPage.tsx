@@ -850,7 +850,7 @@ export function JobsPage() {
       />
 
       {historyKey && historyOpen && (
-        <div className="border rounded bg-card text-card-foreground p-3 space-y-2">
+        <div className="rounded border bg-background shadow-lg p-3 space-y-2">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold">History ? {historyKey}</h2>

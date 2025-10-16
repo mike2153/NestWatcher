@@ -3,8 +3,9 @@
 @layer base {
   :root {
     /* Core colors - Light theme with gradient effects */
-    --background: linear-gradient(135deg, theme('colors.neutral.200') 0%, theme('colors.neutral.100') 50%, theme('colors.neutral.100') 100%);  /* Header/UI elements background gradient */
-    --background-body: linear-gradient(to right, theme('colors.neutral.50'), theme('colors.neutral.100'), theme('colors.neutral.50'));  /* Main app body background - red to pink gradient */
+    --background: linear-gradient(135deg, theme('colors.neutral.200') 0%, theme('colors.neutral.100') 50%, theme('colors.neutral.100') 100%);
+      /* Header/UI elements background gradient */
+    --background-body: linear-gradient(to right, #d9d8e8, #d8d8e6, #dbd7ec);/* Main app body background. Use plain hex values so it can be easily customized. */
     --foreground: theme('colors.zinc.900');         /* Main text color - nearly black */
     --card: linear-gradient(135deg, theme('colors.gray.600') 0%, theme('colors.neutral.700') 50%, theme('colors.neutral.300') 100%);  /* Card background - warm gradient */
     --card-foreground: theme('colors.zinc.900');   /* Card text - dark blue-gray */
@@ -24,13 +25,13 @@
 
     /* Table colors */
     --table-bg:  linear-gradient(135deg, theme('colors.gray.50') 0%, theme('colors.gray.100') 50%, theme('colors.gray.300') 100%);  /* Table background gradient */
-    --table-header-bg:  linear-gradient(135deg, theme('colors.slate.400') 0%, theme('colors.slate.500') 30%, theme('colors.slate.400') 100%);   /* Table header background - dark to match table */
+    --table-header-bg:  linear-gradient(to right, #8b8a97, #d9d7ec);  /* Table header background - dark to match table */
     --table-text: theme('colors.gray.800');        /* Table text - light for dark background */
     --table-border: theme('colors.neutral.100');     /* Table outer border */
     --table-row-border: theme('colors.neutral.300'); /* Horizontal lines between rows */
     --table-hover-bg: linear-gradient(135deg, theme('colors.gray.300') 0%, theme('colors.gray.400') 30%, theme('colors.gray.300') 100%);  /* Row hover background */
     --table-selected-bg: linear-gradient(135deg, theme('colors.gray.400') 0%, theme('colors.gray.300') 50%, theme('colors.gray.400') 100%); /* Row selected background */
-
+                                    
     /* Sidebar colors - Metallic/Marble effect */
     --sidebar: linear-gradient(135deg, theme('colors.neutral.900') 0%, theme('colors.neutral.700') 50%, theme('colors.neutral.900') 100%);  /* Metallic gradient background */
     --sidebar-foreground: theme('colors.slate.100'); /* Light text on dark metallic bg */
@@ -40,7 +41,8 @@
     /* Input field styling */
     --input-border: theme('colors.gray.700');       /* Input border color */
     --input-border-width: 1.5px;                      /* Input border width */
-    --input-bg: theme('colors.gray.200');              /* Input background color */
+    /* Use a solid background for inputs/selects to unify appearance across panels */
+    --input-bg: #f3f4f6;              /* Input background color (light slate-100/gray-100 equivalent) */
 
     /* Page title gradient */
     --page-title-gradient: linear-gradient(135deg, theme('colors.stone.900') 0%, theme('colors.stone.700') 50%, theme('colors.stone.900') 100%);
@@ -177,9 +179,15 @@
   input[type="number"],
   input[type="email"],
   input[type="password"],
+  input[type="date"],
+  input[type="datetime-local"],
+  input[type="time"],
+  input[type="tel"],
+  input[type="url"],
   select,
   textarea {
     border: var(--input-border-width) solid var(--input-border) !important;
+    background: var(--input-bg) !important;
     background-color: var(--input-bg) !important;
     border-radius: 0.375rem;
     padding: 0.5rem;

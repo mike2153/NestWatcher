@@ -14,7 +14,7 @@ import { testConnection, withClient } from '../services/db';
 import { appendJobEvent } from '../repo/jobEventsRepo';
 import { upsertGrundnerInventory, type GrundnerCsvRow } from '../repo/grundnerRepo';
 import { listMachines } from '../repo/machinesRepo';
-import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLifecycle } from '../repo/jobsRepo';
+import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLifecycle, resyncGrundnerPreReservedForMaterial } from '../repo/jobsRepo';
 import { upsertCncStats } from '../repo/cncStatsRepo';
 import type { CncStatsUpsert } from '../repo/cncStatsRepo';
 import { normalizeTelemetryPayload } from './telemetryParser';
@@ -1923,14 +1923,28 @@ async function sourceSanityPollOnce() {
     const missing = pending.map((r) => r.key).filter((k) => !presentKeys.has(k));
     if (!missing.length) return;
 
-    // Delete missing PENDING jobs
+    // Delete missing PENDING jobs, including pre-reserved or locked ones (business rule)
     let removed = 0;
     for (const k of missing) {
+      // Look up material and pre-reserved flag prior to deletion
+      const row = await withClient((c) =>
+        c
+          .query<{ material: string | null; pre_reserved: boolean }>(
+            `SELECT material, pre_reserved FROM public.jobs WHERE key = $1 AND status = 'PENDING' LIMIT 1`,
+            [k]
+          )
+          .then((r) => r.rows[0] ?? null)
+      );
+      if (!row) continue;
+
       const res = await withClient((c) => c.query(`DELETE FROM public.jobs WHERE key = $1 AND status = 'PENDING'`, [k]));
       if ((res.rowCount ?? 0) > 0) {
         removed += 1;
         try {
           await appendJobEvent(k, 'jobs:prune:missing-source', { reason: 'NC file missing in processed root' }, null, undefined);
+        } catch {}
+        try {
+          await resyncGrundnerPreReservedForMaterial(row.material ?? null);
         } catch {}
       }
     }

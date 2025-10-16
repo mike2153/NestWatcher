@@ -4,19 +4,26 @@ import { withClient } from './db';
 import { loadConfig } from './config';
 import { logger } from '../logger';
 
-function walkDir(dir: string): string[] {
+function walkDir(dir: string): { files: string[]; hadError: boolean } {
   const out: string[] = [];
+  let hadError = false;
   try {
     const entries = readdirSync(dir, { withFileTypes: true });
     for (const e of entries) {
       const p = join(dir, e.name);
-      if (e.isDirectory()) out.push(...walkDir(p));
-      else if (e.isFile()) out.push(p);
+      if (e.isDirectory()) {
+        const child = walkDir(p);
+        if (child.hadError) hadError = true;
+        out.push(...child.files);
+      } else if (e.isFile()) {
+        out.push(p);
+      }
     }
   } catch (err) {
+    hadError = true;
     logger.warn({ err, dir }, 'Failed to read directory during walkDir');
   }
-  return out;
+  return { files: out, hadError };
 }
 
 function toBaseNoExt(p: string) {
@@ -80,19 +87,31 @@ function countParts(dir: string, base: string): string | undefined {
   }
 }
 
-export async function ingestProcessedJobsRoot(): Promise<{ inserted: number; updated: number }> {
+export async function ingestProcessedJobsRoot(): Promise<{ inserted: number; updated: number; pruned: number }> {
   const cfg = loadConfig();
   const root = cfg.paths.processedJobsRoot;
   if (!root) {
     logger.warn('No processedJobsRoot configured, skipping ingest');
-    return { inserted: 0, updated: 0 };
+    return { inserted: 0, updated: 0, pruned: 0 };
   }
   if (!existsSync(root)) {
     logger.error({ root }, 'processedJobsRoot path does not exist');
-    return { inserted: 0, updated: 0 };
+    return { inserted: 0, updated: 0, pruned: 0 };
   }
+  // Safety guard: if root is temporarily unreachable, skip pruning this cycle
+  try {
+    // Touch root directory to confirm it is readable
+    readdirSync(root, { withFileTypes: true });
+  } catch (err) {
+    logger.warn({ err, root }, 'Ingest: root not readable; skipping prune this cycle');
+    return { inserted: 0, updated: 0, pruned: 0 };
+  }
+
   let inserted = 0, updated = 0;
-  const files = walkDir(root).filter(p => extname(p).toLowerCase() === '.nc');
+  const scan = walkDir(root);
+  const files = scan.files.filter(p => extname(p).toLowerCase() === '.nc');
+  const hadScanError = scan.hadError;
+  const presentKeys = new Set<string>();
   for (const nc of files) {
     const dir = dirname(nc);
     const base = toBaseNoExt(nc);
@@ -100,6 +119,8 @@ export async function ingestProcessedJobsRoot(): Promise<{ inserted: number; upd
     const relFolder = relative(root, dir).split('\\').join('/');
     const folderLeaf = basename(dir);
     const key = `${relFolder}/${baseNoExt}`.replace(/^\//, '').slice(0, 100);
+    // Track this key as present in filesystem
+    presentKeys.add(key);
     const { material, size, thickness } = parseNc(nc);
     const parts = countParts(dir, baseNoExt);
     const sql = `INSERT INTO public.jobs(key, folder, ncfile, material, parts, size, thickness, dateadded, updated_at)
@@ -130,5 +151,57 @@ export async function ingestProcessedJobsRoot(): Promise<{ inserted: number; upd
       // Keep counters stable; treat failures as neither inserted nor updated
     }
   }
-  return { inserted, updated };
+  // Prune jobs that no longer exist on disk and have not been cut
+  // Note: If there are no .nc files present, this will prune all uncut jobs.
+  let pruned = 0;
+  try {
+    // Additional safety: if scanning had errors, do not prune this cycle to avoid accidental mass deletes
+    if (hadScanError) {
+      logger.warn({ root }, 'Ingest: scan had errors; skipping prune this cycle');
+      return { inserted, updated, pruned: 0 };
+    }
+    const keys = Array.from(presentKeys);
+    const pruneSql = `
+      WITH present AS (
+        SELECT unnest($1::text[]) AS key
+      )
+      DELETE FROM public.jobs j
+      USING (
+        SELECT j.key, j.material, j.pre_reserved
+        FROM public.jobs j
+        LEFT JOIN present p ON p.key = j.key
+        WHERE p.key IS NULL AND j.cut_at IS NULL AND j.nestpick_completed_at IS NULL
+      ) d
+      WHERE j.key = d.key
+      RETURNING d.material, d.pre_reserved`;
+
+    const result = await withClient((c) => c.query<{ material: string | null; pre_reserved: boolean | null }>(pruneSql, [keys]));
+    pruned = result.rowCount ?? 0;
+
+    if (pruned > 0) {
+      // For any materials that had pre-reserved rows deleted, resync the Grundner pre_reserved count
+      const affectedMaterials = new Set<string>();
+      for (const row of result.rows) {
+        if ((row.pre_reserved ?? false) && row.material && row.material.trim()) {
+          affectedMaterials.add(row.material.trim());
+        }
+      }
+      if (affectedMaterials.size > 0) {
+        try {
+          // Lazy import to avoid cycles
+          const { resyncGrundnerPreReservedForMaterial } = await import('../repo/jobsRepo');
+          for (const material of affectedMaterials) {
+            await resyncGrundnerPreReservedForMaterial(material);
+          }
+        } catch (err) {
+          logger.warn({ err }, 'Failed to resync Grundner reserved counts after prune');
+        }
+      }
+      logger.info({ pruned }, 'ingest: pruned missing uncut jobs');
+    }
+  } catch (err) {
+    logger.warn({ err }, 'ingest: failed to prune missing uncut jobs');
+  }
+
+  return { inserted, updated, pruned };
 }

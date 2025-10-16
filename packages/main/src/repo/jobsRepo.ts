@@ -101,6 +101,15 @@ async function syncGrundnerPreReservedCount(db: AppDb, material: string | null) 
     .where(condition);
 }
 
+// Public helper to resync Grundner pre-reserved count for a single material.
+// This wraps the internal function with a db handle and is intended for
+// maintenance flows where jobs may be pruned outside the reserve/unreserve path.
+export async function resyncGrundnerPreReservedForMaterial(material: string | null): Promise<void> {
+  await withDb(async (db) => {
+    await syncGrundnerPreReservedCount(db, material);
+  });
+}
+
 export async function listJobFilters(): Promise<JobsFilterOptions> {
   return withDb(async (db) => {
     const materialsRes = await db
@@ -282,6 +291,21 @@ export async function unreserveJob(key: string) {
 }
 
 export async function lockJob(key: string) {
+  const updated = await withDb((db) =>
+    db
+      .update(jobs)
+      .set({ isLocked: true, updatedAt: sql<Date>`now()` as unknown as Date })
+      // Only allow manual locking when not already locked and status is PENDING
+      .where(and(eq(jobs.key, key), eq(jobs.isLocked, false), eq(jobs.status, 'PENDING')))
+      .returning({ key: jobs.key })
+  );
+  return updated.length > 0;
+}
+
+// Use ONLY after Grundner .erl confirmation to enforce lock regardless of status.
+// This prevents generic UI/manual locking of STAGED jobs but still locks when
+// we have a positive confirmation from Grundner.
+export async function lockJobAfterGrundnerConfirmation(key: string) {
   const updated = await withDb((db) =>
     db
       .update(jobs)

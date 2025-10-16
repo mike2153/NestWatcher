@@ -5,7 +5,7 @@ import type { WorklistAddResult, WorklistCollisionInfo, WorklistSkippedFile } fr
 import { dialog } from 'electron';
 import { appendJobEvent } from '../repo/jobEventsRepo';
 import { listMachines } from '../repo/machinesRepo';
-import { resetJobForRestage, updateLifecycle, lockJob } from '../repo/jobsRepo';
+import { resetJobForRestage, updateLifecycle, lockJobAfterGrundnerConfirmation } from '../repo/jobsRepo';
 import { logger } from '../logger';
 import { loadConfig } from './config';
 import { withClient } from './db';
@@ -558,12 +558,33 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
     logger.warn({ err, key: job.key }, 'worklist: failed to append job event');
   }
 
-  // After staging, place Grundner order_saw CSV and lock on confirmation.
-  // This should not fail the staging result; show a dialog to the user with outcome.
+  // After staging, place Grundner order_saw CSV, wait for .erl reply, record the check,
+  // and then lock on confirmation. This should not fail the staging result; show a dialog to the user with outcome.
   try {
     const res = await placeOrderSawCsv([{ key: job.key, ncfile: job.ncfile, material: job.material ?? null }]);
+
+    // Record that we processed and checked the .erl (and that it was deleted)
+    try {
+      await appendJobEvent(
+        job.key,
+        'grundner:erlChecked',
+        {
+          confirmed: res.confirmed,
+          folder: res.folder,
+          checked: !!res.checked,
+          deleted: !!res.deleted,
+          csv: res.csv ?? null,
+          erl: res.erl ?? null
+        },
+        machineId
+      );
+    } catch (err) {
+      logger.warn({ err, key: job.key }, 'worklist: failed to append erlChecked event');
+    }
+
     if (res.confirmed) {
-      await lockJob(job.key);
+      // Lock only after confirmed .erl from Grundner
+      await lockJobAfterGrundnerConfirmation(job.key);
       void dialog.showMessageBox({ type: 'info', title: 'Order Saw', message: `Order confirmed for ${job.key}.` });
     } else {
       const message = res.erl ? res.erl : 'Timed out waiting for confirmation (.erl).';

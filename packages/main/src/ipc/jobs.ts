@@ -2,9 +2,9 @@ import { ok, err } from 'neverthrow';
 import type { AppError, WorklistAddResult } from '../../../shared/src';
 import { JobEventsReq, JobsListReq, ReserveReq, UnreserveReq, LockReq, UnlockReq, LockBatchReq } from '../../../shared/src';
 import { getJobEvents } from '../repo/jobEventsRepo';
-import { listJobFilters, listJobs, reserveJob, unreserveJob, lockJob, unlockJob } from '../repo/jobsRepo';
+import { listJobFilters, listJobs, reserveJob, unreserveJob, lockJob, unlockJob, lockJobAfterGrundnerConfirmation } from '../repo/jobsRepo';
 import { withDb } from '../services/db';
-import { inArray } from 'drizzle-orm';
+import { inArray, eq } from 'drizzle-orm';
 import { jobs } from '../db/schema';
 import { placeOrderSawCsv } from '../services/orderSaw';
 import { rerunJob } from '../services/rerun';
@@ -54,7 +54,30 @@ export function registerJobsIpc() {
     const req = LockReq.parse(raw);
     const success = await lockJob(req.key);
     if (!success) {
-      return err(createAppError('jobs.alreadyLocked', 'Job is already locked.'));
+      // Provide a clearer reason when locking fails
+      const rows = await withDb((db) =>
+        db
+          .select({ isLocked: jobs.isLocked, status: jobs.status })
+          .from(jobs)
+          .where(eq(jobs.key, req.key))
+          .limit(1)
+      );
+      if (!rows.length) {
+        return err(createAppError('jobs.notFound', 'Job not found.'));
+      }
+      const row = rows[0];
+      if (row.isLocked) {
+        return err(createAppError('jobs.alreadyLocked', 'Job is already locked.'));
+      }
+      if (row.status !== 'PENDING') {
+        return err(
+          createAppError(
+            'jobs.cannotLockUnlessPending',
+            'Job can only be locked when status is PENDING.'
+          )
+        );
+      }
+      return err(createAppError('jobs.lockFailed', 'Failed to lock job.'));
     }
     return ok<null, AppError>(null);
   });
@@ -89,9 +112,9 @@ export function registerJobsIpc() {
         return err(createAppError('grundner.orderFailed', message));
       }
 
-      // Mark locked after confirmation
+      // Mark locked after Grundner .erl confirmation
       for (const k of keys) {
-        await lockJob(k);
+        await lockJobAfterGrundnerConfirmation(k);
       }
       return ok<null, AppError>(null);
     } catch (ex) {
