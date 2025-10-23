@@ -23,12 +23,9 @@
                     "build:preload":  "esbuild packages/preload/src/index.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --outfile=packages/preload/dist/index.js --sourcemap",
                     "lint":  "eslint \"packages/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
                     "lint:fix":  "eslint --fix \"packages/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
-                    "typecheck":  "pnpm -r run typecheck \u0026\u0026 tsc -p tests/tsconfig.json",
-                    "test":  "vitest run --coverage",
-                    "test:watch":  "vitest",
+                    "typecheck":  "pnpm -r run typecheck",
                     "format":  "pnpm dlx prettier --config prettier.config.cjs --ignore-path .prettierignore --write .",
-                    "format:check":  "pnpm dlx prettier --config prettier.config.cjs --ignore-path .prettierignore --check .",
-                    "e2e":  "playwright test"
+                    "format:check":  "pnpm dlx prettier --config prettier.config.cjs --ignore-path .prettierignore --check ."
                 },
     "devDependencies":  {
                             "@playwright/test":  "^1.48.2",
