@@ -21,7 +21,9 @@ async function waitForStableFile(path: string, attempts = 4, intervalMs = 300): 
       const stat = await fsp.stat(path);
       if (stat.size === lastSize) return;
       lastSize = stat.size;
-    } catch {}
+    } catch {
+      /* ignore transient fs errors while probing file size */
+    }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
 }
@@ -48,7 +50,9 @@ export async function placeOrderSawCsv(
   const erlPath = join(folder, 'order_saw.erl');
 
   // Make sure previous reply is cleared to avoid stale confirmations
-  try { await fsp.unlink(erlPath); } catch {}
+  try { await fsp.unlink(erlPath); } catch {
+    /* ignore if previous erl does not exist */
+  }
 
   // Avoid overwriting an in-flight order: if present, wait 5s once then fail if still present
   if (existsSync(csvPath) || existsSync(tmpPath)) {

@@ -1849,7 +1849,9 @@ async function stageSanityPollOnce() {
               machineId,
               undefined
             );
-          } catch {}
+          } catch {
+            /* ignore appendJobEvent failure when reverting staged job */
+          }
         }
       }
     }
@@ -1942,10 +1944,14 @@ async function sourceSanityPollOnce() {
         removed += 1;
         try {
           await appendJobEvent(k, 'jobs:prune:missing-source', { reason: 'NC file missing in processed root' }, null, undefined);
-        } catch {}
+        } catch {
+          /* ignore appendJobEvent failure during prune */
+        }
         try {
           await resyncGrundnerPreReservedForMaterial(row.material ?? null);
-        } catch {}
+        } catch {
+          /* ignore grundner resync failure for this row */
+        }
       }
     }
     if (removed > 0) {

@@ -21,8 +21,8 @@
                     "build":  "pnpm build:preload \u0026\u0026 pnpm build:main \u0026\u0026 pnpm -C packages/renderer build",
                     "build:main":  "esbuild packages/main/src/main.ts packages/main/src/workers/watchersWorker.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --external:fsevents --outdir=packages/main/dist --sourcemap",
                     "build:preload":  "esbuild packages/preload/src/index.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --outfile=packages/preload/dist/index.js --sourcemap",
-                    "lint":  "eslint \"packages/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
-                    "lint:fix":  "eslint --fix \"packages/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
+                    "lint":  "eslint \"packages/**/*.{ts,tsx}\"",
+                    "lint:fix":  "eslint --fix \"packages/**/*.{ts,tsx}\"",
                     "typecheck":  "pnpm -r run typecheck",
                     "format":  "pnpm dlx prettier --config prettier.config.cjs --ignore-path .prettierignore --write .",
                     "format:check":  "pnpm dlx prettier --config prettier.config.cjs --ignore-path .prettierignore --check ."

@@ -123,10 +123,10 @@ export function registerJobsIpc() {
   });
 
   registerResultHandler('jobs:rerun', async (_e, raw) => {
-    if (typeof raw !== 'object' || raw === null || typeof (raw as any).key !== 'string') {
+    if (typeof raw !== 'object' || raw === null || typeof (raw as { key?: unknown }).key !== 'string') {
       return err(createAppError('jobs.invalidArguments', 'Invalid arguments supplied.'));
     }
-    const key = (raw as any).key as string;
+    const key = (raw as { key: string }).key;
     const res = await rerunJob(key);
     if (!res.ok) return err(createAppError('jobs.rerunFailed', res.error));
     return ok<null, AppError>(null);

@@ -494,7 +494,6 @@ export function JobsPage() {
 
   const selectedRows = table.getSelectedRowModel().rows;
   const selectedKeys = selectedRows.map((row) => row.original.key);
-  const selectedCount = selectedKeys.length;
   const anyPreReserved = selectedRows.some((row) => row.original.preReserved);
   const anyNotPreReserved = selectedRows.some((row) => !row.original.preReserved);
   const anyLocked = selectedRows.some((row) => row.original.locked);
