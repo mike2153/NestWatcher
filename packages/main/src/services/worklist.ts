@@ -83,16 +83,7 @@ function resolveSourceRoot(rawFolder: string | null, processedRoot: string, jobK
   return isDir(candidateFromKey) ? candidateFromKey : null;
 }
 
-function formatTimestampForDir(date: Date) {
-  const pad = (value: number) => value.toString().padStart(2, '0');
-  const year = date.getFullYear();
-  const month = pad(date.getMonth() + 1);
-  const day = pad(date.getDate());
-  const hours = pad(date.getHours());
-  const minutes = pad(date.getMinutes());
-  const seconds = pad(date.getSeconds());
-  return `${year}${month}${day}-${hours}${minutes}${seconds}`;
-}
+// Previously used for timestamped folder names; no longer needed
 
 function toPosixRelative(path: string) {
   return path.split('\\').join('/');

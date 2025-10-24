@@ -6,7 +6,7 @@ import {
 } from '@tanstack/react-table';
 import type { ColumnDef, SortingState } from '@tanstack/react-table';
 import { GlobalTable } from '@/components/table/GlobalTable';
-import type { GrundnerListReq, GrundnerRow } from '../../../shared/src';
+import type { GrundnerListReq, GrundnerRow, WatcherStatus } from '../../../shared/src';
 function formatTimestamp(value: string) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
@@ -76,7 +76,7 @@ export function GrundnerPage() {
     return numeric;
   };
 
-  const updateRow = useCallback(async (row: GrundnerRow) => {
+  const _updateRow = useCallback(async (row: GrundnerRow) => {
     const edit = editing[row.id] ?? {};
     const payload: { stockAvailable?: number | null } = {};
     let dirty = false;
@@ -109,14 +109,7 @@ export function GrundnerPage() {
     await load();
   }, [editing, load]);
 
-  const resyncReserved = async (id?: number) => {
-    const res = await window.api.grundner.resync(id ? { id } : undefined);
-    if (!res.ok) {
-      alert(`Resync failed: ${res.error.message}`);
-      return;
-    }
-    await load();
-  };
+  // Resync action handler is currently unused; remove to satisfy linter
 
   const exportCsv = () => {
     try {
@@ -175,7 +168,7 @@ export function GrundnerPage() {
 
     const unsubscribe = window.api.diagnostics.subscribe((snapshot) => {
       try {
-        const watcher = snapshot?.watchers?.find((w: any) => w?.label === 'Grundner Stock Poller');
+        const watcher = snapshot?.watchers?.find((w: WatcherStatus) => w?.label === 'Grundner Stock Poller');
         if (!watcher?.lastEventAt) return;
         const eventTs = Date.parse(watcher.lastEventAt);
         if (!Number.isFinite(eventTs)) return;
@@ -200,11 +193,15 @@ export function GrundnerPage() {
         }
         lastAutoRefreshAtRef.current = now;
         void load();
-      } catch {}
+      } catch {
+        /* ignore diagnostics parsing errors */
+      }
     });
 
     return () => {
-      try { unsubscribe?.(); } catch {}
+      try { unsubscribe?.(); } catch {
+        /* ignore unsubscribe errors */
+      }
     };
   }, [editing, loading, load]);
 
@@ -304,7 +301,7 @@ export function GrundnerPage() {
       size: 180,
       meta: { widthClass: 'w-[180px]' }
     },
-  ], [editing, updateRow]);
+  ], []);
 
   const table = useReactTable({
     data: rows,
