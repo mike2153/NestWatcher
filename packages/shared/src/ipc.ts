@@ -363,6 +363,30 @@ export type GrundnerResyncReq = z.infer<typeof GrundnerResyncReq>;
 
 
 
+export const AllocatedMaterialRow = z.object({
+  grundnerId: z.number().int().nullable(),
+  typeData: z.number().int().nullable(),
+  customerId: z.string().nullable(),
+  lengthMm: z.number().int().nullable(),
+  widthMm: z.number().int().nullable(),
+  thicknessMm: z.number().int().nullable(),
+  stock: z.number().int().nullable(),
+  stockAvailable: z.number().int().nullable(),
+  reservedStock: z.number().int().nullable(),
+  preReserved: z.number().int().nullable(),
+  jobKey: z.string(),
+  ncfile: z.string().nullable(),
+  material: z.string().nullable(),
+  jobPreReserved: z.boolean(),
+  jobLocked: z.boolean(),
+  updatedAt: z.string().nullable(),
+  allocationStatus: z.enum(['pre_reserved', 'locked'])
+});
+export type AllocatedMaterialRow = z.infer<typeof AllocatedMaterialRow>;
+
+export const AllocatedMaterialListRes = z.object({ items: z.array(AllocatedMaterialRow) });
+export type AllocatedMaterialListRes = z.infer<typeof AllocatedMaterialListRes>;
+
 
 
 

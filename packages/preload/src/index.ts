@@ -10,6 +10,7 @@ import type {
   LogWriteReq,
   ThemePreferenceReq,
   ThemePreferenceRes,
+  AllocatedMaterialListRes,
   GrundnerListReq,
   GrundnerListRes,
   GrundnerResyncReq,
@@ -115,7 +116,26 @@ const api = {
   grundner: {
     list: (req?: GrundnerListReq) => invokeResult<GrundnerListRes>('grundner:list', req ?? {}),
     update: (input: GrundnerUpdateReq) => invokeResult<{ ok: boolean; updated: number }>('grundner:update', input),
-    resync: (input?: GrundnerResyncReq) => invokeResult<{ updated: number }>('grundner:resync', input ?? {})
+    resync: (input?: GrundnerResyncReq) => invokeResult<{ updated: number }>('grundner:resync', input ?? {}),
+    subscribeRefresh: (listener: () => void) => {
+      const channel = 'grundner:refresh';
+      const handler = () => listener();
+      ipcRenderer.on(channel, handler);
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+      };
+    }
+  },
+  allocatedMaterial: {
+    list: () => invokeResult<AllocatedMaterialListRes>('allocatedMaterial:list'),
+    subscribe: (listener: () => void) => {
+      const channel = 'allocatedMaterial:refresh';
+      const handler = () => listener();
+      ipcRenderer.on(channel, handler);
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+      };
+    }
   },
   hypernest: {
     open: () => invokeResult<null>('hypernest:open')

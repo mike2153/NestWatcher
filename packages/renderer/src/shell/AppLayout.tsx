@@ -14,6 +14,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/machines': 'Machines',
   '/settings': 'Settings',
   '/grundner': 'Grundner',
+  '/allocated-material': 'Allocated Material',
   '/router': 'Router',
   '/theme': 'Theme',
   '/telemetry': 'Telemetry',
@@ -318,13 +319,14 @@ export function AppLayout() {
   const diagnosticsErrors = diagnostics?.recentErrors ?? [];
   const machineHealthEntries: MachineHealthEntry[] = diagnostics?.machineHealth ?? [];
   const machineHealthAlerts = machineHealthEntries.filter((issue) => issue.severity !== 'info');
-  const watcherAlerts = diagnosticsWatchers.filter((watcher) => watcher.status === 'error');
+  const watcherIssues = diagnosticsWatchers.filter((watcher) => watcher.status !== 'watching');
+  const watcherAlerts = watcherIssues.filter((watcher) => watcher.status === 'error');
   const recentErrorIsFresh = diagnosticsErrors.some((entry) => {
     const parsed = Date.parse(entry.timestamp);
     return !Number.isNaN(parsed) && Date.now() - parsed < 15 * 60 * 1000;
   });
   const diagnosticsAlertCount =
-    machineHealthAlerts.length + watcherAlerts.length + (recentErrorIsFresh ? 1 : 0);
+    machineHealthAlerts.length + watcherIssues.length + (recentErrorIsFresh ? 1 : 0);
   const hasDiagnosticsAlert = diagnosticsAlertCount > 0;
   const selectedLogSummary = useMemo(
     () => logList.find((item) => item.file === logSelectedFile) ?? null,
@@ -498,7 +500,7 @@ export function AppLayout() {
               </button>
             </div>
           </div>
-          <div className="space-y-3 p-3 text-sm">
+          <div className="space-y-4 p-3 text-sm max-h-[80vh] overflow-y-auto">
             {copyFeedback && (
               <div
                 className={cn(
@@ -511,9 +513,9 @@ export function AppLayout() {
                 {copyFeedback.message}
               </div>
             )}
-            <div>
-              <div className="text-xs uppercase text-muted-foreground">Database</div>
-              <div className="mt-1 flex items-center gap-2">
+            <section>
+              <div className="text-xs uppercase text-muted-foreground">System Status</div>
+              <div className="mt-2 flex flex-wrap items-center gap-4">
                 <span
                   className={cn(
                     'h-2.5 w-2.5 rounded-full',
@@ -521,22 +523,56 @@ export function AppLayout() {
                   )}
                   aria-hidden
                 />
-                <span>{diagnostics?.dbStatus?.online ? 'Online' : 'Offline'}</span>
-                {typeof diagnostics?.dbStatus?.latencyMs === 'number' && (
-                  <span className="text-xs text-muted-foreground">{diagnostics.dbStatus.latencyMs} ms</span>
-                )}
+                <div className="flex flex-col">
+                  <span>{diagnostics?.dbStatus?.online ? 'Database online' : 'Database offline'}</span>
+                  {typeof diagnostics?.dbStatus?.latencyMs === 'number' && (
+                    <span className="text-xs text-muted-foreground">{diagnostics.dbStatus.latencyMs} ms</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      'h-2.5 w-2.5 rounded-full',
+                      watcherIssues.length === 0 ? 'bg-emerald-500' : 'bg-amber-500'
+                    )}
+                    aria-hidden
+                  />
+                  <span>
+                    {watcherIssues.length === 0
+                      ? 'All watchers healthy'
+                      : `${watcherIssues.length} watcher${watcherIssues.length === 1 ? '' : 's'} need attention`}
+                  </span>
+                </div>
               </div>
               {diagnostics?.dbStatus?.error && (
-                <div className="text-xs text-red-600">{diagnostics.dbStatus.error}</div>
+                <div className="mt-1 text-xs text-red-600">{diagnostics.dbStatus.error}</div>
               )}
-            </div>
-            <div>
-              <div className="text-xs uppercase text-muted-foreground">Machine Health</div>
-              <div className="mt-1 space-y-2">
-                {machineHealthEntries.length === 0 ? (
-                  <></>
-                ) : (
-                  machineHealthEntries.map((issue) => (
+              {watcherIssues.length > 0 && (
+                <ul className="mt-3 space-y-1">
+                  {watcherIssues.map((watcher) => {
+                    const statusClass =
+                      watcher.status === 'error'
+                        ? 'border-red-300 bg-red-50 text-red-700'
+                        : 'border-amber-300 bg-amber-50 text-amber-700';
+                    return (
+                      <li
+                        key={watcher.name}
+                        className={cn(
+                          'flex items-center justify-between rounded border px-2 py-1 text-xs',
+                          statusClass
+                        )}
+                      >
+                        <span className="font-medium truncate pr-2" title={watcher.label}>{watcher.label}</span>
+                        <span className="uppercase font-semibold">{watcher.status}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {machineHealthEntries.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <div className="text-xs uppercase text-muted-foreground">Machine Health</div>
+                  {machineHealthEntries.map((issue) => (
                     <div key={issue.id} className="rounded border p-2">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-medium">
@@ -560,41 +596,31 @@ export function AppLayout() {
                         {new Date(issue.lastUpdatedAt).toLocaleTimeString()}
                       </div>
                     </div>
-                  ))
-                )}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs uppercase text-muted-foreground">Watchers</div>
-              <div className="mt-1 grid grid-cols-2 gap-2">
-                {diagnosticsWatchers.length === 0 ? (
-                  <div className="text-xs text-muted-foreground col-span-2">No watcher metrics available.</div>
+                  ))}
+                </div>
+              )}
+            </section>
+            <section>
+              <div className="text-xs uppercase text-muted-foreground">Recent Errors</div>
+              <div className="mt-2 space-y-2 max-h-40 overflow-y-auto rounded border border-[var(--table-border)] bg-muted/20 p-2">
+                {diagnosticsErrors.length === 0 ? (
+                  <div className="text-xs text-muted-foreground">No errors recorded.</div>
                 ) : (
-                  diagnosticsWatchers.map((watcher) => (
-                    <div key={watcher.name} className="rounded border p-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium truncate" title={watcher.label}>{watcher.label}</span>
-                        <span
-                          className={cn(
-                            'text-xs font-semibold uppercase tracking-wide',
-                            watcher.status === 'error'
-                              ? 'text-red-600'
-                              : watcher.status === 'watching'
-                              ? 'text-emerald-600'
-                              : 'text-muted-foreground'
-                          )}
-                        >
-                          {watcher.status}
-                        </span>
+                  diagnosticsErrors.slice(0, 8).map((entry) => (
+                    <div key={entry.id} className="rounded border bg-background px-2 py-1">
+                      <div className="text-xs text-muted-foreground">
+                        {new Date(entry.timestamp).toLocaleString()}
                       </div>
+                      <div className="text-sm font-medium">{entry.source}</div>
+                      <div>{entry.message}</div>
                     </div>
                   ))
                 )}
               </div>
-            </div>
-            <div>
+            </section>
+            <section>
               <div className="text-xs uppercase text-muted-foreground">Logs</div>
-              <div className="mt-1 space-y-2">
+              <div className="mt-2 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <select
                     className="border rounded px-2 py-1 text-xs"
@@ -661,35 +687,22 @@ export function AppLayout() {
                       </div>
                     )}
                     {logError && <div className="text-xs text-red-600">{logError}</div>}
-                    <pre key={logSelectedFile ?? 'none'} className="max-h-96 overflow-auto rounded border bg-muted/40 p-2 font-mono text-[11px] leading-snug whitespace-pre-wrap">
-                      {logLoading
-                        ? 'Loading log...'
-                        : logLines.length
-                          ? logLines.join('\n')
-                          : 'No log lines to display.'}
-                    </pre>
+                    <div className="max-h-72 overflow-auto rounded border bg-muted/40">
+                      <pre
+                        key={logSelectedFile ?? 'none'}
+                        className="min-w-full px-2 py-2 font-mono text-[11px] leading-snug whitespace-pre"
+                      >
+                        {logLoading
+                          ? 'Loading log...'
+                          : logLines.length
+                            ? logLines.join('\n')
+                            : 'No log lines to display.'}
+                      </pre>
+                    </div>
                   </>
                 )}
               </div>
-            </div>
-            <div>
-              <div className="text-xs uppercase text-muted-foreground">Recent Errors</div>
-              <div className="mt-1 max-h-40 space-y-2 overflow-y-auto">
-                {diagnosticsErrors.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">No errors recorded.</div>
-                ) : (
-                  diagnosticsErrors.slice(0, 5).map((entry) => (
-                    <div key={entry.id} className="rounded border p-2">
-                      <div className="text-xs text-muted-foreground">
-                        {new Date(entry.timestamp).toLocaleTimeString()}
-                      </div>
-                      <div className="text-sm font-medium">{entry.source}</div>
-                      <div>{entry.message}</div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
+            </section>
           </div>
         </div>
       )}

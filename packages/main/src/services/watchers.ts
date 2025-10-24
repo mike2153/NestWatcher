@@ -1,6 +1,6 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { dialog } from 'electron';
+import { BrowserWindow, dialog } from 'electron';
 import { Worker } from 'worker_threads';
 import { logger } from '../logger';
 import {
@@ -108,6 +108,25 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
     case 'machineHealthClear':
       clearMachineHealthIssue(message.payload.machineId, message.payload.code);
       break;
+    case 'dbNotify': {
+      const channelName =
+        message.channel === 'grundner' ? 'grundner:refresh' : 'allocatedMaterial:refresh';
+      for (const win of BrowserWindow.getAllWindows()) {
+        try {
+          if (!win.isDestroyed()) {
+            win.webContents.send(channelName);
+          }
+        } catch (err) {
+          logger.warn({ err, channel: channelName }, 'watchers: failed to broadcast dbNotify');
+        }
+      }
+      break;
+    }
+    case 'appAlert': {
+      const error = new Error(message.summary);
+      recordWorkerError(`app-alert:${message.category}`, error, message.details);
+      break;
+    }
     default:
       logger.warn({ message }, 'watchers: received unknown worker message');
   }

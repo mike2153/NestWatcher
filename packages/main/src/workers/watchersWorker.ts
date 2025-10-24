@@ -10,9 +10,9 @@ import { parentPort } from 'worker_threads';
 import type { Machine, MachineHealthCode } from '../../../shared/src';
 import { loadConfig } from '../services/config';
 import { logger } from '../logger';
-import { testConnection, withClient } from '../services/db';
+import { getPool, testConnection, withClient } from '../services/db';
 import { appendJobEvent } from '../repo/jobEventsRepo';
-import { upsertGrundnerInventory, type GrundnerCsvRow } from '../repo/grundnerRepo';
+import { upsertGrundnerInventory, type GrundnerCsvRow, findGrundnerAllocationConflicts } from '../repo/grundnerRepo';
 import { listMachines } from '../repo/machinesRepo';
 import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLifecycle, resyncGrundnerPreReservedForMaterial } from '../repo/jobsRepo';
 import { upsertCncStats } from '../repo/cncStatsRepo';
@@ -143,6 +143,11 @@ const GRUNDNER_WATCHER_LABEL = 'Grundner Stock Poller';
 let grundnerTimer: NodeJS.Timeout | null = null;
 let grundnerLastHash: string | null = null;
 
+type RefreshChannel = 'grundner' | 'allocated-material';
+const refreshTimers = new Map<RefreshChannel, NodeJS.Timeout>();
+let notificationClient: PoolClient | null = null;
+let notificationRestartTimer: NodeJS.Timeout | null = null;
+
 const STAGE_SANITY_WATCHER_NAME = 'watcher:stage-sanity';
 const STAGE_SANITY_WATCHER_LABEL = 'Stage Sanity';
 const SOURCE_SANITY_WATCHER_NAME = 'watcher:source-sanity';
@@ -228,6 +233,83 @@ async function waitForFileRelease(path: string, attempts = 10, intervalMs = 200)
     }
   }
   return false;
+}
+
+function scheduleRendererRefresh(channel: RefreshChannel) {
+  if (refreshTimers.has(channel)) return;
+  const timer = setTimeout(() => {
+    refreshTimers.delete(channel);
+    postMessageToMain({ type: 'dbNotify', channel });
+  }, 250);
+  if (typeof timer.unref === 'function') timer.unref();
+  refreshTimers.set(channel, timer);
+}
+
+async function startDbNotificationListener() {
+  try {
+    await withClient(async () => {
+      /* Ensure pool is ready */
+    });
+    const pool = getPool();
+    if (!pool) {
+      throw new Error('watchers: database pool unavailable for LISTEN');
+    }
+    const client = await pool.connect();
+    notificationClient = client;
+    await client.query('SET search_path TO public');
+    await client.query('LISTEN grundner_changed');
+    await client.query('LISTEN allocated_material_changed');
+    client.on('notification', (msg) => {
+      if (!msg.channel) return;
+      if (msg.channel === 'grundner_changed') {
+        scheduleRendererRefresh('grundner');
+      } else if (msg.channel === 'allocated_material_changed') {
+        scheduleRendererRefresh('allocated-material');
+      }
+    });
+    client.on('error', (err) => {
+      recordWorkerError('watchers:db-listener', err);
+      try {
+        client.removeAllListeners();
+        client.release();
+      } catch {
+        /* noop */
+      }
+      notificationClient = null;
+      if (!notificationRestartTimer) {
+        notificationRestartTimer = setTimeout(() => {
+          notificationRestartTimer = null;
+          void startDbNotificationListener();
+        }, 1000);
+        if (typeof notificationRestartTimer.unref === 'function') {
+          notificationRestartTimer.unref();
+        }
+      }
+    });
+    client.on('end', () => {
+      notificationClient = null;
+      if (!notificationRestartTimer && !shuttingDown) {
+        notificationRestartTimer = setTimeout(() => {
+          notificationRestartTimer = null;
+          void startDbNotificationListener();
+        }, 1000);
+        if (typeof notificationRestartTimer.unref === 'function') {
+          notificationRestartTimer.unref();
+        }
+      }
+    });
+  } catch (err) {
+    recordWorkerError('watchers:db-listener', err);
+    if (!notificationRestartTimer && !shuttingDown) {
+      notificationRestartTimer = setTimeout(() => {
+        notificationRestartTimer = null;
+        void startDbNotificationListener();
+      }, 1000);
+      if (typeof notificationRestartTimer.unref === 'function') {
+        notificationRestartTimer.unref();
+      }
+    }
+  }
 }
 
 async function hashFile(path: string) {
@@ -1303,6 +1385,25 @@ async function shutdown(reason?: string) {
     clearInterval(grundnerTimer);
     grundnerTimer = null;
   }
+  if (notificationRestartTimer) {
+    clearTimeout(notificationRestartTimer);
+    notificationRestartTimer = null;
+  }
+  if (notificationClient) {
+    try {
+      await notificationClient.query('UNLISTEN grundner_changed');
+      await notificationClient.query('UNLISTEN allocated_material_changed');
+    } catch (err) {
+      logger.warn({ err }, 'watchersWorker: failed to unlisten db notifications');
+    } finally {
+      try {
+        notificationClient.release();
+      } catch (err) {
+        logger.warn({ err }, 'watchersWorker: failed to release db listener');
+      }
+      notificationClient = null;
+    }
+  }
   const watchers = Array.from(fsWatchers);
   for (const watcher of watchers) {
     try {
@@ -2044,10 +2145,37 @@ async function grundnerPollOnce(folder: string) {
     grundnerLastHash = hash;
     const items = parseGrundnerCsv(raw);
     if (!items.length) return;
-    const { inserted, updated } = await upsertGrundnerInventory(items);
+    const result = await upsertGrundnerInventory(items);
+    if (result.inserted > 0 || result.updated > 0) {
+      scheduleRendererRefresh('grundner');
+      scheduleRendererRefresh('allocated-material');
+    }
+
+    if (result.changed.length) {
+      try {
+        const conflicts = await findGrundnerAllocationConflicts(result.changed);
+        if (conflicts.length) {
+          const summary = `Grundner stock updated for ${conflicts.length} allocated material(s)`;
+          postMessageToMain({
+            type: 'appAlert',
+            category: 'grundner',
+            summary,
+            details: { conflicts }
+          });
+          recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
+            label: GRUNDNER_WATCHER_LABEL,
+            message: summary,
+            context: { conflicts }
+          });
+        }
+      } catch (err) {
+        recordWorkerError('grundner:conflict-check', err);
+      }
+    }
+
     recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
       label: GRUNDNER_WATCHER_LABEL,
-      message: `Synced Grundner stock (inserted ${inserted}, updated ${updated})`
+      message: `Synced Grundner stock (inserted ${result.inserted}, updated ${result.updated})`
     });
   } catch (err) {
     recordWatcherError(GRUNDNER_WATCHER_NAME, err, { label: GRUNDNER_WATCHER_LABEL });
@@ -2109,6 +2237,7 @@ function startJobsIngestPolling() {
 async function initWatchers() {
   logger.info('watchers: waiting for database readiness before starting');
   await waitForDbReady();
+  await startDbNotificationListener();
   const cfg = loadConfig();
   if (cfg.paths.autoPacCsvDir) {
     setupAutoPacWatcher(cfg.paths.autoPacCsvDir);

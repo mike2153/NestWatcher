@@ -9,7 +9,8 @@ import {
   serial,
   text,
   timestamp,
-  varchar
+  varchar,
+  pgView
 } from 'drizzle-orm/pg-core';
 
 export const jobStatusEnum = pgEnum('job_status', [
@@ -85,11 +86,32 @@ export const grundner = pgTable('grundner', {
   preReserved: integer('pre_reserved').default(0)
 });
 
+export const allocatedMaterialView = pgView('allocated_material_view', {
+  grundnerId: integer('grundner_id'),
+  typeData: integer('type_data'),
+  customerId: varchar('customer_id', { length: 50 }),
+  lengthMm: integer('length_mm'),
+  widthMm: integer('width_mm'),
+  thicknessMm: integer('thickness_mm'),
+  stock: integer('stock'),
+  stockAvailable: integer('stock_available'),
+  reservedStock: integer('reserved_stock'),
+  preReserved: integer('pre_reserved'),
+  jobKey: varchar('job_key', { length: 100 }),
+  ncfile: varchar('ncfile', { length: 255 }),
+  material: varchar('material', { length: 255 }),
+  jobPreReserved: boolean('job_pre_reserved'),
+  jobIsLocked: boolean('job_is_locked'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }),
+  allocationStatus: varchar('allocation_status', { length: 20 })
+});
+
 export const schema = {
   jobs,
   machines,
   jobEvents,
   grundner,
+  allocatedMaterialView,
   jobStatusEnum
 };
 

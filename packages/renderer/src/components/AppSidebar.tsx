@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Briefcase, Router, History, Settings, PieChart, AlarmClock } from 'lucide-react';
+import { LayoutDashboard, Briefcase, Router, History, Settings, PieChart, AlarmClock, Layers } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -16,6 +16,7 @@ const nav = [
   { to: '/router', label: 'Router', icon: Router },
   { to: '/history', label: 'History', icon: History },
   { to: '/grundner', label: 'Grundner', icon: PieChart },
+  { to: '/allocated-material', label: 'Allocated Material', icon: Layers },
   { to: '/telemetry', label: 'Telemetry', icon: PieChart },
   { to: '/cnc-alarms', label: 'CNC Alarms', icon: AlarmClock },
   { to: '/settings', label: 'Settings', icon: Settings },

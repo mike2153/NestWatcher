@@ -6,7 +6,7 @@ import {
 } from '@tanstack/react-table';
 import type { ColumnDef, SortingState } from '@tanstack/react-table';
 import { GlobalTable } from '@/components/table/GlobalTable';
-import type { GrundnerListReq, GrundnerRow, WatcherStatus } from '../../../shared/src';
+import type { GrundnerListReq, GrundnerRow } from '../../../shared/src';
 function formatTimestamp(value: string) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
@@ -162,48 +162,23 @@ export function GrundnerPage() {
     }
   };
 
-  // Auto-refresh on Grundner watcher push events (throttled)
+  // Auto-refresh on backend notifications (throttled)
   useEffect(() => {
-    const MIN_GAP_MS = 15_000; // throttle auto refresh
-
-    const unsubscribe = window.api.diagnostics.subscribe((snapshot) => {
-      try {
-        const watcher = snapshot?.watchers?.find((w: WatcherStatus) => w?.label === 'Grundner Stock Poller');
-        if (!watcher?.lastEventAt) return;
-        const eventTs = Date.parse(watcher.lastEventAt);
-        if (!Number.isFinite(eventTs)) return;
-        // Only react to events after our last successful load
-        if (eventTs <= lastLoadedAtRef.current) return;
-
-        // Only refresh when we actually synced rows
-        const msg: string = watcher.lastEvent ?? '';
-        const m = msg.match(/Synced Grundner stock \(inserted\s+(\d+),\s*updated\s+(\d+)\)/i);
-        if (!m) return;
-        const inserted = Number(m[1] ?? 0) || 0;
-        const updated = Number(m[2] ?? 0) || 0;
-        if (inserted + updated <= 0) return;
-
-        const now = Date.now();
-        if (now - lastAutoRefreshAtRef.current < MIN_GAP_MS) return;
-
-        // Avoid disrupting active edits or in-flight loads; defer if needed
-        if (loading || Object.keys(editing).length > 0) {
-          setPendingAutoRefresh(true);
-          return;
-        }
-        lastAutoRefreshAtRef.current = now;
-        void load();
-      } catch {
-        /* ignore diagnostics parsing errors */
+    const MIN_GAP_MS = 5_000;
+    const unsubscribe = window.api.grundner.subscribeRefresh(() => {
+      const now = Date.now();
+      if (now - lastAutoRefreshAtRef.current < MIN_GAP_MS) {
+        return;
       }
+      if (loading || Object.keys(editing).length > 0) {
+        setPendingAutoRefresh(true);
+        return;
+      }
+      lastAutoRefreshAtRef.current = now;
+      void load();
     });
-
-    return () => {
-      try { unsubscribe?.(); } catch {
-        /* ignore unsubscribe errors */
-      }
-    };
-  }, [editing, loading, load]);
+    return unsubscribe;
+  }, [editing, load, loading]);
 
   // When edits finish and a refresh is pending, run it (throttled)
   useEffect(() => {
@@ -211,7 +186,7 @@ export function GrundnerPage() {
     if (loading) return;
     if (Object.keys(editing).length > 0) return;
     const now = Date.now();
-    const MIN_GAP_MS = 15_000;
+    const MIN_GAP_MS = 5_000;
     if (now - lastAutoRefreshAtRef.current < MIN_GAP_MS) return;
     setPendingAutoRefresh(false);
     lastAutoRefreshAtRef.current = now;

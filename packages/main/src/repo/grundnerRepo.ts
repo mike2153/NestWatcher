@@ -147,12 +147,17 @@ export type GrundnerCsvRow = {
   reservedStock: number | null;
 };
 
-export async function upsertGrundnerInventory(rows: GrundnerCsvRow[]): Promise<{ inserted: number; updated: number }> {
-  if (!rows.length) return { inserted: 0, updated: 0 };
+export type GrundnerChangedRow = { typeData: number | null; customerId: string | null };
+
+export async function upsertGrundnerInventory(
+  rows: GrundnerCsvRow[]
+): Promise<{ inserted: number; updated: number; changed: GrundnerChangedRow[] }> {
+  if (!rows.length) return { inserted: 0, updated: 0, changed: [] };
   const columns = ['type_data', 'customer_id', 'length_mm', 'width_mm', 'thickness_mm', 'stock', 'stock_available', 'reserved_stock'] as const;
   const chunkSize = 200; // avoid huge single statements
   let inserted = 0;
   let updated = 0;
+  const changed = new Map<string, GrundnerChangedRow>();
 
   await withClient(async (c) => {
     for (let i = 0; i < rows.length; i += chunkSize) {
@@ -193,15 +198,93 @@ export async function upsertGrundnerInventory(rows: GrundnerCsvRow[]): Promise<{
           COALESCE(grundner.stock_available, -1) IS DISTINCT FROM EXCLUDED.stock_available OR
           COALESCE(grundner.reserved_stock, -1) IS DISTINCT FROM EXCLUDED.reserved_stock
         )
-        RETURNING (xmax = 0) AS inserted;
+        RETURNING
+          (xmax = 0) AS inserted,
+          EXCLUDED.type_data AS type_data,
+          EXCLUDED.customer_id AS customer_id;
       `;
 
-      const res = await c.query<{ inserted: boolean }>(sql, params);
+      const res = await c.query<{ inserted: boolean; type_data: number | null; customer_id: string | null }>(sql, params);
       for (const row of res.rows ?? []) {
-        if (row.inserted) inserted += 1; else updated += 1;
+        if (row.inserted) {
+          inserted += 1;
+        } else {
+          updated += 1;
+        }
+        const key = `${row.type_data ?? 'null'}::${row.customer_id ?? 'null'}`;
+        if (!changed.has(key)) {
+          changed.set(key, { typeData: row.type_data, customerId: row.customer_id });
+        }
       }
     }
   });
 
-  return { inserted, updated };
+  return { inserted, updated, changed: Array.from(changed.values()) };
+}
+
+export type GrundnerAllocationConflict = {
+  jobKey: string;
+  ncfile: string | null;
+  material: string | null;
+  preReserved: boolean;
+  locked: boolean;
+  updatedAt: string | null;
+  typeData: number | null;
+  customerId: string | null;
+};
+
+export async function findGrundnerAllocationConflicts(
+  changed: GrundnerChangedRow[]
+): Promise<GrundnerAllocationConflict[]> {
+  if (!changed.length) return [];
+  const lookupColumn = getGrundnerLookupColumn();
+  const keys = new Map<string, GrundnerChangedRow>();
+  for (const row of changed) {
+    const key = resolveMaterialKey(lookupColumn, { typeData: row.typeData, customerId: row.customerId });
+    if (!key) continue;
+    const trimmed = key.trim();
+    if (!trimmed) continue;
+    if (!keys.has(trimmed)) {
+      keys.set(trimmed, row);
+    }
+  }
+  if (!keys.size) return [];
+
+  const materials = Array.from(keys.keys());
+  const sql = `
+    SELECT key AS job_key,
+           ncfile,
+           material,
+           pre_reserved,
+           is_locked,
+           updated_at
+      FROM public.jobs
+     WHERE material = ANY($1::text[])
+       AND (pre_reserved = TRUE OR is_locked = TRUE)
+  `;
+
+  const rows = await withClient(async (c) =>
+    c.query<{
+      job_key: string;
+      ncfile: string | null;
+      material: string | null;
+      pre_reserved: boolean;
+      is_locked: boolean;
+      updated_at: Date | null;
+    }>(sql, [materials]).then((r) => r.rows)
+  );
+
+  return rows.map((row) => {
+    const changedRow = keys.get(row.material?.trim() ?? '') ?? null;
+    return {
+      jobKey: row.job_key,
+      ncfile: row.ncfile,
+      material: row.material,
+      preReserved: row.pre_reserved,
+      locked: row.is_locked,
+      updatedAt: row.updated_at ? row.updated_at.toISOString() : null,
+      typeData: changedRow?.typeData ?? null,
+      customerId: changedRow?.customerId ?? null
+    };
+  });
 }

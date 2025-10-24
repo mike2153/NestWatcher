@@ -35,7 +35,8 @@
   DiagnosticsLogTailReq,
   DiagnosticsLogTailRes,
   ThemePreferenceReq,
-  ThemePreferenceRes
+  ThemePreferenceRes,
+  AllocatedMaterialListRes
 } from '../../../shared/src';
 import type { TelemetrySummaryReq, TelemetrySummaryRes, AlarmsHistoryReq, AlarmsHistoryRes } from '../../../shared/src';
 
@@ -90,6 +91,11 @@ declare global {
         list: (req?: GrundnerListReq) => Promise<Result<GrundnerListRes, AppError>>;
         update: (input: GrundnerUpdateReq) => Promise<Result<{ ok: boolean; updated: number }, AppError>>;
         resync: (input?: GrundnerResyncReq) => Promise<Result<{ updated: number }, AppError>>;
+        subscribeRefresh: (listener: () => void) => () => void;
+      };
+      allocatedMaterial: {
+        list: () => Promise<Result<AllocatedMaterialListRes, AppError>>;
+        subscribe: (listener: () => void) => () => void;
       };
       hypernest: {
         open: () => Promise<Result<null, AppError>>;

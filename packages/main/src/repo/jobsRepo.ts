@@ -255,9 +255,9 @@ export async function listJobs(req: JobsListReq) {
 export async function reserveJob(key: string) {
   return withDb((db) =>
     db.transaction(async (tx) => {
-    const updated = await tx
-      .update(jobs)
-      .set({ preReserved: true, updatedAt: sql<Date>`now()` as unknown as Date })
+      const updated = await tx
+        .update(jobs)
+        .set({ preReserved: true, updatedAt: sql<Date>`now()` as unknown as Date })
         .where(and(eq(jobs.key, key), eq(jobs.preReserved, false), eq(jobs.status, 'PENDING')))
         .returning({ material: jobs.material });
 
@@ -291,40 +291,61 @@ export async function unreserveJob(key: string) {
 }
 
 export async function lockJob(key: string) {
-  const updated = await withDb((db) =>
-    db
-      .update(jobs)
-      .set({ isLocked: true, updatedAt: sql<Date>`now()` as unknown as Date })
-      // Only allow manual locking when not already locked and status is PENDING
-      .where(and(eq(jobs.key, key), eq(jobs.isLocked, false), eq(jobs.status, 'PENDING')))
-      .returning({ key: jobs.key })
+  return withDb((db) =>
+    db.transaction(async (tx) => {
+      const updated = await tx
+        .update(jobs)
+        .set({ isLocked: true, updatedAt: sql<Date>`now()` as unknown as Date })
+        // Only allow manual locking when not already locked and status is PENDING
+        .where(and(eq(jobs.key, key), eq(jobs.isLocked, false), eq(jobs.status, 'PENDING')))
+        .returning({ key: jobs.key });
+
+      if (!updated.length) {
+        return false;
+      }
+
+      return true;
+    })
   );
-  return updated.length > 0;
 }
 
 // Use ONLY after Grundner .erl confirmation to enforce lock regardless of status.
 // This prevents generic UI/manual locking of STAGED jobs but still locks when
 // we have a positive confirmation from Grundner.
 export async function lockJobAfterGrundnerConfirmation(key: string) {
-  const updated = await withDb((db) =>
-    db
-      .update(jobs)
-      .set({ isLocked: true, updatedAt: sql<Date>`now()` as unknown as Date })
-      .where(and(eq(jobs.key, key), eq(jobs.isLocked, false)))
-      .returning({ key: jobs.key })
+  return withDb((db) =>
+    db.transaction(async (tx) => {
+      const updated = await tx
+        .update(jobs)
+        .set({ isLocked: true, updatedAt: sql<Date>`now()` as unknown as Date })
+        .where(and(eq(jobs.key, key), eq(jobs.isLocked, false)))
+        .returning({ key: jobs.key });
+
+      if (!updated.length) {
+        return false;
+      }
+
+      return true;
+    })
   );
-  return updated.length > 0;
 }
 
 export async function unlockJob(key: string) {
-  const updated = await withDb((db) =>
-    db
-      .update(jobs)
-      .set({ isLocked: false, updatedAt: sql<Date>`now()` as unknown as Date })
-      .where(and(eq(jobs.key, key), eq(jobs.isLocked, true)))
-      .returning({ key: jobs.key })
+  return withDb((db) =>
+    db.transaction(async (tx) => {
+      const updated = await tx
+        .update(jobs)
+        .set({ isLocked: false, updatedAt: sql<Date>`now()` as unknown as Date })
+        .where(and(eq(jobs.key, key), eq(jobs.isLocked, true)))
+        .returning({ key: jobs.key });
+
+      if (!updated.length) {
+        return false;
+      }
+
+      return true;
+    })
   );
-  return updated.length > 0;
 }
 
 export async function findJobByNcBase(base: string): Promise<JobLookupRow | null> {
