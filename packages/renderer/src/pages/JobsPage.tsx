@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import {
   getCoreRowModel,
@@ -137,6 +137,7 @@ export function JobsPage() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(true);
+  const isRefreshingRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -206,6 +207,8 @@ export function JobsPage() {
   }, []);
 
   const refresh = useCallback(async (override?: { filters?: FiltersState; search?: string; sorting?: SortingState }) => {
+    if (isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
     setLoading(true);
     try {
       const sortingState = override?.sorting ?? sorting;
@@ -241,6 +244,7 @@ export function JobsPage() {
       console.error('Failed to load jobs', err);
     } finally {
       setLoading(false);
+      isRefreshingRef.current = false;
     }
   }, [filters, search, sorting]);
 
@@ -249,12 +253,12 @@ export function JobsPage() {
   useEffect(() => {
     if (!autoRefreshEnabled) return;
     const id = window.setInterval(() => {
-      if (!loading) {
-        refresh();
+      if (!isRefreshingRef.current) {
+        void refresh();
       }
     }, autoRefreshInterval * 1000);
     return () => window.clearInterval(id);
-  }, [autoRefreshEnabled, autoRefreshInterval, loading, refresh]);
+  }, [autoRefreshEnabled, autoRefreshInterval, refresh]);
 
   useEffect(() => {
     setRowSelection((prev) => {
@@ -788,7 +792,7 @@ export function JobsPage() {
           disabled={actionBusy || !canBulkReserve}
         >
           <Lock />
-          Pre-Reserved
+          Pre-Reserve
         </Button>
         <Button
           variant="outline"
@@ -806,7 +810,7 @@ export function JobsPage() {
           disabled={actionBusy || !anyUnlocked}
         >
           <Lock />
-          Locked
+          Lock
         </Button>
         <Button
           variant="outline"

@@ -23,6 +23,7 @@ const PAGE_TITLES: Record<string, string> = {
 export function AppLayout() {
   const { pathname } = useLocation();
   const pageTitle = PAGE_TITLES[pathname] || pathname;
+  const isSettingsPage = pathname === '/settings' || pathname.startsWith('/settings/');
 
   const [alarms, setAlarms] = useState<AlarmEntry[]>([]);
   const [dismissedAlarmIds, setDismissedAlarmIds] = useState<Set<string>>(new Set());
@@ -420,7 +421,7 @@ export function AppLayout() {
         </div>
       </div>
     </header>
-    <main className="overflow-auto p-4 min-w-0">
+    <main className={cn(isSettingsPage ? 'overflow-auto' : 'overflow-y-auto overflow-x-hidden', 'p-4 min-w-0')}>
       <Outlet />
     </main>{alarms.length > 0 && (
         <div className="fixed right-8 top-16 z-50 space-y-2">

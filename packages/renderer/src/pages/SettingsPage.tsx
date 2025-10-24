@@ -540,7 +540,7 @@ export function SettingsPage() {
       </div>
 
       <div className="grid grid-cols-[320px_1fr] gap-8">
-        <div className="card p-6 h-[320px]">
+        <div className="settings-panel p-6 h-[320px]">
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-semibold text-foreground">Machines</h3>
             <button type="button" className="btn-secondary text-sm" onClick={addMachine}>Add</button>
@@ -581,7 +581,7 @@ export function SettingsPage() {
           </div>
         </div>
 
-        <div className="card p-6 space-y-4">
+        <div className="settings-panel p-6 space-y-4">
           <h3 className="font-semibold text-foreground">Machine Details</h3>
           {machineHasErrors ? (
             <div className="text-sm text-destructive">Fix required machine folders before saving.</div>
@@ -631,7 +631,7 @@ export function SettingsPage() {
                   <span>Ready-To-Run Folder</span>
                   <div className="flex gap-2 items-start">
                     <input
-                      className={`form-input flex-1 border-2 border-gray-700 ${statusBorderClass(machinePathStatus.machineApJobfolder)}`}
+                      className={`form-input flex-1 ${statusBorderClass(machinePathStatus.machineApJobfolder)}`}
                       value={editingMachine.apJobfolder}
                       onChange={(e) => setEditingMachine((prev) => prev ? { ...prev, apJobfolder: e.target.value } : prev)}
                     />
@@ -653,7 +653,7 @@ export function SettingsPage() {
                   <span>Nestpick Folder</span>
                   <div className="flex gap-2 items-start">
                     <input
-                      className={`form-input flex-1 border-2 border-gray-700 ${statusBorderClass(machinePathStatus.machineNestpickFolder)}`}
+                      className={`form-input flex-1 ${statusBorderClass(machinePathStatus.machineNestpickFolder)}`}
                       value={editingMachine.nestpickFolder}
                       onChange={(e) => setEditingMachine((prev) => prev ? { ...prev, nestpickFolder: e.target.value } : prev)}
                     />
@@ -710,18 +710,18 @@ export function SettingsPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-12">
-        <div className="card p-6 space-y-4">
+        <div className="settings-panel p-6 space-y-4">
           <h3 className="font-semibold text-foreground">Paths</h3>
           {hasPathErrors ? (
             <div className="text-sm text-destructive">Some paths are missing; update as needed.</div>
           ) : isPathValidationPending ? (
             <div className="text-sm text-warning">Validating paths...</div>
           ) : null}
-          <label className="flex flex-col gap-1 text-sm">
+          <label className="form-label">
             <span>Processed Jobs Root</span>
             <div className="flex gap-2 items-start">
               <input
-                className={`border-2 border-gray-700 rounded px-2 py-1 w-full ${statusBorderClass(pathStatus.processedJobsRoot)}`}
+                className={`form-input w-full ${statusBorderClass(pathStatus.processedJobsRoot)}`}
                 value={paths.processedJobsRoot}
                 onChange={(e) => setPaths({ ...paths, processedJobsRoot: e.target.value })}
               />
@@ -737,11 +737,11 @@ export function SettingsPage() {
               {pathStatus.processedJobsRoot.message}
             </span>
           </label>
-          <label className="flex flex-col gap-1 text-sm">
+          <label className="form-label">
             <span>AutoPAC CSV Directory</span>
             <div className="flex gap-2 items-start">
               <input
-                className={`border-2 border-gray-700 rounded px-2 py-1 w-full ${statusBorderClass(pathStatus.autoPacCsvDir)}`}
+                className={`form-input w-full ${statusBorderClass(pathStatus.autoPacCsvDir)}`}
                 value={paths.autoPacCsvDir}
                 onChange={(e) => setPaths({ ...paths, autoPacCsvDir: e.target.value })}
               />
@@ -757,11 +757,11 @@ export function SettingsPage() {
               {pathStatus.autoPacCsvDir.message}
             </span>
           </label>
-          <label className="flex flex-col gap-1 text-sm">
+          <label className="form-label">
             <span>Grundner Folder</span>
             <div className="flex gap-2 items-start">
               <input
-                className={`border-2 border-gray-700 rounded px-2 py-1 w-full ${statusBorderClass(pathStatus.grundnerFolderPath)}`}
+                className={`form-input w-full ${statusBorderClass(pathStatus.grundnerFolderPath)}`}
                 value={paths.grundnerFolderPath}
                 onChange={(e) => setPaths({ ...paths, grundnerFolderPath: e.target.value })}
               />
@@ -779,13 +779,13 @@ export function SettingsPage() {
           </label>
         </div>
 
-        <div className="card p-6 space-y-4">
+        <div className="settings-panel p-6 space-y-4">
           <h3 className="font-semibold text-foreground">Test / Grundner</h3>
-          <label className="flex flex-col gap-1 text-sm">
+          <label className="form-label">
             <span>Test Data Folder</span>
             <div className="flex gap-2 items-start">
               <input
-                className={`border-2 border-gray-700 rounded px-2 py-1 w-full ${statusBorderClass(pathStatus.testDataFolderPath)}`}
+                className={`form-input w-full ${statusBorderClass(pathStatus.testDataFolderPath)}`}
                 value={testState.testDataFolderPath}
                 onChange={(e) => setTestState({ ...testState, testDataFolderPath: e.target.value })}
               />
@@ -809,10 +809,10 @@ export function SettingsPage() {
             />
             Use test data mode
           </label>
-          <label className="flex flex-col gap-1 text-sm">
+          <label className="form-label">
             <span>Sheet ID Mode</span>
             <select
-              className="border-2 border-gray-700 rounded px-2 py-1"
+              className="form-input"
               value={testState.sheetIdMode}
               onChange={(e) => setTestState({ ...testState, sheetIdMode: e.target.value as TestState['sheetIdMode'] })}
             >
@@ -820,10 +820,10 @@ export function SettingsPage() {
               <option value="customer_id">customer_id</option>
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-sm">
+          <label className="form-label">
             <span>Grundner Reserved Mode</span>
             <select
-              className="border-2 border-gray-700 rounded px-2 py-1"
+              className="form-input"
               value={grundnerState.reservedAdjustmentMode}
               onChange={(e) => setGrundnerState({ reservedAdjustmentMode: e.target.value as GrundnerState['reservedAdjustmentMode'] })}
             >
@@ -834,7 +834,7 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <form className="card p-6 space-y-4 mt-12" onSubmit={handleSubmit(onSave)}>
+      <form className="settings-panel p-6 space-y-4 mt-12" onSubmit={handleSubmit(onSave)}>
         <div className="flex items-center justify-between">
           <h2 className="font-medium text-lg" id="db-settings-heading">Database</h2>
           {dbStatus && (
@@ -864,38 +864,38 @@ export function SettingsPage() {
           )}
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <label className="flex flex-col gap-1 text-sm">
+          <label className="form-label">
             <span>Host</span>
-            <input className="border-2 border-gray-700 rounded px-2 py-1" {...register('host')} />
+            <input className="form-input" {...register('host')} />
           </label>
-          <label className="flex flex-col gap-1 text-sm">
+          <label className="form-label">
             <span>Port</span>
-            <input className="border-2 border-gray-700 rounded px-2 py-1" type="number" {...register('port', { valueAsNumber: true })} />
+            <input className="form-input" type="number" {...register('port', { valueAsNumber: true })} />
           </label>
-          <label className="flex flex-col gap-1 text-sm">
+          <label className="form-label">
             <span>Database</span>
-            <input className="border-2 border-gray-700 rounded px-2 py-1" {...register('database')} />
+            <input className="form-input" {...register('database')} />
           </label>
-          <label className="flex flex-col gap-1 text-sm">
+          <label className="form-label">
             <span>User</span>
-            <input className="border-2 border-gray-700 rounded px-2 py-1" {...register('user')} />
+            <input className="form-input" {...register('user')} />
           </label>
-          <label className="flex flex-col gap-1 text-sm">
+          <label className="form-label">
             <span>Password</span>
-            <input className="border-2 border-gray-700 rounded px-2 py-1" type="password" autoComplete="off" {...register('password')} />
+            <input className="form-input" type="password" autoComplete="off" {...register('password')} />
           </label>
-          <label className="flex flex-col gap-1 text-sm">
+          <label className="form-label">
             <span>SSL Mode</span>
-            <select className="border-2 border-gray-700 rounded px-2 py-1" {...register('sslMode')}>
+            <select className="form-input" {...register('sslMode')}>
               <option value="disable">disable</option>
               <option value="require">require</option>
               <option value="verify-ca">verify-ca</option>
               <option value="verify-full">verify-full</option>
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-sm">
+          <label className="form-label">
             <span>Statement Timeout (ms)</span>
-            <input className="border-2 border-gray-700 rounded px-2 py-1" type="number" {...register('statementTimeoutMs', { valueAsNumber: true })} />
+            <input className="form-input" type="number" {...register('statementTimeoutMs', { valueAsNumber: true })} />
           </label>
         </div>
         <div className="flex gap-2">
