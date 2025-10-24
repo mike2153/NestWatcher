@@ -10,6 +10,7 @@ import { findJobDetailsByNcBase } from '../repo/jobsRepo';
 import { createAppError } from './errors';
 import { registerResultHandler } from './result';
 import { onContentsDestroyed } from './onDestroyed';
+import { logger } from '../logger';
 
 function collectFiles(root: string, current: string = root) {
   const entries = readdirSync(current, { withFileTypes: true });
@@ -35,8 +36,8 @@ function baseFromName(name: string) {
 }
 
 // File types to remove when cleaning up a sheet's artifacts in Ready-To-Run.
-// Includes .csv per updated requirements.
-const DELETE_EXTENSIONS = new Set(['.bmp', '.jpg', '.jpeg', '.png', '.pts', '.lpt', '.nc', '.csv']);
+// Includes .csv per updated requirements and Planit fallback mapping (.txt).
+const DELETE_EXTENSIONS = new Set(['.bmp', '.jpg', '.jpeg', '.png', '.gif', '.pts', '.lpt', '.nc', '.csv', '.txt']);
 
 function normalizeRelativePath(input: string) {
   return input.split('\\').join('/');
@@ -94,12 +95,29 @@ export function registerFilesIpc() {
       } catch {
         return false;
       }
-      if (remaining.length > 0) return false;
-      try {
-        await fsp.rmdir(dir);
-        return true;
-      } catch {
+      if (remaining.length > 0) {
+        logger.info(
+          `files:ready:delete: directory not empty ${dir} remaining=[${remaining.join(', ')}]`
+        );
         return false;
+      }
+      try {
+        // Prefer rmdir for empty directories
+        await fsp.rmdir(dir);
+        logger.info(`files:ready:delete: removed empty directory (rmdir) ${dir}`);
+        return true;
+      } catch (err1) {
+        try {
+          // Fallback to rm with recursive=true (directory is verified empty above)
+          await fsp.rm(dir, { recursive: true, force: true });
+          logger.info(`files:ready:delete: removed empty directory (rm) ${dir}`);
+          return true;
+        } catch (err2) {
+          logger.warn(
+            `files:ready:delete: failed to remove empty directory ${dir} err1=${err1 instanceof Error ? err1.message : String(err1)} err2=${err2 instanceof Error ? err2.message : String(err2)}`
+          );
+          return false;
+        }
       }
     }
 
@@ -236,6 +254,9 @@ export function registerFilesIpc() {
     }
 
     const { machineId, relativePaths } = parsed.data;
+    logger.info(
+      `files:ready:delete: request machineId=${machineId} paths=[${relativePaths.join(', ')}]`
+    );
     const machines = await listMachines();
     const machine = machines.find((m: Machine) => m.machineId === machineId);
     if (!machine || !machine.apJobfolder) {
@@ -247,6 +268,10 @@ export function registerFilesIpc() {
     const errors: ReadyDeleteRes['errors'] = [];
     const targets = new Set<string>();
     const candidateDirs = new Set<string>();
+    // Track per-directory state to allow safe deletion of Planit family CSVs
+    const dirEntriesByDir = new Map<string, string[]>();
+    const selectedStemsByDir = new Map<string, Set<string>>();
+    const planitPrefixesByDir = new Map<string, Set<string>>();
 
     for (const rel of uniquePaths) {
       if (rel.includes('..') || rel.startsWith('/') || /^[a-zA-Z]:\//.test(rel)) {
@@ -272,8 +297,26 @@ export function registerFilesIpc() {
         }
         continue;
       }
+      logger.info(
+        `files:ready:delete: scanning directory rel=${rel} dir=${containingDir} entries=${dirEntries.length}`
+      );
+      // Track entries for this directory (case preserved)
+      dirEntriesByDir.set(containingDir, dirEntries.slice());
+
+      // Track selected stems (both with and without spaces) for this directory
+      const stems = selectedStemsByDir.get(containingDir) ?? new Set<string>();
+      stems.add(stemLower);
+      stems.add(stemNoSpacesLower);
+      selectedStemsByDir.set(containingDir, stems);
+      // Track Planit family prefix (first 3 letters of NC base) for potential family CSV cleanup
+      if (stemLower.length >= 3) {
+        const prefixes = planitPrefixesByDir.get(containingDir) ?? new Set<string>();
+        prefixes.add(stemLower.slice(0, 3));
+        planitPrefixesByDir.set(containingDir, prefixes);
+      }
       // Always include the exact .nc file if present
       targets.add(absoluteNc);
+      logger.info(`files:ready:delete: add target (.nc) ${absoluteNc}`);
       for (const entry of dirEntries) {
         const entryLower = entry.toLowerCase();
         const extension = extname(entryLower);
@@ -285,7 +328,169 @@ export function registerFilesIpc() {
           entryStemLower.startsWith(stemLower) ||
           entryStemLower.startsWith(stemNoSpacesLower)
         ) {
-          targets.add(join(containingDir, entry));
+          const abs = join(containingDir, entry);
+          targets.add(abs);
+          logger.info(`files:ready:delete: add target (by stem match) ${abs}`);
+        }
+      }
+
+      // Planit-specific cleanup: delete sticker BMPs referenced by mapping files
+      // 1) Family CSV: <prefix>.csv (first 3 letters of NC base)
+      // 2) TXT fallback: <base>.txt listing image paths in pipe-delimited format
+      const addIfExists = async (absPath: string) => {
+        try {
+          const st = await fsp.stat(absPath);
+          if (st.isFile()) targets.add(absPath);
+        } catch {
+          // ignore
+        }
+      };
+      const resolveImageInDir = (dir: string, token: string): string | null => {
+        const name = basename(token).trim();
+        if (!name) return null;
+        const lower = name.toLowerCase();
+        // Try as-is
+        const direct = dirEntries.find((e) => e.toLowerCase() === lower);
+        if (direct) return join(dir, direct);
+        // Try with bmp/jpg/jpeg if token omitted extension
+        const stem = lower.replace(/\.[^.]+$/, '');
+        const tryNames = [`${stem}.bmp`, `${stem}.jpg`, `${stem}.jpeg`];
+        for (const nm of tryNames) {
+          const found = dirEntries.find((e) => e.toLowerCase() === nm);
+          if (found) return join(dir, found);
+        }
+        return null;
+      };
+      // Helper to delete images listed by tokens
+      const deleteImagesFromTokens = async (dir: string, tokens: string[]) => {
+        logger.info(
+          `files:ready:delete: resolving image tokens dir=${dir} count=${tokens.length}`
+        );
+        for (const t of tokens) {
+          const img = resolveImageInDir(dir, t);
+          if (img) {
+            targets.add(img);
+            logger.info(`files:ready:delete: add target (token) token=${t} path=${img}`);
+          } else {
+            logger.info(`files:ready:delete: token not resolved token=${t}`);
+          }
+        }
+      };
+
+      // 1) Family CSV mapping in containing dir or one level up
+      try {
+        const prefix = stemLower.slice(0, 3);
+        if (prefix && prefix.length === 3) {
+          const parentDir = dirname(containingDir);
+          const candidates = [join(containingDir, `${prefix}.csv`), join(parentDir, `${prefix}.csv`)];
+          let familyFound = false;
+          for (const cand of candidates) {
+            try {
+              const raw = await fsp.readFile(cand, 'utf8');
+              // Parse rows: first column can be numeric label; any cell with .bmp/.jpg/.jpeg is an image token
+              const rows = raw.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+              const imageTokens: string[] = [];
+              for (const row of rows) {
+                const cols = row.split(',');
+                for (const c of cols) {
+                  const v = c.trim();
+                  const lv = v.toLowerCase();
+                  if (lv.endsWith('.bmp') || lv.endsWith('.jpg') || lv.endsWith('.jpeg')) imageTokens.push(v);
+                }
+              }
+              logger.info(
+                `files:ready:delete: parsed family CSV file=${cand} rows=${rows.length} tokens=${imageTokens.length}`
+              );
+              familyFound = true;
+              if (imageTokens.length) {
+                await deleteImagesFromTokens(containingDir, imageTokens);
+              }
+            } catch {
+              // ignore missing/unreadable
+            }
+          }
+          if (!familyFound) {
+            logger.info(
+              `files:ready:delete: family CSV not found for prefix=${prefix} in [${candidates.join(', ')}]`
+            );
+          }
+        }
+      } catch {
+        // ignore mapping parse errors
+      }
+
+      // 2) TXT fallback mapping next to the NC
+      try {
+        const txtCandidates = [`${stemExact}.txt`, `${stemLower}.txt`, `${stemNoSpacesLower}.txt`];
+        const foundTxt = dirEntries.find((e) => txtCandidates.some((n) => e.toLowerCase() === n.toLowerCase()));
+        if (foundTxt) {
+          const txtPath = join(containingDir, foundTxt);
+          try {
+            const raw = await fsp.readFile(txtPath, 'utf8');
+            const lines = raw.split(/\r?\n/);
+            const tokens: string[] = [];
+            for (let i = 0; i < lines.length; i++) {
+              if (i === 0) continue; // skip header
+              const line = lines[i];
+              if (!line || !line.includes('|')) continue;
+              const cols = line.split('|');
+              if (cols.length < 3) continue;
+              const rawPath = (cols[2] ?? '').trim();
+              if (rawPath) tokens.push(rawPath);
+            }
+            logger.info(
+              `files:ready:delete: parsed mapping TXT file=${txtPath} tokens=${tokens.length}`
+            );
+            if (tokens.length) {
+              await deleteImagesFromTokens(containingDir, tokens);
+            }
+          } catch {
+            // ignore read failures
+          }
+          // Also delete the mapping TXT itself
+          await addIfExists(txtPath);
+          logger.info(`files:ready:delete: add target (mapping TXT) ${txtPath}`);
+        }
+      } catch {
+        // ignore mapping parse errors
+      }
+    }
+
+    // After collecting primary targets, consider removing Planit family CSVs
+    // when there are no other Planit .nc files left in that folder.
+    for (const [dir, entries] of dirEntriesByDir.entries()) {
+      const selectedStems = selectedStemsByDir.get(dir) ?? new Set<string>();
+      const entriesLower = entries.map((e) => e.toLowerCase());
+      const ncFiles = entriesLower.filter((e) => e.endsWith('.nc'));
+      const prefixes = planitPrefixesByDir.get(dir) ?? new Set<string>();
+      for (const p of prefixes) {
+        if (!p || p.length !== 3) continue;
+        // Determine if any other (non-selected) .nc in this dir shares this 3-letter prefix
+        let otherExistsForPrefix = false;
+        for (const nc of ncFiles) {
+          const stem = nc.slice(0, nc.length - '.nc'.length);
+          const stemNoSpaces = stem.replace(/\s+/g, '');
+          if (selectedStems.has(stem) || selectedStems.has(stemNoSpaces)) continue;
+          if (stem.startsWith(p) || stemNoSpaces.startsWith(p)) {
+            otherExistsForPrefix = true;
+            break;
+          }
+        }
+        logger.info(
+          `files:ready:delete: family CSV decision dir=${dir} prefix=${p} selected=${selectedStems.size} otherExists=${otherExistsForPrefix}`
+        );
+        if (!otherExistsForPrefix) {
+          const familyLower = `${p.toLowerCase()}.csv`;
+          const match = entries.find((e) => e.toLowerCase() === familyLower);
+          if (match) {
+            const abs = join(dir, match);
+            targets.add(abs);
+            logger.info(`files:ready:delete: add target (family CSV) ${abs}`);
+          } else {
+            logger.info(
+              `files:ready:delete: family CSV not present in dir for prefix=${p} expected=${familyLower}`
+            );
+          }
         }
       }
     }
@@ -296,28 +501,49 @@ export function registerFilesIpc() {
       try {
         await fsp.unlink(absolute);
         deletedCount += 1;
-        deletedFiles.push(normalizeRelativePath(relative(root, absolute)));
+        const relDeleted = normalizeRelativePath(relative(root, absolute));
+        deletedFiles.push(relDeleted);
+        logger.info(`files:ready:delete: deleted ${absolute}`);
       } catch (error) {
         const errObj = error as NodeJS.ErrnoException;
         if (errObj?.code === 'ENOENT') {
+          logger.info(`files:ready:delete: already deleted ${absolute}`);
           continue;
         }
         errors.push({
           file: normalizeRelativePath(relative(root, absolute)),
           message: error instanceof Error ? error.message : String(error)
         });
+        logger.warn(
+          `files:ready:delete: delete failed ${absolute} error=${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
 
     // Attempt to remove empty directories for each affected job folder, up to but not including the root
     for (const dir of candidateDirs) {
       try {
+        logger.info(`files:ready:delete: prune attempt ${dir}`);
         await removeEmptyDirsUpToRoot(root, dir);
+        // Post-prune check for visibility
+        try {
+          const listing = await fsp.readdir(dir);
+          logger.info(
+            `files:ready:delete: post-prune still exists ${dir} entries=${listing.length} [${listing.join(
+              ', '
+            )}]`
+          );
+        } catch (e) {
+          logger.info(`files:ready:delete: post-prune removed ${dir}`);
+        }
       } catch {
         // ignore cleanup errors; file deletions are primary concern
       }
     }
 
+    logger.info(
+      `files:ready:delete: result deleted=${deletedCount} errorCount=${errors.length} files=[${deletedFiles.join(', ')}]`
+    );
     return ok<ReadyDeleteRes, AppError>({ deleted: deletedCount, files: deletedFiles, errors });
   });
 

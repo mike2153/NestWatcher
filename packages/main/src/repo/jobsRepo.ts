@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import type { JobStatus, JobsFilterOptions, JobsListReq } from '../../../shared/src';
 import { appendJobEvent } from './jobEventsRepo';
-import { getGrundnerLookupColumn, getGrundnerMode } from '../services/grundner';
+import { getGrundnerLookupColumn } from '../services/grundner';
 import { withDb, type AppDb } from '../services/db';
 import { grundner, jobs, jobEvents } from '../db/schema';
 
@@ -71,12 +71,11 @@ function combineClauses(clauses: SqlExpression[]): SqlExpression {
   return rest.reduce<SqlExpression>((acc, clause) => and(acc, clause) as SqlExpression, initial);
 }
 
-async function syncGrundnerReservedStock(db: AppDb, material: string | null, delta: number) {
+async function syncGrundnerPreReservedCount(db: AppDb, material: string | null) {
   const trimmed = material?.trim();
   if (!trimmed) return;
 
   const lookupColumn = getGrundnerLookupColumn();
-  const mode = getGrundnerMode();
 
   let condition: SQL | null = null;
   if (lookupColumn === 'customer_id') {
@@ -91,20 +90,6 @@ async function syncGrundnerReservedStock(db: AppDb, material: string | null, del
 
   if (!condition) return;
 
-  if (mode === 'delta') {
-    const updated = await db
-      .update(grundner)
-      .set({
-        reservedStock: sql<number>`GREATEST(COALESCE(${grundner.reservedStock}, 0) + ${delta}, 0)`
-      })
-      .where(condition)
-      .returning({ id: grundner.id });
-
-    if (updated.length > 0) {
-      return;
-    }
-  }
-
   const [{ count }] = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(jobs)
@@ -112,8 +97,17 @@ async function syncGrundnerReservedStock(db: AppDb, material: string | null, del
 
   await db
     .update(grundner)
-    .set({ reservedStock: count })
+    .set({ preReserved: count })
     .where(condition);
+}
+
+// Public helper to resync Grundner pre-reserved count for a single material.
+// This wraps the internal function with a db handle and is intended for
+// maintenance flows where jobs may be pruned outside the reserve/unreserve path.
+export async function resyncGrundnerPreReservedForMaterial(material: string | null): Promise<void> {
+  await withDb(async (db) => {
+    await syncGrundnerPreReservedCount(db, material);
+  });
 }
 
 export async function listJobFilters(): Promise<JobsFilterOptions> {
@@ -271,7 +265,7 @@ export async function reserveJob(key: string) {
         return false;
       }
 
-      await syncGrundnerReservedStock(tx, updated[0].material ?? null, 1);
+      await syncGrundnerPreReservedCount(tx, updated[0].material ?? null);
       return true;
     })
   );
@@ -290,13 +284,28 @@ export async function unreserveJob(key: string) {
         return false;
       }
 
-      await syncGrundnerReservedStock(tx, updated[0].material ?? null, -1);
+      await syncGrundnerPreReservedCount(tx, updated[0].material ?? null);
       return true;
     })
   );
 }
 
 export async function lockJob(key: string) {
+  const updated = await withDb((db) =>
+    db
+      .update(jobs)
+      .set({ isLocked: true, updatedAt: sql<Date>`now()` as unknown as Date })
+      // Only allow manual locking when not already locked and status is PENDING
+      .where(and(eq(jobs.key, key), eq(jobs.isLocked, false), eq(jobs.status, 'PENDING')))
+      .returning({ key: jobs.key })
+  );
+  return updated.length > 0;
+}
+
+// Use ONLY after Grundner .erl confirmation to enforce lock regardless of status.
+// This prevents generic UI/manual locking of STAGED jobs but still locks when
+// we have a positive confirmation from Grundner.
+export async function lockJobAfterGrundnerConfirmation(key: string) {
   const updated = await withDb((db) =>
     db
       .update(jobs)
@@ -661,7 +670,7 @@ export async function updateLifecycle(
       }
 
       if (shouldDecrementReserved) {
-        await syncGrundnerReservedStock(tx, current.material ?? null, -1);
+        await syncGrundnerPreReservedCount(tx, current.material ?? null);
       }
 
       // On completion, increment qty on the original (base) job

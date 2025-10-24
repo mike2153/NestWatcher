@@ -4,7 +4,7 @@ import { existsSync, mkdirSync } from 'fs';
 import { promises as fsp } from 'fs';
 import type { Dirent } from 'fs';
 import net from 'net';
-import { basename, extname, join, normalize } from 'path';
+import { basename, extname, join, normalize, relative } from 'path';
 import type { PoolClient } from 'pg';
 import { parentPort } from 'worker_threads';
 import type { Machine, MachineHealthCode } from '../../../shared/src';
@@ -14,14 +14,14 @@ import { testConnection, withClient } from '../services/db';
 import { appendJobEvent } from '../repo/jobEventsRepo';
 import { upsertGrundnerInventory, type GrundnerCsvRow } from '../repo/grundnerRepo';
 import { listMachines } from '../repo/machinesRepo';
-import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLifecycle } from '../repo/jobsRepo';
+import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLifecycle, resyncGrundnerPreReservedForMaterial } from '../repo/jobsRepo';
 import { upsertCncStats } from '../repo/cncStatsRepo';
 import type { CncStatsUpsert } from '../repo/cncStatsRepo';
 import { normalizeTelemetryPayload } from './telemetryParser';
 import type { WatcherWorkerToMainMessage, MainToWatcherMessage } from './watchersMessages';
 import { ingestProcessedJobsRoot } from '../services/ingest';
 
-const { access, copyFile, readFile, readdir, rename, stat, unlink } = fsp;
+const { access, copyFile, readFile, readdir, rename, stat, unlink, open } = fsp;
 
 const channel = parentPort;
 const fsWatchers = new Set<FSWatcher>();
@@ -215,6 +215,19 @@ async function waitForStableFile(path: string, attempts = 5, intervalMs = 1000) 
     await delay(intervalMs);
   }
   return stat(path);
+}
+
+async function waitForFileRelease(path: string, attempts = 10, intervalMs = 200) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const handle = await open(path, 'r');
+      await handle.close();
+      return true;
+    } catch (err) {
+      await delay(intervalMs);
+    }
+  }
+  return false;
 }
 
 async function hashFile(path: string) {
@@ -520,17 +533,7 @@ function isAutoPacCsvFileName(fileName: string) {
   );
 }
 
-function _inferMachineFromPath(path: string, machines: Machine[]): Machine | undefined {
-  const normalizedPath = sanitizeToken(path);
-  for (const machine of machines) {
-    const candidates = [String(machine.machineId), machine.name];
-    for (const candidate of candidates) {
-      const token = sanitizeToken(candidate);
-      if (token && normalizedPath.includes(token)) return machine;
-    }
-  }
-  return undefined;
-}
+// _inferMachineFromPath was unused and removed during cleanup
 
 function deriveJobLeaf(folder: string | null, ncfile: string | null, key: string) {
   if (folder) {
@@ -1739,7 +1742,8 @@ function parseGrundnerCsv(raw: string): GrundnerCsvRow[] {
     idxWid = -1,
     idxThk = -1,
     idxStock = -1,
-    idxAvail = -1;
+    idxAvail = -1,
+    idxReserved = -1;
   if (hasHeader) {
     idxType = indexOfHeader(header, ['type_data', 'type']);
     idxCust = indexOfHeader(header, ['customer_id', 'customer']);
@@ -1748,6 +1752,8 @@ function parseGrundnerCsv(raw: string): GrundnerCsvRow[] {
     idxThk = indexOfHeader(header, ['thickness_mm', 'thickness']);
     idxStock = indexOfHeader(header, ['stock']);
     idxAvail = indexOfHeader(header, ['stock_available', 'available']);
+    // CSV may label this as 'reserved stock' (with space) or underscores
+    idxReserved = indexOfHeader(header, ['reserved_stock', 'reserved stock', 'reserved']);
   } else {
     // Fallback positions if no header present
     idxType = 0;
@@ -1757,6 +1763,8 @@ function parseGrundnerCsv(raw: string): GrundnerCsvRow[] {
     idxThk = 5;
     idxStock = 7;
     idxAvail = 8;
+    // Grundner CSV spec: column 15 (1-based) => index 14 (0-based)
+    idxReserved = 14;
   }
 
   const out: GrundnerCsvRow[] = [];
@@ -1769,19 +1777,22 @@ function parseGrundnerCsv(raw: string): GrundnerCsvRow[] {
     const thicknessMm = normalizeNumber(row[idxThk]);
     const stock = normalizeNumber(row[idxStock]);
     const stockAvailable = normalizeNumber(row[idxAvail]);
+    const reservedStock = normalizeNumber(row[idxReserved]);
     if (typeData == null) continue;
-    out.push({ typeData, customerId, lengthMm, widthMm, thicknessMm, stock, stockAvailable });
+    out.push({ typeData, customerId, lengthMm, widthMm, thicknessMm, stock, stockAvailable, reservedStock });
   }
   return out;
 }
 
-async function collectNcBaseNames(root: string): Promise<Set<string>> {
+async function collectNcBaseNames(root: string): Promise<{ bases: Set<string>; hadError: boolean }> {
   const bases = new Set<string>();
+  let hadError = false;
   async function walk(dir: string) {
     let entries: Dirent[] = [] as unknown as Dirent[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
     } catch {
+      hadError = true;
       return;
     }
     for (const entry of entries) {
@@ -1798,7 +1809,7 @@ async function collectNcBaseNames(root: string): Promise<Set<string>> {
     }
   }
   await walk(root);
-  return bases;
+  return { bases, hadError };
 }
 
 async function stageSanityPollOnce() {
@@ -1832,7 +1843,12 @@ async function stageSanityPollOnce() {
       const m = machines.find((mm) => mm.machineId === machineId);
       const folder = m?.apJobfolder?.trim?.();
       if (!m || !folder) continue;
-      const present = await collectNcBaseNames(folder);
+      const { bases: present, hadError } = await collectNcBaseNames(folder);
+      // If filesystem traversal failed, skip this machine to avoid false negatives
+      if (hadError) {
+        recordWatcherEvent(STAGE_SANITY_WATCHER_NAME, { label: STAGE_SANITY_WATCHER_LABEL, message: 'Skipped stage sanity (folder traversal error)' });
+        continue;
+      }
       // Missing items
       const missing = items.filter((it) => !present.has(it.nc));
       for (const miss of missing) {
@@ -1853,7 +1869,9 @@ async function stageSanityPollOnce() {
               machineId,
               undefined
             );
-          } catch {}
+          } catch {
+            /* ignore appendJobEvent failure when reverting staged job */
+          }
         }
       }
     }
@@ -1880,13 +1898,15 @@ function startStageSanityPoller() {
   watcherReady(STAGE_SANITY_WATCHER_NAME, STAGE_SANITY_WATCHER_LABEL);
 }
 
-async function collectProcessedJobKeys(root: string): Promise<Set<string>> {
+async function collectProcessedJobKeys(root: string): Promise<{ keys: Set<string>; hadError: boolean }> {
   const keys = new Set<string>();
+  let hadError = false;
   async function walk(dir: string) {
     let entries: Dirent[] = [] as unknown as Dirent[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
     } catch {
+      hadError = true;
       return;
     }
     for (const e of entries) {
@@ -1895,9 +1915,9 @@ async function collectProcessedJobKeys(root: string): Promise<Set<string>> {
         await walk(p);
       } else if (e.isFile()) {
         if (e.name.toLowerCase().endsWith('.nc')) {
-          // Build job key the same way as ingestProcessedJobsRoot
-          const relDir = toPosixLower(p).replace(toPosixLower(root), '').replace(/^\//, '');
-          const dirOnly = relDir.substring(0, relDir.lastIndexOf('/'));
+          // Build job key the same way as ingestProcessedJobsRoot (preserve original case)
+          const relPath = relative(root, p).split('\\').join('/');
+          const dirOnly = relPath.substring(0, relPath.lastIndexOf('/'));
           const base = e.name.replace(/\.nc$/i, '');
           const folder = dirOnly.split('/').filter(Boolean).pop() ?? '';
           const relFolder = dirOnly || folder;
@@ -1908,7 +1928,7 @@ async function collectProcessedJobKeys(root: string): Promise<Set<string>> {
     }
   }
   await walk(root);
-  return keys;
+  return { keys, hadError };
 }
 
 async function sourceSanityPollOnce() {
@@ -1917,7 +1937,11 @@ async function sourceSanityPollOnce() {
     const root = cfg.paths.processedJobsRoot?.trim?.() ?? '';
     if (!root || !(await fileExists(root))) return;
 
-    const presentKeys = await collectProcessedJobKeys(root);
+    const { keys: presentKeys, hadError } = await collectProcessedJobKeys(root);
+    if (hadError) {
+      recordWatcherEvent(SOURCE_SANITY_WATCHER_NAME, { label: SOURCE_SANITY_WATCHER_LABEL, message: 'Skipped source sanity (root traversal error)' });
+      return;
+    }
     // Find PENDING jobs whose key is not present on disk
     const pending = await withClient((c) =>
       c
@@ -1927,15 +1951,33 @@ async function sourceSanityPollOnce() {
     const missing = pending.map((r) => r.key).filter((k) => !presentKeys.has(k));
     if (!missing.length) return;
 
-    // Delete missing PENDING jobs
+    // Delete missing PENDING jobs, including pre-reserved or locked ones (business rule)
     let removed = 0;
     for (const k of missing) {
+      // Look up material and pre-reserved flag prior to deletion
+      const row = await withClient((c) =>
+        c
+          .query<{ material: string | null; pre_reserved: boolean }>(
+            `SELECT material, pre_reserved FROM public.jobs WHERE key = $1 AND status = 'PENDING' LIMIT 1`,
+            [k]
+          )
+          .then((r) => r.rows[0] ?? null)
+      );
+      if (!row) continue;
+
       const res = await withClient((c) => c.query(`DELETE FROM public.jobs WHERE key = $1 AND status = 'PENDING'`, [k]));
       if ((res.rowCount ?? 0) > 0) {
         removed += 1;
         try {
           await appendJobEvent(k, 'jobs:prune:missing-source', { reason: 'NC file missing in processed root' }, null, undefined);
-        } catch {}
+        } catch {
+          /* ignore appendJobEvent failure during prune */
+        }
+        try {
+          await resyncGrundnerPreReservedForMaterial(row.material ?? null);
+        } catch {
+          /* ignore grundner resync failure for this row */
+        }
       }
     }
     if (removed > 0) {
@@ -1984,7 +2026,19 @@ async function grundnerPollOnce(folder: string) {
     await delay(3000);
     if (!(await fileExists(stockPath))) return;
     await waitForStableFile(stockPath);
-    const raw = await readFile(stockPath, 'utf8');
+    if (!(await waitForFileRelease(stockPath))) {
+      if (await fileExists(stockPath)) {
+        recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Reply busy; will retry' });
+      }
+      return;
+    }
+    await delay(2000);
+    let raw = '';
+    try {
+      raw = await readFile(stockPath, 'utf8');
+    } finally {
+      await unlinkWithRetry(stockPath);
+    }
     const hash = createHash('sha1').update(raw).digest('hex');
     if (grundnerLastHash === hash) return;
     grundnerLastHash = hash;

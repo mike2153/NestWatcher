@@ -28,14 +28,3 @@ export function onContentsDestroyed(contents: WebContents, cleanup: Cleanup) {
   }
   cleanups.add(cleanup);
 }
-
-export function offContentsDestroyed(contents: WebContents, cleanup: Cleanup) {
-  const cleanups = destroyedCleanups.get(contents);
-  if (!cleanups) {
-    return;
-  }
-  cleanups.delete(cleanup);
-  if (cleanups.size === 0) {
-    destroyedCleanups.delete(contents);
-  }
-}

@@ -51,6 +51,10 @@ export function GlobalTable<TData extends RowData>({
 }: GlobalTableProps<TData>) {
   const rows = table.getRowModel().rows;
 
+  function getWidthClass(meta: unknown): string | undefined {
+    return (meta as { widthClass?: string } | undefined)?.widthClass;
+  }
+
   const effectiveMinVisibleRows = useMemo(() => {
     if (!fillEmptyRows) return 0;
     if (typeof minVisibleRows === 'number') {
@@ -87,7 +91,7 @@ export function GlobalTable<TData extends RowData>({
           style={{ background: 'var(--table-header-bg)' }}
         >
           {table.getHeaderGroups().map((headerGroup) => (
-            <tr key={headerGroup.id} className="border-b-0 transition-colors group-hover:bg-[var(--table-hover-bg)]">
+            <tr key={headerGroup.id} className="border-b-0 transition-colors group-hover:[background:var(--table-hover-bg)]">
               {headerGroup.headers.map((header) => {
                 const dir = header.column.getIsSorted();
                 const canSort = header.column.getCanSort();
@@ -98,7 +102,7 @@ export function GlobalTable<TData extends RowData>({
                       'relative text-left align-middle font-medium whitespace-nowrap text-[var(--table-text)] overflow-hidden',
                       density === 'compact' ? 'h-9 px-2 py-1' : 'h-10 px-4 py-2',
                       (headerHoverAlways || canSort) && 'cursor-pointer select-none',
-                      header.column.columnDef.meta && (header.column.columnDef.meta as any).widthClass
+                      header.column.columnDef.meta && getWidthClass(header.column.columnDef.meta)
                     )}
                     onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
                   >
@@ -130,9 +134,9 @@ export function GlobalTable<TData extends RowData>({
             <tr
               key={row.id}
               className={cn(
-                'border-b border-[var(--table-row-border)] hover:bg-[var(--table-hover-bg)] transition-colors',
+                'border-b border-[var(--table-row-border)] hover:[background:var(--table-hover-bg)] transition-colors',
                 interactiveRows && 'cursor-pointer',
-                row.getIsSelected() && 'bg-[var(--table-selected-bg)] data-[state=selected]:bg-[var(--table-selected-bg)]',
+                row.getIsSelected() && '[background:var(--table-selected-bg)] data-[state=selected]:[background:var(--table-selected-bg)]',
                 getRowClassName?.(row)
               )}
               onClick={(event) => {
@@ -154,7 +158,7 @@ export function GlobalTable<TData extends RowData>({
                   className={cn(
                     'align-middle whitespace-nowrap font-medium overflow-hidden',
                     density === 'compact' ? 'px-2 py-1' : 'px-4 py-2',
-                    cell.column.columnDef.meta && (cell.column.columnDef.meta as any).widthClass
+                    cell.column.columnDef.meta && getWidthClass(cell.column.columnDef.meta)
                   )}
                 >
                   <div className="min-w-0 truncate overflow-hidden text-ellipsis">
@@ -169,7 +173,7 @@ export function GlobalTable<TData extends RowData>({
               {table.getVisibleFlatColumns().map((column) => (
                 <td
                   key={column.id}
-                  className={cn('px-4 py-3 align-middle whitespace-nowrap overflow-hidden', (column.columnDef.meta as any)?.widthClass)}
+                  className={cn('px-4 py-3 align-middle whitespace-nowrap overflow-hidden', getWidthClass(column.columnDef.meta))}
                 >
                   &nbsp;
                 </td>

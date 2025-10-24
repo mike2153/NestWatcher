@@ -20,6 +20,26 @@ Prerequisites
 Install deps
 - pip install -r simulation/requirements.txt
 
+Grundner stock simulator
+- Simulates Grundner responding to order_saw.csv and stock_request.csv.
+- Maintains a local inventory CSV `grun_stock.csv` and serves it as `stock.csv` upon request.
+
+Run Grundner simulator
+- python simulation/grundner_sim.py --folder "D:\\SoftwareTesting\\Nestpick"
+- Use `--id-mode customer_id` if your material key is `customer_id` instead of `type_data`.
+
+Behavior
+- On `order_saw.csv`:
+  - Writes `order_saw.erl` with the same content (acknowledgement).
+  - Parses each line (`<nc>;<material>;<qty>;...`), increments `reserved_stock` for that material by `qty`, and sets `stock_available = max(0, stock - reserved_stock)` in `grun_stock.csv`.
+  - Renames the processed CSV to `order_saw.<timestamp>.processed.csv` to avoid blocking future orders.
+- On `stock_request.csv`:
+  - Copies `grun_stock.csv` to `stock.csv` and deletes the request file.
+
+Tips
+- Initialize `grun_stock.csv` by running the simulator once; it will create an empty, headered file if missing.
+- Keep the Electron app’s Grundner folder path pointing to the same `--folder` so the watcher can drop `stock_request.csv` and read `stock.csv`.
+
 Run the simulator
 - Repeat forever (prompts for machine):
   - python simulation/simulate_workflow.py

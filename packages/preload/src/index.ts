@@ -84,7 +84,7 @@ const api = {
     lockBatch: (keys: string[]) => invokeResult<null>('jobs:lockBatch', { keys }),
     rerun: (key: string) => invokeResult<null>('jobs:rerun', { key }),
     addToWorklist: (key: string, machineId: number) => invokeResult<WorklistAddResult>('jobs:addToWorklist', { key, machineId }),
-    resync: () => invokeResult<{ inserted: number; updated: number }>('jobs:resync')
+    resync: () => invokeResult<{ inserted: number; updated: number; pruned: number }>('jobs:resync')
   },
   machines: {
     list: () => invokeResult<MachinesListRes>('machines:list'),
@@ -200,8 +200,6 @@ const api = {
 } as const;
 
 contextBridge.exposeInMainWorld('api', api);
-
-export type Api = typeof api;
 
 
 

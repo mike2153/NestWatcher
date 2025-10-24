@@ -1,4 +1,4 @@
-import React from 'react';
+// React import not required with the automatic JSX runtime
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';

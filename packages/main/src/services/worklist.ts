@@ -5,7 +5,7 @@ import type { WorklistAddResult, WorklistCollisionInfo, WorklistSkippedFile } fr
 import { dialog } from 'electron';
 import { appendJobEvent } from '../repo/jobEventsRepo';
 import { listMachines } from '../repo/machinesRepo';
-import { resetJobForRestage, updateLifecycle, lockJob } from '../repo/jobsRepo';
+import { resetJobForRestage, updateLifecycle, lockJobAfterGrundnerConfirmation } from '../repo/jobsRepo';
 import { logger } from '../logger';
 import { loadConfig } from './config';
 import { withClient } from './db';
@@ -83,16 +83,7 @@ function resolveSourceRoot(rawFolder: string | null, processedRoot: string, jobK
   return isDir(candidateFromKey) ? candidateFromKey : null;
 }
 
-function formatTimestampForDir(date: Date) {
-  const pad = (value: number) => value.toString().padStart(2, '0');
-  const year = date.getFullYear();
-  const month = pad(date.getMonth() + 1);
-  const day = pad(date.getDate());
-  const hours = pad(date.getHours());
-  const minutes = pad(date.getMinutes());
-  const seconds = pad(date.getSeconds());
-  return `${year}${month}${day}-${hours}${minutes}${seconds}`;
-}
+// Previously used for timestamped folder names; no longer needed
 
 function toPosixRelative(path: string) {
   return path.split('\\').join('/');
@@ -103,26 +94,15 @@ function canOverwrite(name: string) {
 }
 
 function chooseDestination(baseDir: string): { path: string; collision?: WorklistCollisionInfo } {
-  if (!existsSync(baseDir)) {
+  // If the base directory already exists in the machine's Ready-To-Run folder,
+  // reuse it instead of creating a timestamped directory.
+  if (existsSync(baseDir)) {
+    logger.info({ baseDir }, 'worklist: destination exists; reusing existing folder');
     return { path: baseDir };
   }
 
-  const parent = dirname(baseDir);
-  const leaf = basename(baseDir);
-  const timestamp = formatTimestampForDir(new Date());
-  let candidate = join(parent, `${leaf}_${timestamp}`);
-  let suffix = 1;
-  while (existsSync(candidate)) {
-    candidate = join(parent, `${leaf}_${timestamp}_${suffix}`);
-    suffix += 1;
-  }
-
-  const collision: WorklistCollisionInfo = {
-    originalPath: baseDir,
-    redirectedPath: candidate
-  };
-  logger.info({ baseDir, redirectedPath: candidate }, 'worklist: collision detected, staging into timestamped directory');
-  return { path: candidate, collision };
+  // Otherwise, use the base directory path as-is (no timestamp suffix).
+  return { path: baseDir };
 }
 
 export async function addJobToWorklist(key: string, machineId: number): Promise<WorklistAddResult> {
@@ -248,6 +228,9 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
   const preferredDirLower = normalize(dirname(ncPath)).toLowerCase();
 
   const filesToCopy = new Map<string, string>();
+  // Tracks relative paths in destination that should not be overwritten
+  // if they already exist (e.g., Planit 3-char family CSV like RJT.csv)
+  const skipOverwriteRel = new Set<string>();
   const addCopyTarget = (filePath: string) => {
     const relPath = relative(sourceRoot, filePath);
     if (relPath.startsWith('..')) {
@@ -257,8 +240,16 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
     const normalizedRel = relPath.replace(/^[\\/]+/, '');
     filesToCopy.set(filePath, normalizedRel);
   };
+  // Add a copy target but force a specific destination-relative path (do not
+  // preserve the source folder structure). Useful for placing images next to
+  // the NC/CSV files regardless of their source location.
+  const addCopyTargetAs = (filePath: string, destRelPath: string) => {
+    const normalizedRel = destRelPath.replace(/^[\\/]+/, '');
+    filesToCopy.set(filePath, normalizedRel);
+  };
 
   addCopyTarget(ncPath);
+  const ncRelDir = relative(sourceRoot, dirname(ncPath)).replace(/^[\\/]+/, '');
 
   const removeExtension = (value: string) => {
     const ext = extname(value);
@@ -274,7 +265,13 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
   for (const ext of associatedExtensions) {
     const candidate = pickFileByName(`${ncBaseLower}${ext}`, preferredDirLower);
     if (candidate) {
-      addCopyTarget(candidate);
+      // For images, place them next to the NC file in the destination
+      if (ext === '.bmp' || ext === '.jpg' || ext === '.jpeg') {
+        const destRel = ncRelDir ? join(ncRelDir, basename(candidate)) : basename(candidate);
+        addCopyTargetAs(candidate, destRel);
+      } else {
+        addCopyTarget(candidate);
+      }
       if (ext === '.lpt') lptPath = candidate;
       if (ext === '.pts') hasPtsForAlphaCam = true;
     } else {
@@ -292,6 +289,7 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
 
   const prefix = ncBaseLower.slice(0, 3);
   let planitCsvPath: string | null = null;
+  let planitCsvHasImageTokens = false;
   let planitPrefixCsvPath: string | null = null;
   if (mode === 'planit' && prefix.length === 3) {
     // Copy the exact per-file CSV (already handled via exactCsv above)
@@ -299,12 +297,22 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
     const familyCsvName = `${prefix}.csv`;
     planitPrefixCsvPath = pickFileByName(familyCsvName, preferredDirLower);
     if (planitPrefixCsvPath) {
+      const relPath = relative(sourceRoot, planitPrefixCsvPath).replace(/^[\\/]+/, '');
+      skipOverwriteRel.add(relPath.toLowerCase());
       addCopyTarget(planitPrefixCsvPath);
+      planitCsvPath = planitPrefixCsvPath;
     } else {
-      logger.debug({ key: job.key, prefix }, 'worklist: family CSV (prefix.csv) not found');
+      // If the family CSV isn't present in the source, but an older one already
+      // exists in the destination (from a prior staging), reuse it for image mapping.
+      const existingDestFamilyCsv = join(finalDestBaseDir, familyCsvName);
+      if (existsSync(existingDestFamilyCsv)) {
+        planitCsvPath = existingDestFamilyCsv;
+        logger.info({ key: job.key, csv: existingDestFamilyCsv }, 'worklist: using existing destination family CSV for image mapping');
+      } else {
+        logger.debug({ key: job.key, prefix }, 'worklist: family CSV (prefix.csv) not found');
+      }
     }
     // Image mapping must use the family CSV (prefix.csv), not the per-file CSV
-    planitCsvPath = planitPrefixCsvPath ?? null;
   }
 
   // Planit-only image mapping via LPT/CSV
@@ -348,6 +356,7 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
                 }
               }
               if (tokens.length) {
+                planitCsvHasImageTokens = true;
                 const existing = imageTokensByLabel.get(label) ?? [];
                 imageTokensByLabel.set(label, existing.concat(tokens));
               }
@@ -363,7 +372,8 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
           if (resolved) {
             const keyLower = resolved.toLowerCase();
             if (!seenImages.has(keyLower)) {
-              addCopyTarget(resolved);
+              const destRel = ncRelDir ? join(ncRelDir, basename(resolved)) : basename(resolved);
+              addCopyTargetAs(resolved, destRel);
               seenImages.add(keyLower);
             }
             return true;
@@ -372,13 +382,15 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
           if (base) {
             const bmp = resolveTokenToFile(`${base}.bmp`, preferredDirLower);
             if (bmp && !seenImages.has(bmp.toLowerCase())) {
-              addCopyTarget(bmp);
+              const destRel = ncRelDir ? join(ncRelDir, basename(bmp)) : basename(bmp);
+              addCopyTargetAs(bmp, destRel);
               seenImages.add(bmp.toLowerCase());
               return true;
             }
             const jpg = resolveTokenToFile(`${base}.jpg`, preferredDirLower);
             if (jpg && !seenImages.has(jpg.toLowerCase())) {
-              addCopyTarget(jpg);
+              const destRel = ncRelDir ? join(ncRelDir, basename(jpg)) : basename(jpg);
+              addCopyTargetAs(jpg, destRel);
               seenImages.add(jpg.toLowerCase());
               return true;
             }
@@ -406,15 +418,63 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
     }
   }
 
-  // Alphacam-only: if a .pts exists for the same base name, copy all images matching
-  // `${ncBase}*.bmp|jpg|jpeg` from job root and subfolders
-  if (mode === 'alphacam') {
+  // Planit fallback: Some Planit exports include a family CSV without usable image tokens.
+  // In that case, look for a `<ncBase>.txt` file that lists image paths in a pipe-delimited format.
+  // The 3rd column (index 2) contains the image path; we ignore the path and use the basename.
+  // Skip the first row. Example row:
+  //   X01337|Y00294|C:\\...\\r59p0089.bmp||
+  if (mode === 'planit' && planitCsvPath && !planitCsvHasImageTokens) {
+    const txtCandidate = pickFileByName(`${ncBaseLower}.txt`, preferredDirLower);
+    if (txtCandidate) {
+      try {
+        // Also stage the TXT file itself next to the NC
+        const txtDestRel = ncRelDir ? join(ncRelDir, basename(txtCandidate)) : basename(txtCandidate);
+        addCopyTargetAs(txtCandidate, txtDestRel);
+
+        const content = readFileSync(txtCandidate, 'utf8');
+        const lines = content.split(/\r?\n/);
+        for (let i = 0; i < lines.length; i++) {
+          if (i === 0) continue; // disregard row 0
+          const line = lines[i];
+          if (!line || !line.includes('|')) continue;
+          const cols = line.split('|');
+          if (cols.length < 3) continue;
+          const rawPath = cols[2]?.trim();
+          if (!rawPath) continue;
+          const nameOnly = basename(rawPath).trim();
+          if (!nameOnly) continue;
+          const lower = nameOnly.toLowerCase();
+          if (!(lower.endsWith('.bmp') || lower.endsWith('.jpg') || lower.endsWith('.jpeg'))) continue;
+          // Resolve against known files (prefer NC directory)
+          const resolved = resolveTokenToFile(nameOnly, preferredDirLower) ?? pickFileByName(lower, preferredDirLower);
+          if (resolved) {
+            const destRel = ncRelDir ? join(ncRelDir, basename(resolved)) : basename(resolved);
+            addCopyTargetAs(resolved, destRel);
+          }
+        }
+      } catch (err) {
+        logger.warn({ err, txtCandidate }, 'worklist: failed to read Planit TXT fallback');
+      }
+    }
+  }
+
+  // Copy images matching the NC base prefix from job root and subfolders.
+  //
+  // - For Alphacam (when a .pts exists), we have historically copied all
+  //   images that match `${ncBase}*.bmp|jpg|jpeg`.
+  // - For Planit/Generic, we also copy all such images to ensure label files
+  //   are staged even when no LPT/CSV image mapping is available.
+  //
+  // This aligns with simulator/docs which state that images matching
+  // `<base>*.bmp|jpg|jpeg` are copied during staging regardless of CAM source.
+  if (mode === 'alphacam' || mode === 'generic' || mode === 'planit') {
     for (const filePath of files) {
       const nameLower = basename(filePath).toLowerCase();
       if (nameLower.endsWith('.bmp') || nameLower.endsWith('.jpg') || nameLower.endsWith('.jpeg')) {
         const baseNoExt = removeExtension(nameLower);
         if (baseNoExt.startsWith(ncBaseLower)) {
-          addCopyTarget(filePath);
+          const destRel = ncRelDir ? join(ncRelDir, basename(filePath)) : basename(filePath);
+          addCopyTargetAs(filePath, destRel);
         }
       }
     }
@@ -430,10 +490,18 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
     if (!existsSync(destParent)) mkdirSync(destParent, { recursive: true });
 
     const fileName = basename(src);
-    if (existsSync(dest) && !canOverwrite(fileName)) {
-      skipped.push({ relativePath: relPosix, reason: 'exists', message: 'Destination file already exists' });
-      logger.debug({ src, dest }, 'worklist: skipped existing file');
-      continue;
+    if (existsSync(dest)) {
+      const relKeyLower = rel.replace(/^[\\/]+/, '').toLowerCase();
+      if (skipOverwriteRel.has(relKeyLower)) {
+        skipped.push({ relativePath: relPosix, reason: 'exists', message: 'Destination file already exists' });
+        logger.debug({ src, dest }, 'worklist: skipped existing Planit family CSV');
+        continue;
+      }
+      if (!canOverwrite(fileName)) {
+        skipped.push({ relativePath: relPosix, reason: 'exists', message: 'Destination file already exists' });
+        logger.debug({ src, dest }, 'worklist: skipped existing file');
+        continue;
+      }
     }
 
     try {
@@ -481,12 +549,33 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
     logger.warn({ err, key: job.key }, 'worklist: failed to append job event');
   }
 
-  // After staging, place Grundner order_saw CSV and lock on confirmation.
-  // This should not fail the staging result; show a dialog to the user with outcome.
+  // After staging, place Grundner order_saw CSV, wait for .erl reply, record the check,
+  // and then lock on confirmation. This should not fail the staging result; show a dialog to the user with outcome.
   try {
     const res = await placeOrderSawCsv([{ key: job.key, ncfile: job.ncfile, material: job.material ?? null }]);
+
+    // Record that we processed and checked the .erl (and that it was deleted)
+    try {
+      await appendJobEvent(
+        job.key,
+        'grundner:erlChecked',
+        {
+          confirmed: res.confirmed,
+          folder: res.folder,
+          checked: !!res.checked,
+          deleted: !!res.deleted,
+          csv: res.csv ?? null,
+          erl: res.erl ?? null
+        },
+        machineId
+      );
+    } catch (err) {
+      logger.warn({ err, key: job.key }, 'worklist: failed to append erlChecked event');
+    }
+
     if (res.confirmed) {
-      await lockJob(job.key);
+      // Lock only after confirmed .erl from Grundner
+      await lockJobAfterGrundnerConfirmation(job.key);
       void dialog.showMessageBox({ type: 'info', title: 'Order Saw', message: `Order confirmed for ${job.key}.` });
     } else {
       const message = res.erl ? res.erl : 'Timed out waiting for confirmation (.erl).';

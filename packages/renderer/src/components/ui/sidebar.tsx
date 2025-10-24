@@ -1,13 +1,9 @@
 "use client"
 
 import * as React from "react"
-import { Slot } from "@radix-ui/react-slot"
-import { cva, type VariantProps } from "class-variance-authority"
-import { PanelLeftIcon } from "lucide-react"
 
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 
 const SIDEBAR_WIDTH = "12rem"
@@ -92,16 +88,6 @@ function Sidebar({ className, children, ...props }: React.ComponentProps<"div">)
   )
 }
 
-function SidebarTrigger({ className, ...props }: React.ComponentProps<typeof Button>) {
-  const { toggleSidebar } = useSidebar()
-  return (
-    <Button variant="outline" size="icon" className={cn("shrink-0", className)} onClick={toggleSidebar} {...props}>
-      <PanelLeftIcon className="size-5" />
-      <span className="sr-only">Toggle Sidebar</span>
-    </Button>
-  )
-}
-
 function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
   return <main data-slot="sidebar-inset" className={cn("flex min-h-svh flex-1 flex-col min-w-0 overflow-x-hidden", className)} {...props} />
 }
@@ -126,32 +112,14 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
   return <li data-slot="sidebar-menu-item" className={cn("", className)} {...props} />
 }
 
-const sidebarMenuButtonVariants = cva(
-  "peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md pl-6 pr-2 text-left text-base font-medium outline-hidden ring-sidebar-ring transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>span:last-child]:pl-3 [&>svg]:size-4 [&>svg]:shrink-0",
-  {
-    variants: {
-      size: { default: "h-9", sm: "h-8", lg: "h-10" },
-      variant: { default: "", outline: "bg-background shadow-[0_0_0_1px_var(--sidebar-border)]" },
-    },
-    defaultVariants: { size: "default", variant: "default" },
-  }
-)
-
-function SidebarMenuButton({ className, size, variant, asChild = false, ...props }: React.ComponentProps<"button"> & VariantProps<typeof sidebarMenuButtonVariants> & { asChild?: boolean }) {
-  const Comp = asChild ? Slot : "button"
-  return <Comp data-slot="sidebar-menu-button" className={cn(sidebarMenuButtonVariants({ size, variant }), className)} {...props} />
-}
-
 export {
   useSidebar,
   SidebarProvider,
   Sidebar,
-  SidebarTrigger,
   SidebarInset,
   SidebarHeader,
   SidebarFooter,
   SidebarContent,
   SidebarMenu,
   SidebarMenuItem,
-  SidebarMenuButton,
 }

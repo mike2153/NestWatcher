@@ -1,6 +1,7 @@
 import { existsSync, promises as fsp } from 'fs';
 import { join, normalize } from 'path';
 import { loadConfig } from './config';
+import { logger } from '../logger';
 
 type OrderItem = { key: string; ncfile: string | null; material: string | null };
 
@@ -20,7 +21,9 @@ async function waitForStableFile(path: string, attempts = 4, intervalMs = 300): 
       const stat = await fsp.stat(path);
       if (stat.size === lastSize) return;
       lastSize = stat.size;
-    } catch {}
+    } catch {
+      /* ignore transient fs errors while probing file size */
+    }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
 }
@@ -31,7 +34,10 @@ function toNcName(base: string | null): string {
   return /\.nc$/i.test(name) ? name : `${name}.nc`;
 }
 
-export async function placeOrderSawCsv(items: OrderItem[], timeoutMs = 60_000): Promise<{ confirmed: boolean; erl?: string; csv?: string; folder: string }>{
+export async function placeOrderSawCsv(
+  items: OrderItem[],
+  timeoutMs = 10_000
+): Promise<{ confirmed: boolean; erl?: string; csv?: string; folder: string; checked?: boolean; deleted?: boolean }>{
   if (!items.length) throw new Error('No items to order');
   const cfg = loadConfig();
   const folderRaw = cfg.paths.grundnerFolderPath?.trim() ?? '';
@@ -44,7 +50,9 @@ export async function placeOrderSawCsv(items: OrderItem[], timeoutMs = 60_000): 
   const erlPath = join(folder, 'order_saw.erl');
 
   // Make sure previous reply is cleared to avoid stale confirmations
-  try { await fsp.unlink(erlPath); } catch {}
+  try { await fsp.unlink(erlPath); } catch {
+    /* ignore if previous erl does not exist */
+  }
 
   // Avoid overwriting an in-flight order: if present, wait 5s once then fail if still present
   if (existsSync(csvPath) || existsSync(tmpPath)) {
@@ -62,7 +70,10 @@ export async function placeOrderSawCsv(items: OrderItem[], timeoutMs = 60_000): 
 
   // Wait for reply
   const ok = await waitFor(async () => existsSync(erlPath), timeoutMs);
-  if (!ok) return { confirmed: false, folder };
+  if (!ok) {
+    logger.warn({ folder }, 'orderSaw: timed out waiting for order_saw.erl');
+    return { confirmed: false, folder, checked: false, deleted: false };
+  }
 
   await waitForStableFile(erlPath);
   const erl = await fsp.readFile(erlPath, 'utf8');
@@ -70,5 +81,21 @@ export async function placeOrderSawCsv(items: OrderItem[], timeoutMs = 60_000): 
   // Normalize CRLF and trailing whitespace for comparison
   const norm = (s: string) => s.replace(/\r\n/g, '\n').trim();
   const confirmed = norm(erl) === norm(lines);
-  return { confirmed, erl, csv: lines, folder };
+
+  // Log check result for traceability
+  if (confirmed) {
+    logger.info({ folder }, 'orderSaw: erl matches CSV; processing complete');
+  } else {
+    logger.warn({ folder }, 'orderSaw: erl content does not match CSV');
+  }
+
+  // Delete erl after processing to avoid stale confirmations
+  try {
+    await fsp.unlink(erlPath);
+    logger.info({ folder }, 'orderSaw: deleted order_saw.erl after processing');
+  } catch (err) {
+    logger.warn({ folder, err }, 'orderSaw: failed to delete order_saw.erl');
+  }
+
+  return { confirmed, erl, csv: lines, folder, checked: true, deleted: true };
 }

@@ -1,17 +1,11 @@
 import { existsSync, promises as fsp } from 'fs';
-import { basename, extname, join, normalize, resolve, sep } from 'path';
+import { basename, join, resolve, sep } from 'path';
 import { loadConfig } from './config';
 import { withClient } from './db';
 
 function toRelDirFromKey(key: string): string {
   const idx = key.lastIndexOf('/');
   return idx >= 0 ? key.slice(0, idx) : '';
-}
-
-function baseFromKey(key: string): string {
-  const idx = key.lastIndexOf('/');
-  const tail = idx >= 0 ? key.slice(idx + 1) : key;
-  return tail;
 }
 
 function originalBase(base: string): string {
@@ -77,4 +71,3 @@ export async function rerunJob(key: string): Promise<{ ok: true; created: string
 
   return { ok: true, created };
 }
-

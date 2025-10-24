@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getCoreRowModel,
   getSortedRowModel,
@@ -6,7 +6,7 @@ import {
 } from '@tanstack/react-table';
 import type { ColumnDef, SortingState } from '@tanstack/react-table';
 import { GlobalTable } from '@/components/table/GlobalTable';
-import type { GrundnerListReq, GrundnerRow } from '../../../shared/src';
+import type { GrundnerListReq, GrundnerRow, WatcherStatus } from '../../../shared/src';
 function formatTimestamp(value: string) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
@@ -28,7 +28,6 @@ type Filters = {
 
 type EditState = {
   stockAvailable?: string;
-  reservedStock?: string;
 };
 
 export function GrundnerPage() {
@@ -38,6 +37,9 @@ export function GrundnerPage() {
   const [editing, setEditing] = useState<Record<number, EditState>>({});
   const [loading, setLoading] = useState(false);
   const [sorting, setSorting] = useState<SortingState>([{ id: 'typeData', desc: false }]);
+  const lastLoadedAtRef = useRef<number>(0);
+  const lastAutoRefreshAtRef = useRef<number>(0);
+  const [pendingAutoRefresh, setPendingAutoRefresh] = useState(false);
 
   const totalStock = useMemo(() => rows.reduce((sum, row) => sum + (row.stock ?? 0), 0), [rows]);
   const totalAvailable = useMemo(() => rows.reduce((sum, row) => sum + (row.stockAvailable ?? 0), 0), [rows]);
@@ -61,6 +63,7 @@ export function GrundnerPage() {
       return;
     }
     setRows(res.value.items);
+    lastLoadedAtRef.current = Date.now();
     setLoading(false);
   }, [filters, limit]);
 
@@ -73,19 +76,16 @@ export function GrundnerPage() {
     return numeric;
   };
 
-  const updateRow = useCallback(async (row: GrundnerRow) => {
+  const _updateRow = useCallback(async (row: GrundnerRow) => {
     const edit = editing[row.id] ?? {};
-    const payload: { stockAvailable?: number | null; reservedStock?: number | null } = {};
+    const payload: { stockAvailable?: number | null } = {};
     let dirty = false;
 
     if (Object.prototype.hasOwnProperty.call(edit, 'stockAvailable')) {
       payload.stockAvailable = parseField(edit.stockAvailable);
       dirty = true;
     }
-    if (Object.prototype.hasOwnProperty.call(edit, 'reservedStock')) {
-      payload.reservedStock = parseField(edit.reservedStock);
-      dirty = true;
-    }
+    // reservedStock is read-only and sourced from CSV; no edits here
 
     if (!dirty) {
       alert('No changes to apply.');
@@ -109,68 +109,186 @@ export function GrundnerPage() {
     await load();
   }, [editing, load]);
 
-  const resyncReserved = async (id?: number) => {
-    const res = await window.api.grundner.resync(id ? { id } : undefined);
-    if (!res.ok) {
-      alert(`Resync failed: ${res.error.message}`);
-      return;
+  // Resync action handler is currently unused; remove to satisfy linter
+
+  const exportCsv = () => {
+    try {
+      const headers = [
+        'Type',
+        'Customer ID',
+        'Length',
+        'Width',
+        'Thickness',
+        'Pre-Reserved',
+        'Stock',
+        'Reserved',
+        'Available',
+        'Last Updated'
+      ];
+      const escape = (val: unknown) => {
+        if (val == null) return '';
+        const s = String(val);
+        if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+        return s;
+      };
+      const lines = rows.map((r) => [
+        r.typeData ?? '',
+        r.customerId ?? '',
+        r.lengthMm ?? '',
+        r.widthMm ?? '',
+        r.thicknessMm ?? '',
+        r.preReserved ?? '',
+        r.stock ?? '',
+        r.reservedStock ?? '',
+        r.stockAvailable ?? '',
+        r.lastUpdated ? formatTimestamp(r.lastUpdated) : ''
+      ].map(escape).join(','));
+      const csv = [headers.join(','), ...lines].join('\r\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const ts = new Date();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const fname = `grundner_export_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.csv`;
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fname;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed', err);
+      alert('Failed to export CSV.');
     }
-    await load();
   };
+
+  // Auto-refresh on Grundner watcher push events (throttled)
+  useEffect(() => {
+    const MIN_GAP_MS = 15_000; // throttle auto refresh
+
+    const unsubscribe = window.api.diagnostics.subscribe((snapshot) => {
+      try {
+        const watcher = snapshot?.watchers?.find((w: WatcherStatus) => w?.label === 'Grundner Stock Poller');
+        if (!watcher?.lastEventAt) return;
+        const eventTs = Date.parse(watcher.lastEventAt);
+        if (!Number.isFinite(eventTs)) return;
+        // Only react to events after our last successful load
+        if (eventTs <= lastLoadedAtRef.current) return;
+
+        // Only refresh when we actually synced rows
+        const msg: string = watcher.lastEvent ?? '';
+        const m = msg.match(/Synced Grundner stock \(inserted\s+(\d+),\s*updated\s+(\d+)\)/i);
+        if (!m) return;
+        const inserted = Number(m[1] ?? 0) || 0;
+        const updated = Number(m[2] ?? 0) || 0;
+        if (inserted + updated <= 0) return;
+
+        const now = Date.now();
+        if (now - lastAutoRefreshAtRef.current < MIN_GAP_MS) return;
+
+        // Avoid disrupting active edits or in-flight loads; defer if needed
+        if (loading || Object.keys(editing).length > 0) {
+          setPendingAutoRefresh(true);
+          return;
+        }
+        lastAutoRefreshAtRef.current = now;
+        void load();
+      } catch {
+        /* ignore diagnostics parsing errors */
+      }
+    });
+
+    return () => {
+      try { unsubscribe?.(); } catch {
+        /* ignore unsubscribe errors */
+      }
+    };
+  }, [editing, loading, load]);
+
+  // When edits finish and a refresh is pending, run it (throttled)
+  useEffect(() => {
+    if (!pendingAutoRefresh) return;
+    if (loading) return;
+    if (Object.keys(editing).length > 0) return;
+    const now = Date.now();
+    const MIN_GAP_MS = 15_000;
+    if (now - lastAutoRefreshAtRef.current < MIN_GAP_MS) return;
+    setPendingAutoRefresh(false);
+    lastAutoRefreshAtRef.current = now;
+    void load();
+  }, [pendingAutoRefresh, editing, loading, load]);
   const columns = useMemo<ColumnDef<GrundnerRow>[]>(() => [
     {
       id: 'typeData',
       accessorKey: 'typeData',
       header: 'Type',
-      cell: (ctx) => <span className="font-mono text-xs">{ctx.getValue<number | null>() ?? ''}</span>,
-      size: 120
+      cell: (ctx) => ctx.getValue<number | null>() ?? '',
+      size: 60,
+      meta: { widthClass: 'w-[100px]' }
     },
     {
       id: 'customerId',
       accessorKey: 'customerId',
-      header: 'Customer',
+      header: 'Customer ID',
       cell: (ctx) => ctx.getValue<string | null>() ?? '',
-      size: 200
+      size: 260,
+      meta: { widthClass: 'w-[220px]' }
+    },
+    {
+      id: 'lengthMm',
+      accessorKey: 'lengthMm',
+      header: 'Length',
+      cell: (ctx) => ctx.getValue<number | null>() ?? '',
+      size: 60,
+      meta: { widthClass: 'w-[60px]' }
+    },
+    {
+      id: 'widthMm',
+      accessorKey: 'widthMm',
+      header: 'Width',
+      cell: (ctx) => ctx.getValue<number | null>() ?? '',
+      size: 110,
+      meta: { widthClass: 'w-[110px]' }
     },
     {
       id: 'thicknessMm',
       accessorKey: 'thicknessMm',
       header: 'Thickness',
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      size: 110
+      size: 110,
+      meta: { widthClass: 'w-[110px]' }
+    },
+    {
+      id: 'preReserved',
+      accessorKey: 'preReserved',
+      header: 'Pre-Reserved',
+      size: 120,
+      cell: (ctx) => ctx.getValue<number | null>() ?? '',
+      meta: { widthClass: 'w-[120px]' }
     },
     {
       id: 'stock',
       accessorKey: 'stock',
       header: 'Stock',
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      size: 90
+      size: 90,
+      meta: { widthClass: 'w-[90px]' }
+    },
+    {
+      id: 'reservedStock',
+      accessorKey: 'reservedStock',
+      header: 'Locked',
+      size: 120,
+      cell: (ctx) => ctx.getValue<number | null>() ?? '',
+      meta: { widthClass: 'w-[120px]' }
     },
     {
       id: 'stockAvailable',
       accessorKey: 'stockAvailable',
       header: 'Available',
       size: 120,
-      cell: (ctx) => ctx.getValue<number | null>() ?? ''
-    },
-    {
-      id: 'reservedStock',
-      accessorKey: 'reservedStock',
-      header: 'Reserved',
-      size: 120,
-      cell: (ctx) => {
-        const row = ctx.row.original;
-        const edit = editing[row.id] ?? {};
-        const val = edit.reservedStock ?? (row.reservedStock != null ? String(row.reservedStock) : '');
-        return (
-          <input
-            className="border rounded px-1 py-0.5 w-16 text-right text-xs h-7"
-            type="number"
-            value={val}
-            onChange={(e) => setEditing((prev) => ({ ...prev, [row.id]: { ...prev[row.id], reservedStock: e.target.value } }))}
-          />
-        );
-      }
+      cell: (ctx) => ctx.getValue<number | null>() ?? '',
+      meta: { widthClass: 'w-[120px]' }
     },
     {
       id: 'lastUpdated',
@@ -180,30 +298,10 @@ export function GrundnerPage() {
         const v = ctx.getValue<string | null>();
         return v ? formatTimestamp(v) : '';
       },
-      size: 180
+      size: 180,
+      meta: { widthClass: 'w-[180px]' }
     },
-    {
-      id: 'actions',
-      header: 'Actions',
-      size: 200,
-      cell: (ctx) => {
-        const row = ctx.row.original;
-        return (
-          <div className="flex gap-2">
-            <button className="border rounded px-2 py-1 text-sm" onClick={() => { /* TODO: implement Reserve */ }}>
-              Reserve
-            </button>
-            <button className="border rounded px-2 py-1 text-sm" onClick={() => { /* TODO: implement Lock */ }}>
-              Lock
-            </button>
-            <button className="border rounded px-2 py-1 text-sm" onClick={() => updateRow(row)}>
-              Apply
-            </button>
-          </div>
-        );
-      }
-    }
-  ], [editing, updateRow]);
+  ], []);
 
   const table = useReactTable({
     data: rows,
@@ -220,11 +318,10 @@ export function GrundnerPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Grundner Inventory</h1>
-          <p className="text-sm text-muted-foreground">stock {totalStock} • available {totalAvailable} • reserved {totalReserved}</p>
+          <p className="text-sm text-muted-foreground">Stock {totalStock} • Available {totalAvailable} • Locked {totalReserved}</p>
         </div>
         <div className="flex gap-2">
-          <button className="border rounded px-3 py-1" onClick={() => resyncReserved()}>Resync All</button>
-          <button className="border rounded px-3 py-1" onClick={load} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</button>
+          <button className="border rounded px-3 py-1" onClick={exportCsv}>Export to CSV</button>
         </div>
       </div>
 

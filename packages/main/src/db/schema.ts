@@ -81,7 +81,8 @@ export const grundner = pgTable('grundner', {
   stock: integer('stock'),
   stockAvailable: integer('stock_available'),
   lastUpdated: varchar('last_updated', { length: 50 }),
-  reservedStock: integer('reserved_stock').default(0)
+  reservedStock: integer('reserved_stock').default(0),
+  preReserved: integer('pre_reserved').default(0)
 });
 
 export const schema = {

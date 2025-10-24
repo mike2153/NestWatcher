@@ -159,7 +159,7 @@ Set these in **Settings** page:
 
 **Job not staging?**
 - Verify `ap_jobfolder` is accessible (network share permissions)
-- Check for folder name collisions (timestamped folders created automatically)
+- Existing destination folders are reused; files merge into the existing job folder
 
 **AutoPAC CSV not processing?**
 - File must be named `load_finish<machine>.csv` (exact format)

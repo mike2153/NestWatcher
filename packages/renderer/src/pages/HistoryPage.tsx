@@ -304,7 +304,7 @@ export function HistoryPage() {
                 return (
                   <TableRow
                     key={row.key}
-                    className={isActive ? 'bg-[var(--table-selected-bg)]' : 'hover:bg-[var(--table-hover-bg)]'}
+                    className={isActive ? '[background:var(--table-selected-bg)]' : 'hover:[background:var(--table-hover-bg)]'}
                     onClick={() => setSelectedKey(row.key)}
                   >
                     <TableCell className="px-2 py-2 truncate">{row.folder ?? ''}</TableCell>
@@ -323,7 +323,7 @@ export function HistoryPage() {
           </Table>
         </div>
 
-        <div className="border rounded p-4 space-y-3 h-[calc(100vh-250px)] overflow-y-auto">
+        <div className="rounded border bg-background shadow-lg p-4 space-y-3 h-[calc(100vh-250px)] overflow-y-auto">
           {!selectedRow && <div className="text-sm text-muted-foreground">Select a job to view its timeline.</div>}
           {selectedRow && (
             <>

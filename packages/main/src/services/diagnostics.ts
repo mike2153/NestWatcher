@@ -483,9 +483,7 @@ export function clearMachineHealthIssue(machineId: number | null, code: MachineH
   }
 }
 
-export function getMachineHealthSummary(): MachineHealthEntry[] {
-  return getMachineHealthEntries();
-}
+// getMachineHealthSummary was unused; prefer getMachineHealthEntries()
 
 
 

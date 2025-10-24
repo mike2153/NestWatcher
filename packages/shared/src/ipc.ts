@@ -339,6 +339,7 @@ export const GrundnerRow = z.object({
   stock: z.number().int().nullable(),
   stockAvailable: z.number().int().nullable(),
   reservedStock: z.number().int().nullable(),
+  preReserved: z.number().int().nullable(),
   lastUpdated: z.string().nullable()
 });
 export type GrundnerRow = z.infer<typeof GrundnerRow>;
@@ -349,12 +350,10 @@ export type GrundnerListRes = z.infer<typeof GrundnerListRes>;
 export const GrundnerUpdateReq = z.object({
   id: z.number().int(),
   stock: z.number().int().nullable().optional(),
-  stockAvailable: z.number().int().nullable().optional(),
-  reservedStock: z.number().int().nullable().optional()
+  stockAvailable: z.number().int().nullable().optional()
 }).refine((data) =>
   Object.prototype.hasOwnProperty.call(data, 'stock') ||
-  Object.prototype.hasOwnProperty.call(data, 'stockAvailable') ||
-  Object.prototype.hasOwnProperty.call(data, 'reservedStock'),
+  Object.prototype.hasOwnProperty.call(data, 'stockAvailable'),
   { message: 'At least one field must be provided' }
 );
 export type GrundnerUpdateReq = z.infer<typeof GrundnerUpdateReq>;
