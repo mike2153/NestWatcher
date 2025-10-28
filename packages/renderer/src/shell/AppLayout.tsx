@@ -18,6 +18,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/router': 'Router',
   '/theme': 'Theme',
   '/telemetry': 'Telemetry',
+  '/messages': 'Messages',
   '/cnc-alarms': 'CNC Alarms'
 };
 

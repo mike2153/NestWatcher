@@ -3,6 +3,7 @@ import { join } from 'path';
 import { BrowserWindow, dialog } from 'electron';
 import { Worker } from 'worker_threads';
 import { logger } from '../logger';
+import { pushAppMessage } from './messages';
 import {
   registerWatcher,
   watcherReady,
@@ -125,6 +126,15 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
     case 'appAlert': {
       const error = new Error(message.summary);
       recordWorkerError(`app-alert:${message.category}`, error, message.details);
+      break;
+    }
+    case 'appMessage': {
+      pushAppMessage({
+        title: message.payload.title,
+        body: message.payload.body,
+        source: message.payload.source,
+        timestamp: message.payload.timestamp
+      });
       break;
     }
     default:

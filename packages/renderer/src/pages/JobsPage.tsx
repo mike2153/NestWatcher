@@ -21,6 +21,7 @@ import { JOB_STATUS_VALUES } from '../../../shared/src';
 import { cn } from '../utils/cn';
 import { GlobalTable } from '@/components/table/GlobalTable';
 import { Button } from '@/components/ui/button';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, ContextMenuLabel, ContextMenuSeparator, ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent } from '@/components/ui/context-menu';
 import {
   Filter,
   FilterX,
@@ -96,6 +97,27 @@ function statusBadgeClass(status: JobStatus) {
   }
 }
 
+// Formatter used to normalize number display (no grouping)
+const numberFormatter = new Intl.NumberFormat(undefined, { useGrouping: false });
+
+// Parse size and thickness fields into a unified L x W x T string
+function formatJobDimensions(row: JobRow): string {
+  const size = row.size ?? '';
+  const thickness = row.thickness ?? '';
+
+  // Extract up to first two numeric parts from size (handles separators like x, *, spaces)
+  const sizeNums = Array.from(size.matchAll(/\d+(?:\.\d+)?/g)).map((m) => m[0]);
+  const parts: string[] = [];
+  if (sizeNums[0]) parts.push(numberFormatter.format(Number(sizeNums[0])));
+  if (sizeNums[1]) parts.push(numberFormatter.format(Number(sizeNums[1])));
+
+  // Extract first numeric part from thickness
+  const tMatch = thickness.match(/\d+(?:\.\d+)?/);
+  if (tMatch) parts.push(numberFormatter.format(Number(tMatch[0])));
+
+  return parts.length ? parts.join(' x ') : 'N/A';
+}
+
 function loadColumnSizing(): ColumnSizingState {
   if (typeof window === 'undefined') return {};
   try {
@@ -118,7 +140,7 @@ export function JobsPage() {
   const [filterOptions, setFilterOptions] = useState<JobsFiltersRes['options']>({ materials: [], statuses: JOB_STATUS_VALUES });
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [columnSizing, _setColumnSizing] = useState<ColumnSizingState>(loadColumnSizing);
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  // Context menu is now handled by shadcn-style component; keep only selection logic
   
   const [bulkMachine, setBulkMachine] = useState<number | ''>('');
   const [actionBusy, setActionBusy] = useState(false);
@@ -272,12 +294,7 @@ export function JobsPage() {
     });
   }, [data]);
 
-  useEffect(() => {
-    if (!contextMenu) return;
-    if (!contextMenu.keys?.some((key) => rowSelection[key])) {
-      setContextMenu(null);
-    }
-  }, [contextMenu, rowSelection]);
+  // No custom overlay state to sync
 
   const machineNameById = useMemo(() => {
     const map = new Map<number, string>();
@@ -362,33 +379,14 @@ export function JobsPage() {
       meta: { widthClass: 'w-[80px]' }
     },
     {
-      accessorKey: 'size',
-      header: 'Size',
-      meta: { widthClass: 'w-[120px]' }
+      id: 'size',
+      header: 'Dimensions (LxWxT)',
+      accessorFn: (row) => formatJobDimensions(row),
+      cell: (info) => info.getValue<string>(),
+      sortingFn: 'alphanumeric',
+      meta: { widthClass: 'w-[160px]' }
     },
-    {
-      accessorKey: 'thickness',
-      header: 'Thickness',
-      meta: { widthClass: 'w-[120px]' }
-    },
-    {
-      accessorKey: 'processingSeconds',
-      header: 'Processing Time',
-      meta: { widthClass: 'w-[120px]' },
-      enableSorting: false,
-      cell: ({ getValue }) => {
-        const seconds = getValue<number | null | undefined>();
-        if (seconds == null || !Number.isFinite(seconds)) return '';
-        const total = Math.max(0, Math.floor(seconds));
-        const dd = Math.floor(total / 86400);
-        const hh = Math.floor((total % 86400) / 3600);
-        const mm = Math.floor((total % 3600) / 60);
-        const ss = total % 60;
-        if (dd > 0) return `${dd}d ${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
-        if (hh > 0) return `${hh}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
-        return `${mm}:${String(ss).padStart(2,'0')}`;
-      }
-    },
+    
     {
       accessorKey: 'dateadded',
       header: 'Date Added',
@@ -423,6 +421,24 @@ export function JobsPage() {
             {formatStatusLabel(raw)}
           </span>
         );
+      }
+    },
+    {
+      accessorKey: 'processingSeconds',
+      header: 'Processing Time',
+      meta: { widthClass: 'w-[120px]' },
+      enableSorting: false,
+      cell: ({ getValue }) => {
+        const seconds = getValue<number | null | undefined>();
+        if (seconds == null || !Number.isFinite(seconds)) return '';
+        const total = Math.max(0, Math.floor(seconds));
+        const dd = Math.floor(total / 86400);
+        const hh = Math.floor((total % 86400) / 3600);
+        const mm = Math.floor((total % 3600) / 60);
+        const ss = total % 60;
+        if (dd > 0) return `${dd}d ${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+        if (hh > 0) return `${hh}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+        return `${mm}:${String(ss).padStart(2,'0')}`;
       }
     },
     {
@@ -521,7 +537,6 @@ export function JobsPage() {
           alert(
             'Only jobs in PENDING status can be reserved. Please deselect jobs that are not pending before reserving.'
           );
-          setContextMenu(null);
           return;
         }
       }
@@ -542,7 +557,6 @@ export function JobsPage() {
         setRowSelection({});
       } finally {
         setActionBusy(false);
-        setContextMenu(null);
       }
     },
     [jobByKey, refresh]
@@ -559,18 +573,15 @@ export function JobsPage() {
             alert(`Lock failed: ${res.error.message}`);
           }
         } else {
-          const failures: string[] = [];
-          for (const key of targetKeys) {
-            const res = await window.api.jobs.unlock(key);
-            if (!res.ok) failures.push(`${key}: ${res.error.message}`);
+          const res = await window.api.jobs.unlockBatch(targetKeys);
+          if (!res.ok) {
+            alert(`Unlock failed: ${res.error.message}`);
           }
-          if (failures.length) alert(`Failed to unlock ${failures.length} job(s): ${failures.join(', ')}`);
         }
         await refresh();
         setRowSelection({});
       } finally {
         setActionBusy(false);
-        setContextMenu(null);
       }
     },
     [refresh]
@@ -581,32 +592,59 @@ export function JobsPage() {
     setActionBusy(true);
     try {
       const failures: string[] = [];
-      let successCount = 0;
+      let stagedCount = 0;
+      const rerunKeys: string[] = [];
+      const normalKeys: string[] = [];
       for (const key of targetKeys) {
-        const res = await window.api.jobs.addToWorklist(key, machineId);
-        if (!res.ok) {
-          console.error('Failed to add job to worklist', key, res.error);
-          failures.push(`${key}: ${res.error.message}`);
-        } else if (res.value.ok) {
-          successCount += 1;
-        } else {
-          failures.push(`${key}: ${res.value.error}`);
+        const job = jobByKey.get(key);
+        if (!job) continue;
+        const notPending = job.status !== 'PENDING';
+        const differentMachineWhileStaged = job.status === 'STAGED' && job.machineId != null && job.machineId !== machineId;
+        const needsRerun = notPending || differentMachineWhileStaged;
+        if (needsRerun) rerunKeys.push(key); else normalKeys.push(key);
+      }
+
+      if (rerunKeys.length) {
+        const list = rerunKeys
+          .map((k) => jobByKey.get(k))
+          .filter((j): j is JobRow => !!j)
+          .map((j) => `${j.folder ?? ''}/${j.ncfile ?? j.key} — ${j.status}${j.machineId != null ? ` (Machine ${j.machineId})` : ''}`)
+          .join('\n');
+        const ok = window.confirm(
+          `${rerunKeys.length} job(s) will be re-run (run2, run3, ...) and staged to the selected machine.\n\n${list}\n\nContinue?`
+        );
+        if (!ok) {
+          setActionBusy(false);
+          return;
         }
       }
-      if (successCount) {
-        alert(`Added ${successCount} job(s) to worklist.`);
+
+      // Stage normal PENDING jobs first
+      for (const key of normalKeys) {
+        const res = await window.api.jobs.addToWorklist(key, machineId);
+        if (!res.ok) failures.push(`${key}: ${res.error.message}`);
+        else if (!res.value.ok) failures.push(`${key}: ${res.value.error}`);
+        else stagedCount += 1;
       }
-      if (failures.length) {
-        alert(`Failed to add ${failures.length} job(s): ${failures.join(', ')}`);
+
+      // Rerun and stage
+      for (const key of rerunKeys) {
+        const res = await window.api.jobs.rerunAndStage(key, machineId);
+        if (!res.ok) failures.push(`${key}: ${res.error.message}`);
+        else if (!res.value.ok) failures.push(`${key}: ${res.value.error}`);
+        else stagedCount += 1;
       }
+
+      if (stagedCount) alert(`Staged ${stagedCount} job(s).`);
+      if (failures.length) alert(`Failed to stage ${failures.length} job(s):\n\n${failures.join('\n')}`);
+
       await refresh();
       setRowSelection({});
       setBulkMachine('');
     } finally {
       setActionBusy(false);
-      setContextMenu(null);
     }
-  }, [refresh]);
+  }, [jobByKey, refresh]);
 
   const loadHistory = useCallback(async (key: string) => {
     setHistoryLoading(true);
@@ -645,29 +683,13 @@ export function JobsPage() {
   }, [historyKey, loadHistory]);
 
   const handleRowContextMenu = useCallback((event: MouseEvent<HTMLTableRowElement>, rowKey: string) => {
-    event.preventDefault();
-    const keys = Object.keys(rowSelection).length ? Object.keys(rowSelection) : [rowKey];
-    setContextMenu({ position: { x: event.clientX, y: event.clientY }, keys });
+    // If nothing is selected, select the row being right-clicked
+    if (!Object.keys(rowSelection).length) {
+      setRowSelection({ [rowKey]: true });
+    }
   }, [rowSelection]);
 
-  useEffect(() => {
-    if (!contextMenu) return;
-    const handleMouse = (event: globalThis.MouseEvent) => {
-      if ((event.target as HTMLElement).closest('[data-context-menu]')) return;
-      setContextMenu(null);
-    };
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setContextMenu(null);
-    };
-    window.addEventListener('mousedown', handleMouse);
-    window.addEventListener('contextmenu', handleMouse);
-    window.addEventListener('keydown', handleKey);
-    return () => {
-      window.removeEventListener('mousedown', handleMouse);
-      window.removeEventListener('contextmenu', handleMouse);
-      window.removeEventListener('keydown', handleKey);
-    };
-  }, [contextMenu]);
+  // Context menu open/close handled by ContextMenu component
 
   const statusOptions = filterOptions?.statuses?.length ? filterOptions.statuses : JOB_STATUS_VALUES;
   const materialOptions = filterOptions?.materials || [];
@@ -769,7 +791,6 @@ export function JobsPage() {
               setSearch('');
               setFilters(reset);
               setRowSelection({});
-              setContextMenu(null);
               setBulkMachine('');
               refresh({ filters: reset, search: '' });
             }}
@@ -782,75 +803,51 @@ export function JobsPage() {
         <div className="ml-auto flex gap-2 items-end" />
       </div>
 
-      {/* Always-visible actions bar */}
-      <div className="flex gap-3 items-center">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => performReserve(selectedKeys, 'reserve')}
-          disabled={actionBusy || !canBulkReserve}
-        >
-          <Lock />
-          Pre-Reserve
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => performReserve(selectedKeys, 'unreserve')}
-          disabled={actionBusy || !anyPreReserved}
-        >
-          <Unlock />
-          Unreserve
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => performLock(selectedKeys, 'lock')}
-          disabled={actionBusy || !anyUnlocked}
-        >
-          <Lock />
-          Lock
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => performLock(selectedKeys, 'unlock')}
-          disabled={actionBusy || !anyLocked}
-        >
-          <Unlock />
-          Unlock
-        </Button>
-        <div className="ml-2 flex items-center gap-2">
-          <select
-            value={bulkMachine === '' ? '' : String(bulkMachine)}
-            onChange={(e) => setBulkMachine(e.target.value ? Number(e.target.value) : '')}
-            className="border rounded px-2 py-1 text-sm w-48"
-          >
-            <option value="">Select machine</option>
-            {machines.map((machine) => (
-              <option key={machine.machineId} value={machine.machineId}>{machine.name}</option>
-            ))}
-          </select>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => {
-              if (typeof bulkMachine === 'number') {
-                performWorklist(selectedKeys, bulkMachine);
-              }
-            }}
-            disabled={actionBusy || typeof bulkMachine !== 'number' || selectedKeys.length === 0}
-          >
-            <Plus />
-            Add to Worklist
-          </Button>
-        </div>
-      </div>
+      {/* Right-click for actions — toolbar removed as per request */}
 
-      <GlobalTable
-        table={table}
-        onRowContextMenu={(row, event) => handleRowContextMenu(event, row.original.key)}
-      />
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div>
+            <GlobalTable
+              table={table}
+              onRowContextMenu={(row, event) => handleRowContextMenu(event, row.original.key)}
+              preventContextMenuDefault={false}
+            />
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-52">
+          <ContextMenuItem inset disabled className="cursor-default opacity-100">
+            {selectedKeys.length === 1 ? '1 job selected' : `${selectedKeys.length} jobs selected`}
+          </ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() => performReserve(selectedKeys, 'reserve')}
+            disabled={actionBusy || !canBulkReserve}
+          >Pre-Reserve</ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() => performReserve(selectedKeys, 'unreserve')}
+            disabled={actionBusy || !anyPreReserved}
+          >Unreserve</ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() => performLock(selectedKeys, 'lock')}
+            disabled={actionBusy || !anyUnlocked}
+          >Lock</ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() => performLock(selectedKeys, 'unlock')}
+            disabled={actionBusy || !anyLocked}
+          >Unlock</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuSub>
+            <ContextMenuSubTrigger inset>Select Machine</ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-44">
+              {machines.map((m) => (
+                <ContextMenuItem key={m.machineId} onSelect={() => performWorklist(selectedKeys, m.machineId)}>
+                  {m.name}
+                </ContextMenuItem>
+              ))}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        </ContextMenuContent>
+      </ContextMenu>
 
       {historyKey && historyOpen && (
         <div className="rounded border bg-background shadow-lg p-3 space-y-2">
@@ -913,39 +910,7 @@ export function JobsPage() {
         </div>
       )}
 
-      {contextMenu && (
-        <div className="fixed inset-0 z-30" onClick={() => setContextMenu(null)}>
-          <div
-            data-context-menu
-            className="absolute min-w-[220px] rounded border bg-background shadow-lg p-2 space-y-2"
-            style={{
-              top: Math.min(contextMenu.position.y, window.innerHeight - 220),
-              left: Math.min(contextMenu.position.x, window.innerWidth - 240)
-            }}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="text-xs text-muted-foreground">{contextMenu.keys?.length || 0} job(s) selected</div>
-            <div className="border-t pt-2">
-              <div className="text-xs uppercase text-muted-foreground mb-1">Add to Worklist</div>
-              <div className="max-h-64 overflow-auto">
-                {machines.map((machine) => (
-                  <Button
-                    key={machine.machineId}
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-start"
-                    disabled={actionBusy}
-                    onClick={() => performWorklist(contextMenu.keys || [], machine.machineId)}
-                  >
-                    <PlayCircle />
-                    {machine.name}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Context menu handled above */}
     </div>
   );
 }

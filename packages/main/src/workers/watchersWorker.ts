@@ -20,6 +20,7 @@ import type { CncStatsUpsert } from '../repo/cncStatsRepo';
 import { normalizeTelemetryPayload } from './telemetryParser';
 import type { WatcherWorkerToMainMessage, MainToWatcherMessage } from './watchersMessages';
 import { ingestProcessedJobsRoot } from '../services/ingest';
+import { appendProductionListDel } from '../services/nestpick';
 
 const { access, copyFile, readFile, readdir, rename, stat, unlink, open } = fsp;
 
@@ -98,6 +99,18 @@ function setMachineHealthIssue(params: {
 
 function clearMachineHealthIssue(machineId: number | null, code: MachineHealthCode) {
   postMessageToMain({ type: 'machineHealthClear', payload: { machineId, code } });
+}
+
+function emitAppMessage(title: string, body: string, source?: string) {
+  postMessageToMain({
+    type: 'appMessage',
+    payload: {
+      title,
+      body,
+      timestamp: new Date().toISOString(),
+      source
+    }
+  });
 }
 
 function trackWatcher(watcher: FSWatcher) {
@@ -1926,13 +1939,13 @@ async function stageSanityPollOnce() {
     if (!staged.length) return;
 
     // Group by machineId
-    const byMachine = new Map<number, { key: string; nc: string }[]>();
+    const byMachine = new Map<number, { key: string; nc: string; ncfile: string | null }[]>();
     for (const row of staged) {
       const mid = row.machine_id!;
       const ncBase = (row.ncfile ?? '').toLowerCase().replace(/\.nc$/i, '');
       if (!ncBase) continue;
       const list = byMachine.get(mid) ?? [];
-      list.push({ key: row.key, nc: ncBase });
+      list.push({ key: row.key, nc: ncBase, ncfile: row.ncfile });
       byMachine.set(mid, list);
     }
     if (!byMachine.size) return;
@@ -1952,6 +1965,7 @@ async function stageSanityPollOnce() {
       }
       // Missing items
       const missing = items.filter((it) => !present.has(it.nc));
+      const ncNamesToRelease: string[] = [];
       for (const miss of missing) {
         // Revert to PENDING if still STAGED
         const res = await withClient((c) =>
@@ -1962,6 +1976,8 @@ async function stageSanityPollOnce() {
         );
         if ((res.rowCount ?? 0) > 0) {
           reverted += 1;
+          const name = (miss.ncfile && miss.ncfile.toLowerCase().endsWith('.nc')) ? miss.ncfile : `${miss.nc}.nc`;
+          ncNamesToRelease.push(name);
           try {
             await appendJobEvent(
               miss.key,
@@ -1973,6 +1989,23 @@ async function stageSanityPollOnce() {
           } catch {
             /* ignore appendJobEvent failure when reverting staged job */
           }
+        }
+      }
+      if (ncNamesToRelease.length) {
+        try {
+          await appendProductionListDel(machineId, ncNamesToRelease);
+          const sample = ncNamesToRelease.slice(0, 3).join(', ');
+          const summary =
+            ncNamesToRelease.length === 1
+              ? `Released ${ncNamesToRelease[0]} from Grundner (Ready-To-Run missing)`
+              : `Released ${ncNamesToRelease.length} jobs from Grundner (Ready-To-Run missing)`;
+          const description =
+            ncNamesToRelease.length <= 3
+              ? `Jobs: ${sample}`
+              : `Examples: ${sample}${ncNamesToRelease.length > 3 ? ', ...' : ''}`;
+          emitAppMessage(summary, description, 'stage-sanity');
+        } catch (e) {
+          recordWorkerError(STAGE_SANITY_WATCHER_NAME, e, { machineId, label: STAGE_SANITY_WATCHER_LABEL });
         }
       }
     }
@@ -2146,7 +2179,7 @@ async function grundnerPollOnce(folder: string) {
     const items = parseGrundnerCsv(raw);
     if (!items.length) return;
     const result = await upsertGrundnerInventory(items);
-    if (result.inserted > 0 || result.updated > 0) {
+    if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {
       scheduleRendererRefresh('grundner');
       scheduleRendererRefresh('allocated-material');
     }
@@ -2175,7 +2208,7 @@ async function grundnerPollOnce(folder: string) {
 
     recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
       label: GRUNDNER_WATCHER_LABEL,
-      message: `Synced Grundner stock (inserted ${result.inserted}, updated ${result.updated})`
+      message: `Synced Grundner stock (inserted ${result.inserted}, updated ${result.updated}, deleted ${result.deleted})`
     });
   } catch (err) {
     recordWatcherError(GRUNDNER_WATCHER_NAME, err, { label: GRUNDNER_WATCHER_LABEL });
@@ -2213,7 +2246,32 @@ function startJobsIngestPolling() {
   async function runIngest() {
     if (shuttingDown) return;
     try {
-      await ingestProcessedJobsRoot();
+      const result = await ingestProcessedJobsRoot();
+      const pruned = result.prunedJobs ?? [];
+      if (pruned.length) {
+        const uniqueNames = new Set<string>();
+        for (const job of pruned) {
+          const base = (job.ncfile && job.ncfile.trim()) ? job.ncfile.trim() : job.key.split('/').pop() ?? job.key;
+          if (!base) continue;
+          const name = base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
+          uniqueNames.add(name);
+        }
+        const names = Array.from(uniqueNames);
+        if (names.length) {
+          try {
+            await appendProductionListDel(0, names);
+            const summary =
+              names.length === 1
+                ? `Released ${names[0]} from Grundner (job deleted)`
+                : `Released ${names.length} jobs from Grundner (jobs deleted)`;
+            const detail =
+              names.length <= 3 ? `Jobs: ${names.join(', ')}` : `Examples: ${names.slice(0, 3).join(', ')}, ...`;
+            emitAppMessage(summary, detail, 'jobs-ingest');
+          } catch (err) {
+            recordWorkerError('jobs-ingest', err, { count: names.length });
+          }
+        }
+      }
     } catch (err) {
       logger.error({ err }, 'Jobs ingest poll failed');
     }

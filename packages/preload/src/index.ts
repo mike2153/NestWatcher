@@ -11,6 +11,7 @@ import type {
   ThemePreferenceReq,
   ThemePreferenceRes,
   AllocatedMaterialListRes,
+  AppMessage,
   GrundnerListReq,
   GrundnerListRes,
   GrundnerResyncReq,
@@ -41,7 +42,8 @@ import type {
   WorklistAddResult,
   TelemetrySummaryReq,
   TelemetrySummaryRes,
-  AlarmsHistoryReq
+  AlarmsHistoryReq,
+  MessagesListRes
 } from '../../shared/src';
 import { type ResultEnvelope } from '../../shared/src/result';
 
@@ -83,9 +85,17 @@ const api = {
     lock: (key: string) => invokeResult<null>('jobs:lock', { key }),
     unlock: (key: string) => invokeResult<null>('jobs:unlock', { key }),
     lockBatch: (keys: string[]) => invokeResult<null>('jobs:lockBatch', { keys }),
+    unlockBatch: (keys: string[]) => invokeResult<null>('jobs:unlockBatch', { keys }),
     rerun: (key: string) => invokeResult<null>('jobs:rerun', { key }),
     addToWorklist: (key: string, machineId: number) => invokeResult<WorklistAddResult>('jobs:addToWorklist', { key, machineId }),
-    resync: () => invokeResult<{ inserted: number; updated: number; pruned: number }>('jobs:resync')
+    rerunAndStage: (key: string, machineId: number) => invokeResult<WorklistAddResult>('jobs:rerunAndStage', { key, machineId }),
+    resync: () =>
+      invokeResult<{
+        inserted: number;
+        updated: number;
+        pruned: number;
+        prunedJobs: { key: string; ncfile: string | null; material: string | null; preReserved: boolean }[];
+      }>('jobs:resync')
   },
   machines: {
     list: () => invokeResult<MachinesListRes>('machines:list'),
@@ -134,6 +144,19 @@ const api = {
       ipcRenderer.on(channel, handler);
       return () => {
         ipcRenderer.removeListener(channel, handler);
+      };
+    }
+  },
+  messages: {
+    list: () => invokeResult<MessagesListRes>('messages:list'),
+    subscribe: (listener: (entry: AppMessage) => void) => {
+      const channel = 'messages:append';
+      const handler = (_event: Electron.IpcRendererEvent, entry: AppMessage) => listener(entry);
+      ipcRenderer.on(channel, handler);
+      invokeResult<null>('messages:subscribe').catch(() => {});
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+        invokeResult<null>('messages:unsubscribe').catch(() => {});
       };
     }
   },

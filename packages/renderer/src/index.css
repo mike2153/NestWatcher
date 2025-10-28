@@ -1,6 +1,7 @@
 /* Modern Design System for Woodtron App */
 
 /* Import the clean theme system */
+@import '@fontsource-variable/geist';
 @import './styles/theme.css';
 
 /* Import Tailwind CSS */

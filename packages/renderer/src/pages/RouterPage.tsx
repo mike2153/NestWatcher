@@ -78,6 +78,13 @@ export function RouterPage() {
   const [deleting, setDeleting] = useState(false);
   const [clearedByMachine, setClearedByMachine] = useState<Map<number, Map<string, number>>>(() => new Map());
 
+  // Auto-clear banner after 5 seconds
+  useEffect(() => {
+    if (!banner) return;
+    const id = window.setTimeout(() => setBanner(null), 5000);
+    return () => window.clearTimeout(id);
+  }, [banner]);
+
   const applyClearedFilter = useCallback(
     (items: ReadyFile[], machineId: number): ReadyFile[] => {
       const cleared = clearedByMachine.get(machineId);
@@ -234,7 +241,26 @@ export function RouterPage() {
     return parts.length > 1 ? parts[parts.length - 2] : '';
   }, []);
 
+  const machineNameById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const m of machines) map.set(m.machineId, m.name);
+    return map;
+  }, [machines]);
+
   const columns = useMemo<ColumnDef<RouterReadyFile>[]>(() => [
+    {
+      id: 'machine',
+      header: 'Machine',
+      size: 180,
+      minSize: 140,
+      maxSize: 260,
+      enableSorting: false,
+      cell: ({ row }) => {
+        const id = row.original.machineId;
+        const name = machineNameById.get(id) ?? String(id ?? '');
+        return <div className="truncate">{name}</div>;
+      }
+    },
     {
       accessorKey: 'relativePath',
       header: 'Folder',
@@ -323,7 +349,7 @@ export function RouterPage() {
       enableSorting: false,
       cell: ({ row }) => <div className="truncate">{row.original.inDatabase ? 'Yes' : 'No'}</div>
     }
-  ], [extractLeafFolder]);
+  ], [extractLeafFolder, machineNameById]);
 
   const table = useReactTable({
     data: files,
@@ -481,19 +507,7 @@ export function RouterPage() {
         <div>
           <p className="text-sm text-muted-foreground">{loading ? 'Refreshing...' : `${files.length} files`}</p>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          {banner && (
-            <div
-              className={cn(
-                'text-sm px-3 py-2 rounded border',
-                banner.type === 'error'
-                  ? 'border-red-300 bg-red-50 text-red-700'
-                  : 'border-emerald-300 bg-emerald-50 text-emerald-700'
-              )}
-            >
-              {banner.message}
-            </div>
-          )}
+        <div className="relative flex flex-col items-end gap-2">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 border rounded px-2 py-1 text-xs">
               <label className="flex items-center gap-1">
@@ -556,6 +570,18 @@ export function RouterPage() {
               </button>
             </div>
           </div>
+          {banner && (
+            <div
+              className={cn(
+                'absolute top-full right-0 mt-2 z-15 text-sm px-3 py-2 rounded border shadow-sm',
+                banner.type === 'error'
+                  ? 'border-red-300 bg-red-50 text-red-700'
+                  : 'border-emerald-300 bg-emerald-50 text-emerald-700'
+              )}
+            >
+              {banner.message}
+            </div>
+          )}
         </div>
       </div>
 
@@ -582,9 +608,6 @@ export function RouterPage() {
         </label>
       </div>
 
-      <div className="flex justify-between items-center px-1">
-        <div className="text-sm text-muted-foreground">Ready-To-Run folder view</div>
-      </div>
       <GlobalTable
         table={table}
         maxHeight="calc(100vh - 200px)"

@@ -151,12 +151,13 @@ export type GrundnerChangedRow = { typeData: number | null; customerId: string |
 
 export async function upsertGrundnerInventory(
   rows: GrundnerCsvRow[]
-): Promise<{ inserted: number; updated: number; changed: GrundnerChangedRow[] }> {
-  if (!rows.length) return { inserted: 0, updated: 0, changed: [] };
+): Promise<{ inserted: number; updated: number; deleted: number; changed: GrundnerChangedRow[] }> {
+  if (!rows.length) return { inserted: 0, updated: 0, deleted: 0, changed: [] };
   const columns = ['type_data', 'customer_id', 'length_mm', 'width_mm', 'thickness_mm', 'stock', 'stock_available', 'reserved_stock'] as const;
   const chunkSize = 200; // avoid huge single statements
   let inserted = 0;
   let updated = 0;
+  let deleted = 0;
   const changed = new Map<string, GrundnerChangedRow>();
 
   await withClient(async (c) => {
@@ -200,8 +201,8 @@ export async function upsertGrundnerInventory(
         )
         RETURNING
           (xmax = 0) AS inserted,
-          EXCLUDED.type_data AS type_data,
-          EXCLUDED.customer_id AS customer_id;
+          type_data AS type_data,
+          customer_id AS customer_id;
       `;
 
       const res = await c.query<{ inserted: boolean; type_data: number | null; customer_id: string | null }>(sql, params);
@@ -217,9 +218,37 @@ export async function upsertGrundnerInventory(
         }
       }
     }
+
+    // After upsert, delete rows not present in the current CSV to keep DB in exact sync
+    try {
+      const typeDataArr = rows.map((r) => (r.typeData == null ? null : r.typeData));
+      const customerIdArr = rows.map((r) => (r.customerId == null ? null : r.customerId));
+      const delSql = `
+        WITH incoming(type_data, customer_id) AS (
+          SELECT UNNEST($1::int[]), UNNEST($2::text[])
+        )
+        DELETE FROM public.grundner g
+        WHERE NOT EXISTS (
+          SELECT 1 FROM incoming i
+          WHERE g.type_data IS NOT DISTINCT FROM i.type_data
+            AND g.customer_id IS NOT DISTINCT FROM i.customer_id
+        )
+        RETURNING type_data, customer_id
+      `;
+      const delRes = await c.query<{ type_data: number | null; customer_id: string | null }>(delSql, [typeDataArr, customerIdArr]);
+      deleted = delRes.rowCount ?? 0;
+      for (const r of delRes.rows ?? []) {
+        const key = `${r.type_data ?? 'null'}::${r.customer_id ?? 'null'}`;
+        if (!changed.has(key)) {
+          changed.set(key, { typeData: r.type_data, customerId: r.customer_id });
+        }
+      }
+    } catch (err) {
+      // Best-effort: if deletion fails, keep upsert results; log via withClient caller if needed
+    }
   });
 
-  return { inserted, updated, changed: Array.from(changed.values()) };
+  return { inserted, updated, deleted, changed: Array.from(changed.values()) };
 }
 
 export type GrundnerAllocationConflict = {

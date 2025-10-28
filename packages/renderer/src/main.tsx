@@ -15,6 +15,7 @@ import { TelemetryPage } from './pages/TelemetryPage';
 import { CncAlarmsPage } from './pages/CncAlarmsPage';
 import { GrundnerPage } from './pages/GrundnerPage';
 import { AllocatedMaterialPage } from './pages/AllocatedMaterialPage';
+import { MessagesPage } from './pages/MessagesPage';
 
 // Use BrowserRouter in dev for nicer URLs; HashRouter in production for file:// packaging
 const makeRoutes = () => ([
@@ -28,6 +29,7 @@ const makeRoutes = () => ([
       { path: '/history', element: <HistoryPage /> },
       { path: '/telemetry', element: <TelemetryPage /> },
       { path: '/cnc-alarms', element: <CncAlarmsPage /> },
+      { path: '/messages', element: <MessagesPage /> },
       { path: '/grundner', element: <GrundnerPage /> },
       { path: '/allocated-material', element: <AllocatedMaterialPage /> },
       { path: '/settings', element: <SettingsPage /> },

@@ -1,17 +1,85 @@
+import { BrowserWindow } from 'electron';
 import { ok, err } from 'neverthrow';
 import type { AppError, WorklistAddResult } from '../../../shared/src';
-import { JobEventsReq, JobsListReq, ReserveReq, UnreserveReq, LockReq, UnlockReq, LockBatchReq } from '../../../shared/src';
+import { JobEventsReq, JobsListReq, ReserveReq, UnreserveReq, LockReq, UnlockReq, LockBatchReq, UnlockBatchReq } from '../../../shared/src';
 import { getJobEvents } from '../repo/jobEventsRepo';
 import { listJobFilters, listJobs, reserveJob, unreserveJob, lockJob, unlockJob, lockJobAfterGrundnerConfirmation } from '../repo/jobsRepo';
+import { rerunAndStage } from '../services/worklist';
 import { withDb } from '../services/db';
 import { inArray, eq } from 'drizzle-orm';
 import { jobs } from '../db/schema';
 import { placeOrderSawCsv } from '../services/orderSaw';
+import { placeProductionDeleteCsv } from '../services/productionDelete';
 import { rerunJob } from '../services/rerun';
 import { addJobToWorklist } from '../services/worklist';
 import { ingestProcessedJobsRoot } from '../services/ingest';
+import { logger } from '../logger';
 import { createAppError } from './errors';
 import { registerResultHandler } from './result';
+
+async function unlockJobs(keys: string[]) {
+  const seen = new Set<string>();
+  const orderedKeys: string[] = [];
+  for (const rawKey of keys) {
+    if (typeof rawKey !== 'string') continue;
+    const key = rawKey.trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    orderedKeys.push(key);
+  }
+  if (!orderedKeys.length) {
+    return err(createAppError('jobs.invalidArguments', 'No jobs provided.'));
+  }
+
+  const rows = await withDb((db) =>
+    db
+      .select({ key: jobs.key, ncfile: jobs.ncfile, material: jobs.material })
+      .from(jobs)
+      .where(inArray(jobs.key, orderedKeys))
+  );
+  const byKey = new Map(rows.map((row) => [row.key, row]));
+  const missing = orderedKeys.filter((key) => !byKey.has(key));
+  if (missing.length) {
+    const message =
+      orderedKeys.length === 1 ? 'Job not found.' : `Jobs not found: ${missing.join(', ')}`;
+    return err(createAppError('jobs.notFound', message));
+  }
+  const missingNc = orderedKeys.filter((key) => {
+    const row = byKey.get(key);
+    return !row || !row.ncfile;
+  });
+  if (missingNc.length) {
+    const message =
+      orderedKeys.length === 1
+        ? 'Job or NC file not found.'
+        : `NC file not found for: ${missingNc.join(', ')}`;
+    return err(createAppError('jobs.notFound', message));
+  }
+
+  const items = orderedKeys.map((key) => {
+    const row = byKey.get(key)!;
+    return { ncfile: row.ncfile, material: row.material };
+  });
+  const result = await placeProductionDeleteCsv(items);
+  if (!result.confirmed) {
+    return err(createAppError('grundner.deleteFailed', result.message ?? 'Delete not confirmed by Grundner'));
+  }
+
+  const failures: string[] = [];
+  for (const key of orderedKeys) {
+    const success = await unlockJob(key);
+    if (!success) failures.push(key);
+  }
+  if (failures.length) {
+    const message =
+      orderedKeys.length === 1
+        ? 'Job is not currently locked.'
+        : `Failed to unlock ${failures.length} job(s): ${failures.join(', ')}`;
+    return err(createAppError('jobs.notLocked', message));
+  }
+  broadcastAllocatedMaterialRefresh();
+  return ok<null, AppError>(null);
+}
 
 export function registerJobsIpc() {
   // Return filters wrapped in an { options } object to match JobsFiltersRes
@@ -84,11 +152,12 @@ export function registerJobsIpc() {
 
   registerResultHandler('jobs:unlock', async (_e, raw) => {
     const req = UnlockReq.parse(raw);
-    const success = await unlockJob(req.key);
-    if (!success) {
-      return err(createAppError('jobs.notLocked', 'Job is not currently locked.'));
-    }
-    return ok<null, AppError>(null);
+    return unlockJobs([req.key]);
+  });
+
+  registerResultHandler('jobs:unlockBatch', async (_e, raw) => {
+    const req = UnlockBatchReq.parse(raw);
+    return unlockJobs(req.keys);
   });
 
   registerResultHandler('jobs:lockBatch', async (_e, raw) => {
@@ -116,6 +185,7 @@ export function registerJobsIpc() {
       for (const k of keys) {
         await lockJobAfterGrundnerConfirmation(k);
       }
+      broadcastAllocatedMaterialRefresh();
       return ok<null, AppError>(null);
     } catch (ex) {
       return err(createAppError('grundner.orderError', (ex as Error)?.message ?? String(ex)));
@@ -144,5 +214,29 @@ export function registerJobsIpc() {
     return ok<WorklistAddResult, AppError>(result);
   });
 
+  registerResultHandler('jobs:rerunAndStage', async (_e, raw) => {
+    if (typeof raw !== 'object' || raw === null) {
+      return err(createAppError('jobs.invalidArguments', 'Invalid arguments supplied.'));
+    }
+    const { key, machineId } = raw as { key?: unknown; machineId?: unknown };
+    if (typeof key !== 'string' || typeof machineId !== 'number') {
+      return err(createAppError('jobs.invalidArguments', 'Invalid arguments supplied.'));
+    }
+    const result = await rerunAndStage(key, machineId);
+    return ok<WorklistAddResult, AppError>(result);
+  });
+
   registerResultHandler('jobs:resync', async () => ok(await ingestProcessedJobsRoot()));
+}
+
+function broadcastAllocatedMaterialRefresh() {
+  for (const win of BrowserWindow.getAllWindows()) {
+    try {
+      if (!win.isDestroyed()) {
+        win.webContents.send('allocatedMaterial:refresh');
+      }
+    } catch (err) {
+      logger.warn({ err }, 'jobs: failed to broadcast allocated material refresh');
+    }
+  }
 }

@@ -122,7 +122,6 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-4 w-full">
-      <h1 className="text-xl font-semibold">Dashboard</h1>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="border rounded p-4 flex flex-col">
           <div className="font-medium mb-2">Jobs Pending</div>

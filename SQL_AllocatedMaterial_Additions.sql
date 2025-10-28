@@ -7,8 +7,21 @@ ALTER TABLE public.grundner
 ALTER TABLE public.grundner
   ALTER COLUMN pre_reserved SET DEFAULT 0;
 
--- View joining Grundner stock with reserved/locked jobs
-CREATE OR REPLACE VIEW public.allocated_material_view AS
+-- Ensure jobs has pre_reserved and is_locked flags (idempotent)
+ALTER TABLE public.jobs
+  ADD COLUMN IF NOT EXISTS pre_reserved boolean DEFAULT false;
+
+ALTER TABLE public.jobs
+  ADD COLUMN IF NOT EXISTS is_locked boolean DEFAULT false;
+
+-- Track when a job was last allocated (pre_reserved or locked)
+ALTER TABLE public.jobs
+  ADD COLUMN IF NOT EXISTS allocated_at timestamp with time zone;
+
+-- Replace the allocated material view (drop first to avoid column rename issues)
+DROP VIEW IF EXISTS public.allocated_material_view;
+
+CREATE VIEW public.allocated_material_view AS
  SELECT
     g.id AS grundner_id,
     g.type_data,
@@ -21,11 +34,16 @@ CREATE OR REPLACE VIEW public.allocated_material_view AS
     g.reserved_stock,
     COALESCE(g.pre_reserved, 0) AS pre_reserved,
     j.key AS job_key,
+    COALESCE(
+      NULLIF(TRIM(j.folder), ''),
+      NULLIF(regexp_replace(j.key, '^.*/([^/]+)/[^/]+$', '\\1'), j.key)
+    ) AS folder,
     j.ncfile,
     j.material,
     j.pre_reserved AS job_pre_reserved,
     j.is_locked AS job_is_locked,
     j.updated_at,
+    j.allocated_at AS allocated_at,
     CASE WHEN j.is_locked THEN 'locked' ELSE 'pre_reserved' END AS allocation_status
  FROM public.jobs j
  JOIN public.grundner g
@@ -40,9 +58,9 @@ CREATE OR REPLACE VIEW public.allocated_material_view AS
 
 ALTER VIEW public.allocated_material_view OWNER TO woodtron_user;
 
--- Generic helper to emit NOTIFY events
+-- Keep existing trigger function if present; just replace its body.
+-- If an older overloaded signature existed, drop that variant safely.
 DROP FUNCTION IF EXISTS public.notify_channel(text, text);
-DROP FUNCTION IF EXISTS public.notify_channel();
 
 CREATE OR REPLACE FUNCTION public.notify_channel()
 RETURNS trigger

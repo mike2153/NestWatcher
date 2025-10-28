@@ -289,41 +289,37 @@ export function GrundnerPage() {
   });
 
   return (
-    <div className="space-y-4 w-full">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Grundner Inventory</h1>
-          <p className="text-sm text-muted-foreground">Stock {totalStock} • Available {totalAvailable} • Locked {totalReserved}</p>
+    <div className="space-y-2 w-full">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-wrap gap-3 items-end">
+          <label className="flex flex-col gap-1 text-sm">
+            <span>Search</span>
+            <input className="border rounded px-2 py-1" value={filters.search} onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))} placeholder="Type data or customer" />
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={filters.onlyAvailable} onChange={(e) => setFilters((prev) => ({ ...prev, onlyAvailable: e.target.checked }))} />
+            Only available
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={filters.onlyReserved} onChange={(e) => setFilters((prev) => ({ ...prev, onlyReserved: e.target.checked }))} />
+            Only reserved
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span>Limit</span>
+            <select className="border rounded px-2 py-1" value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
+              {[100, 200, 300, 500].map((value) => (
+                <option key={value} value={value}>{value}</option>
+              ))}
+            </select>
+          </label>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col items-end gap-1">
           <button className="border rounded px-3 py-1" onClick={exportCsv}>Export to CSV</button>
+          <p className="mt-2 text-sm text-muted-foreground">Stock {totalStock} • Available {totalAvailable} • Locked {totalReserved}</p>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3 items-end">
-        <label className="flex flex-col gap-1 text-sm">
-          <span>Search</span>
-          <input className="border rounded px-2 py-1" value={filters.search} onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))} placeholder="Type data or customer" />
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={filters.onlyAvailable} onChange={(e) => setFilters((prev) => ({ ...prev, onlyAvailable: e.target.checked }))} />
-          Only available
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={filters.onlyReserved} onChange={(e) => setFilters((prev) => ({ ...prev, onlyReserved: e.target.checked }))} />
-          Only reserved
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span>Limit</span>
-          <select className="border rounded px-2 py-1" value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
-            {[100, 200, 300, 500].map((value) => (
-              <option key={value} value={value}>{value}</option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <GlobalTable table={table} stickyHeader fillEmptyRows />
+      <GlobalTable table={table} stickyHeader fillEmptyRows maxHeight="calc(100vh - 160px)" />
     </div>
   );
 }

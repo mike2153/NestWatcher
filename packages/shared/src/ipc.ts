@@ -139,6 +139,9 @@ export type UnlockReq = z.infer<typeof UnlockReq>;
 export const LockBatchReq = z.object({ keys: z.array(z.string().min(1)).min(1) });
 export type LockBatchReq = z.infer<typeof LockBatchReq>;
 
+export const UnlockBatchReq = z.object({ keys: z.array(z.string().min(1)).min(1) });
+export type UnlockBatchReq = z.infer<typeof UnlockBatchReq>;
+
 export const JobEvent = z.object({
   id: z.number().int(),
   key: z.string(),
@@ -361,7 +364,17 @@ export type GrundnerUpdateReq = z.infer<typeof GrundnerUpdateReq>;
 export const GrundnerResyncReq = z.object({ id: z.number().int().optional() });
 export type GrundnerResyncReq = z.infer<typeof GrundnerResyncReq>;
 
+export const AppMessage = z.object({
+  id: z.string(),
+  createdAt: z.string(),
+  title: z.string(),
+  body: z.string(),
+  source: z.string().nullable().optional()
+});
+export type AppMessage = z.infer<typeof AppMessage>;
 
+export const MessagesListRes = z.object({ items: z.array(AppMessage) });
+export type MessagesListRes = z.infer<typeof MessagesListRes>;
 
 export const AllocatedMaterialRow = z.object({
   grundnerId: z.number().int().nullable(),
@@ -375,11 +388,13 @@ export const AllocatedMaterialRow = z.object({
   reservedStock: z.number().int().nullable(),
   preReserved: z.number().int().nullable(),
   jobKey: z.string(),
+  folder: z.string().nullable(),
   ncfile: z.string().nullable(),
   material: z.string().nullable(),
   jobPreReserved: z.boolean(),
   jobLocked: z.boolean(),
   updatedAt: z.string().nullable(),
+  allocatedAt: z.string().nullable(),
   allocationStatus: z.enum(['pre_reserved', 'locked'])
 });
 export type AllocatedMaterialRow = z.infer<typeof AllocatedMaterialRow>;

@@ -97,7 +97,6 @@ export function CncAlarmsPage() {
 
   return (
     <div className="p-4 space-y-3">
-      <h1 className="text-xl font-semibold">CNC Alarms</h1>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <label className="text-sm flex flex-col gap-1">

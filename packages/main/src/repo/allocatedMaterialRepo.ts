@@ -14,11 +14,13 @@ type AllocatedMaterialDb = {
   reserved_stock: number | null;
   pre_reserved: number | null;
   job_key: string;
+  folder: string | null;
   ncfile: string | null;
   material: string | null;
   job_pre_reserved: boolean;
   job_is_locked: boolean;
   updated_at: Date | null;
+  allocated_at: Date | null;
   allocation_status: string;
 };
 
@@ -35,11 +37,13 @@ function mapAllocated(row: AllocatedMaterialDb): AllocatedMaterialRow {
     reservedStock: row.reserved_stock,
     preReserved: row.pre_reserved ?? 0,
     jobKey: row.job_key,
+    folder: row.folder,
     ncfile: row.ncfile,
     material: row.material,
     jobPreReserved: row.job_pre_reserved,
     jobLocked: row.job_is_locked,
     updatedAt: row.updated_at ? row.updated_at.toISOString() : null,
+    allocatedAt: row.allocated_at ? row.allocated_at.toISOString() : (row.updated_at ? row.updated_at.toISOString() : null),
     allocationStatus: row.allocation_status === 'locked' ? 'locked' : 'pre_reserved'
   };
 }
@@ -56,14 +60,16 @@ const LIST_SQL = `
          reserved_stock,
          pre_reserved,
          job_key,
+         folder,
          ncfile,
          material,
          job_pre_reserved,
          job_is_locked,
          updated_at,
+         allocated_at,
          allocation_status
     FROM public.allocated_material_view
-ORDER BY allocation_status DESC, updated_at DESC NULLS LAST, job_key ASC
+ORDER BY allocation_status DESC, allocated_at DESC NULLS LAST, job_key ASC
 `;
 
 export async function listAllocatedMaterial(): Promise<AllocatedMaterialRow[]> {

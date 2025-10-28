@@ -51,6 +51,7 @@ export const jobs = pgTable('jobs', {
   preReserved: boolean('pre_reserved').default(false).notNull(),
   // Renamed from is_reserved -> is_locked
   isLocked: boolean('is_locked').default(false).notNull(),
+  allocatedAt: timestamp('allocated_at', { withTimezone: true }),
   stagedAt: timestamp('staged_at', { withTimezone: true }),
   cutAt: timestamp('cut_at', { withTimezone: true }),
   nestpickCompletedAt: timestamp('nestpick_completed_at', { withTimezone: true }),
@@ -98,11 +99,13 @@ export const allocatedMaterialView = pgView('allocated_material_view', {
   reservedStock: integer('reserved_stock'),
   preReserved: integer('pre_reserved'),
   jobKey: varchar('job_key', { length: 100 }),
+  folder: varchar('folder', { length: 255 }),
   ncfile: varchar('ncfile', { length: 255 }),
   material: varchar('material', { length: 255 }),
   jobPreReserved: boolean('job_pre_reserved'),
   jobIsLocked: boolean('job_is_locked'),
   updatedAt: timestamp('updated_at', { withTimezone: true }),
+  allocatedAt: timestamp('allocated_at', { withTimezone: true }),
   allocationStatus: varchar('allocation_status', { length: 20 })
 });
 

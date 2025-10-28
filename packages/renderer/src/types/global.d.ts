@@ -9,6 +9,8 @@
   GrundnerListRes,
   GrundnerResyncReq,
   GrundnerUpdateReq,
+  AppMessage,
+  MessagesListRes,
   HistoryListReq,
   HistoryListRes,
   JobEventsReq,
@@ -63,9 +65,11 @@ declare global {
         lock: (key: string) => Promise<Result<null, AppError>>;
         unlock: (key: string) => Promise<Result<null, AppError>>;
         lockBatch: (keys: string[]) => Promise<Result<null, AppError>>;
+        unlockBatch: (keys: string[]) => Promise<Result<null, AppError>>;
         rerun: (key: string) => Promise<Result<null, AppError>>;
+        rerunAndStage: (key: string, machineId: number) => Promise<Result<WorklistAddResult, AppError>>;
         addToWorklist: (key: string, machineId: number) => Promise<Result<WorklistAddResult, AppError>>;
-        resync: () => Promise<Result<{ inserted: number; updated: number; pruned: number }, AppError>>;
+        resync: () => Promise<Result<{ inserted: number; updated: number; pruned: number; prunedJobs: { key: string; ncfile: string | null; material: string | null; preReserved: boolean }[] }, AppError>>;
       };
       machines: {
         list: () => Promise<Result<MachinesListRes, AppError>>;
@@ -96,6 +100,10 @@ declare global {
       allocatedMaterial: {
         list: () => Promise<Result<AllocatedMaterialListRes, AppError>>;
         subscribe: (listener: () => void) => () => void;
+      };
+      messages: {
+        list: () => Promise<Result<MessagesListRes, AppError>>;
+        subscribe: (listener: (entry: AppMessage) => void) => () => void;
       };
       hypernest: {
         open: () => Promise<Result<null, AppError>>;

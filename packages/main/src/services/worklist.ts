@@ -4,6 +4,7 @@ import { basename, dirname, extname, isAbsolute, join, normalize, relative, reso
 import type { WorklistAddResult, WorklistCollisionInfo, WorklistSkippedFile } from '../../../shared/src';
 import { dialog } from 'electron';
 import { appendJobEvent } from '../repo/jobEventsRepo';
+import { rerunJob } from './rerun';
 import { listMachines } from '../repo/machinesRepo';
 import { resetJobForRestage, updateLifecycle, lockJobAfterGrundnerConfirmation } from '../repo/jobsRepo';
 import { logger } from '../logger';
@@ -108,10 +109,10 @@ function chooseDestination(baseDir: string): { path: string; collision?: Worklis
 export async function addJobToWorklist(key: string, machineId: number): Promise<WorklistAddResult> {
   const job = await withClient(async (c) => {
     const r = await c.query(
-      `SELECT key, folder, ncfile, material FROM public.jobs WHERE key = $1`,
+      `SELECT key, folder, ncfile, material, status, machine_id, is_locked FROM public.jobs WHERE key = $1`,
       [key]
     );
-    return r.rows[0] as { key: string; folder: string | null; ncfile: string | null; material: string | null } | undefined;
+    return r.rows[0] as { key: string; folder: string | null; ncfile: string | null; material: string | null; status: string; machine_id: number | null; is_locked: boolean } | undefined;
   });
   if (!job) return { ok: false, error: 'Job not found' };
 
@@ -520,6 +521,9 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
 
   let stagedAt: string | null = null;
   let alreadyStaged = false;
+  const wasSameMachine = (job as { machine_id: number | null }).machine_id != null
+    ? ((job as { machine_id: number | null }).machine_id === machineId)
+    : false;
 
   try {
     const lifecycle = await updateLifecycle(job.key, 'STAGED', {
@@ -545,45 +549,54 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
 
   try {
     await appendJobEvent(job.key, 'worklist:staged', { dest: finalDestBaseDir, copied, skipped }, machineId);
+    if (alreadyStaged || wasSameMachine) {
+      // Track explicit re-stage/run-to for visibility
+      await appendJobEvent(job.key, 'worklist:runTo', { machineId, reason: alreadyStaged ? 'already_staged' : 'same_machine' }, machineId);
+    }
   } catch (err) {
     logger.warn({ err, key: job.key }, 'worklist: failed to append job event');
   }
 
   // After staging, place Grundner order_saw CSV, wait for .erl reply, record the check,
   // and then lock on confirmation. This should not fail the staging result; show a dialog to the user with outcome.
-  try {
-    const res = await placeOrderSawCsv([{ key: job.key, ncfile: job.ncfile, material: job.material ?? null }]);
-
-    // Record that we processed and checked the .erl (and that it was deleted)
+  // Only place order saw if we have not already locked (i.e., already confirmed earlier)
+  if (!job.is_locked) {
     try {
-      await appendJobEvent(
-        job.key,
-        'grundner:erlChecked',
-        {
-          confirmed: res.confirmed,
-          folder: res.folder,
-          checked: !!res.checked,
-          deleted: !!res.deleted,
-          csv: res.csv ?? null,
-          erl: res.erl ?? null
-        },
-        machineId
-      );
-    } catch (err) {
-      logger.warn({ err, key: job.key }, 'worklist: failed to append erlChecked event');
-    }
+      const res = await placeOrderSawCsv([{ key: job.key, ncfile: job.ncfile, material: job.material ?? null }]);
 
-    if (res.confirmed) {
-      // Lock only after confirmed .erl from Grundner
-      await lockJobAfterGrundnerConfirmation(job.key);
-      void dialog.showMessageBox({ type: 'info', title: 'Order Saw', message: `Order confirmed for ${job.key}.` });
-    } else {
-      const message = res.erl ? res.erl : 'Timed out waiting for confirmation (.erl).';
-      void dialog.showMessageBox({ type: 'warning', title: 'Order Saw Failed', message });
+      // Record that we processed and checked the .erl (and that it was deleted)
+      try {
+        await appendJobEvent(
+          job.key,
+          'grundner:erlChecked',
+          {
+            confirmed: res.confirmed,
+            folder: res.folder,
+            checked: !!res.checked,
+            deleted: !!res.deleted,
+            csv: res.csv ?? null,
+            erl: res.erl ?? null
+          },
+          machineId
+        );
+      } catch (err) {
+        logger.warn({ err, key: job.key }, 'worklist: failed to append erlChecked event');
+      }
+
+      if (res.confirmed) {
+        // Lock only after confirmed .erl from Grundner
+        await lockJobAfterGrundnerConfirmation(job.key);
+        void dialog.showMessageBox({ type: 'info', title: 'Order Saw', message: `Order confirmed for ${job.key}.` });
+      } else {
+        const message = res.erl ? res.erl : 'Timed out waiting for confirmation (.erl).';
+        void dialog.showMessageBox({ type: 'warning', title: 'Order Saw Failed', message });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      void dialog.showMessageBox({ type: 'warning', title: 'Order Saw Error', message: msg });
     }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    void dialog.showMessageBox({ type: 'warning', title: 'Order Saw Error', message: msg });
+  } else {
+    logger.info({ key: job.key }, 'worklist: skipping order saw (already locked/confirmed earlier)');
   }
 
   return {
@@ -595,4 +608,109 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
     alreadyStaged,
     ...(collision ? { collision } : {})
   };
+}
+
+// Helper: parse key into relative folder and base (no extension)
+function splitKey(key: string): { relDir: string; base: string } {
+  const idx = key.lastIndexOf('/');
+  if (idx < 0) return { relDir: '', base: key };
+  return { relDir: key.slice(0, idx), base: key.slice(idx + 1) };
+}
+
+// Minimal NC parser to extract material, size, thickness
+function parseNcQuick(ncPath: string): { material: string | null; size: string | null; thickness: string | null } {
+  try {
+    const txt = readFileSync(ncPath, 'utf8');
+    const lines = txt.split(/\r?\n/);
+    let material: string | null = null;
+    let size: string | null = null;
+    let thickness: string | null = null;
+    for (const ln of lines) {
+      const l = ln.trim();
+      if (!material) {
+        const m = l.match(/ID\s*=\s*([A-Za-z0-9_.-]+)/i);
+        if (m) material = m[1];
+      }
+      const g = l.match(/G100\s+X(\d+(?:\.\d*)?)\s+Y(\d+(?:\.\d*)?)\s+Z(\d+(?:\.\d*)?)/i);
+      if (g && !size) {
+        const x = Math.round(Number.parseFloat(g[1]));
+        const y = Math.round(Number.parseFloat(g[2]));
+        if (!Number.isNaN(x) && !Number.isNaN(y)) size = `${x}x${y}`;
+        const zNum = Number.parseFloat(g[3]);
+        if (!Number.isNaN(zNum)) thickness = String(Math.round(zNum));
+      }
+      if (material && size && thickness) break;
+    }
+    return { material, size, thickness };
+  } catch {
+    return { material: null, size: null, thickness: null };
+  }
+}
+
+export async function rerunAndStage(origKey: string, machineId: number): Promise<WorklistAddResult> {
+  const cfg = loadConfig();
+  const root = (cfg.paths.processedJobsRoot ?? '').trim();
+  if (!root) return { ok: false, error: 'processedJobsRoot not configured' };
+  if (!existsSync(root)) return { ok: false, error: 'processedJobsRoot does not exist' };
+
+  // Perform rerun (copies runN_ files)
+  const rr = await rerunJob(origKey);
+  if (!rr.ok) return { ok: false, error: rr.error };
+
+  // Find created NC path to determine new base
+  const ncCreated = rr.created.find((p) => p.toLowerCase().endsWith('.nc'));
+  if (!ncCreated) return { ok: false, error: 'Rerun created no NC file' };
+  const newBase = basename(ncCreated).replace(/\.[^.]+$/i, '');
+
+  // Compute new key from original key's folder
+  const { relDir } = splitKey(origKey);
+  const newKey = relDir ? `${relDir}/${newBase}` : newBase;
+  const folderLeaf = relDir ? basename(relDir.split('\\').join('/')) : basename(root);
+
+  // Parse NC for metadata and upsert new job immediately (no full ingest)
+  const meta = parseNcQuick(ncCreated);
+  const parts = (() => {
+    const stem = newBase;
+    const dir = relDir ? resolve(root, relDir.split('/').join(sep)) : root;
+    const pts = join(dir, `${stem}.pts`);
+    const lpt = join(dir, `${stem}.lpt`);
+    try {
+      if (existsSync(pts)) {
+        const txt = readFileSync(pts, 'utf8');
+        return String(txt.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).length);
+      }
+      if (existsSync(lpt)) {
+        const txt = readFileSync(lpt, 'utf8');
+        return String(txt.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).length);
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  })();
+
+  await withClient(async (c) => {
+    const sql = `INSERT INTO public.jobs(key, folder, ncfile, material, parts, size, thickness, dateadded, updated_at)
+                   VALUES($1,$2,$3,$4,$5,$6,$7, now(), now())
+                   ON CONFLICT (key) DO UPDATE SET
+                     folder=EXCLUDED.folder,
+                     ncfile=EXCLUDED.ncfile,
+                     material=COALESCE(EXCLUDED.material, jobs.material),
+                     parts=COALESCE(EXCLUDED.parts, jobs.parts),
+                     size=COALESCE(EXCLUDED.size, jobs.size),
+                     thickness=COALESCE(EXCLUDED.thickness, jobs.thickness),
+                     updated_at=now()`;
+    await c.query(sql, [
+      newKey,
+      folderLeaf,
+      newBase,
+      meta.material ?? null,
+      parts ?? null,
+      meta.size ?? null,
+      meta.thickness ?? null
+    ]);
+  });
+
+  // Stage the new job key
+  return addJobToWorklist(newKey, machineId);
 }

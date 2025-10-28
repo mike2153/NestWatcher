@@ -65,6 +65,15 @@ export type WatcherWorkerToMainMessage =
       category: 'grundner' | 'app';
       summary: string;
       details?: Record<string, unknown>;
+    }
+  | {
+      type: 'appMessage';
+      payload: {
+        title: string;
+        body: string;
+        timestamp: string;
+        source?: string;
+      };
     };
 
 export type MainToWatcherMessage = { type: 'shutdown'; reason?: string };

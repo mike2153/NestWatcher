@@ -257,7 +257,11 @@ export async function reserveJob(key: string) {
     db.transaction(async (tx) => {
       const updated = await tx
         .update(jobs)
-        .set({ preReserved: true, updatedAt: sql<Date>`now()` as unknown as Date })
+        .set({
+          preReserved: true,
+          updatedAt: sql<Date>`now()` as unknown as Date,
+          allocatedAt: sql<Date>`CASE WHEN ${jobs.preReserved} = false AND ${jobs.isLocked} = false THEN now() ELSE ${jobs.allocatedAt} END` as unknown as Date
+        })
         .where(and(eq(jobs.key, key), eq(jobs.preReserved, false), eq(jobs.status, 'PENDING')))
         .returning({ material: jobs.material });
 
@@ -276,7 +280,11 @@ export async function unreserveJob(key: string) {
     db.transaction(async (tx) => {
     const updated = await tx
       .update(jobs)
-      .set({ preReserved: false, updatedAt: sql<Date>`now()` as unknown as Date })
+      .set({
+        preReserved: false,
+        updatedAt: sql<Date>`now()` as unknown as Date,
+        allocatedAt: sql<Date | null>`CASE WHEN ${jobs.isLocked} = false THEN NULL ELSE ${jobs.allocatedAt} END` as unknown as Date
+      })
         .where(and(eq(jobs.key, key), eq(jobs.preReserved, true)))
         .returning({ material: jobs.material });
 
@@ -295,7 +303,11 @@ export async function lockJob(key: string) {
     db.transaction(async (tx) => {
       const updated = await tx
         .update(jobs)
-        .set({ isLocked: true, updatedAt: sql<Date>`now()` as unknown as Date })
+        .set({
+          isLocked: true,
+          updatedAt: sql<Date>`now()` as unknown as Date,
+          allocatedAt: sql<Date>`CASE WHEN ${jobs.preReserved} = false AND ${jobs.isLocked} = false THEN now() ELSE ${jobs.allocatedAt} END` as unknown as Date
+        })
         // Only allow manual locking when not already locked and status is PENDING
         .where(and(eq(jobs.key, key), eq(jobs.isLocked, false), eq(jobs.status, 'PENDING')))
         .returning({ key: jobs.key });
@@ -317,7 +329,11 @@ export async function lockJobAfterGrundnerConfirmation(key: string) {
     db.transaction(async (tx) => {
       const updated = await tx
         .update(jobs)
-        .set({ isLocked: true, updatedAt: sql<Date>`now()` as unknown as Date })
+        .set({
+          isLocked: true,
+          updatedAt: sql<Date>`now()` as unknown as Date,
+          allocatedAt: sql<Date>`CASE WHEN ${jobs.preReserved} = false AND ${jobs.isLocked} = false THEN now() ELSE ${jobs.allocatedAt} END` as unknown as Date
+        })
         .where(and(eq(jobs.key, key), eq(jobs.isLocked, false)))
         .returning({ key: jobs.key });
 
@@ -335,7 +351,11 @@ export async function unlockJob(key: string) {
     db.transaction(async (tx) => {
       const updated = await tx
         .update(jobs)
-        .set({ isLocked: false, updatedAt: sql<Date>`now()` as unknown as Date })
+        .set({
+          isLocked: false,
+          updatedAt: sql<Date>`now()` as unknown as Date,
+          allocatedAt: sql<Date | null>`CASE WHEN ${jobs.preReserved} = false THEN NULL ELSE ${jobs.allocatedAt} END` as unknown as Date
+        })
         .where(and(eq(jobs.key, key), eq(jobs.isLocked, true)))
         .returning({ key: jobs.key });
 

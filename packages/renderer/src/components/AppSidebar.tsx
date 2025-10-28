@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Briefcase, Router, History, Settings, PieChart, AlarmClock, Layers } from 'lucide-react';
+import { LayoutDashboard, Briefcase, Router, History, Settings, PieChart, AlarmClock, Layers, BellRing, Gauge, ListCheck, AlignVerticalJustifyEnd, MessageSquare } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -12,13 +12,14 @@ import { cn } from '@/utils/cn';
 
 const nav = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/jobs', label: 'Jobs', icon: Briefcase },
+  { to: '/jobs', label: 'Jobs', icon: ListCheck },
   { to: '/router', label: 'Router', icon: Router },
   { to: '/history', label: 'History', icon: History },
-  { to: '/grundner', label: 'Grundner', icon: PieChart },
-  { to: '/allocated-material', label: 'Allocated Material', icon: Layers },
-  { to: '/telemetry', label: 'Telemetry', icon: PieChart },
-  { to: '/cnc-alarms', label: 'CNC Alarms', icon: AlarmClock },
+  { to: '/grundner', label: 'Grundner', icon: AlignVerticalJustifyEnd },
+  { to: '/allocated-material', label: 'Allocated', icon: Layers },
+  { to: '/telemetry', label: 'Telemetry', icon: Gauge },
+  { to: '/messages', label: 'Messages', icon: MessageSquare },
+  { to: '/cnc-alarms', label: 'CNC Alarms', icon: BellRing },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 

@@ -532,8 +532,7 @@ export function SettingsPage() {
 
   return (
     <div className="space-section max-w-6xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-foreground">Settings</h1>
+      <div className="mb-2">
         {configPath && (
           <div className="text-sm text-muted-foreground mt-2 break-all">Config file: {configPath}</div>
         )}

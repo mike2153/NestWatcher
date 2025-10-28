@@ -87,16 +87,23 @@ function countParts(dir: string, base: string): string | undefined {
   }
 }
 
-export async function ingestProcessedJobsRoot(): Promise<{ inserted: number; updated: number; pruned: number }> {
+export type IngestResult = {
+  inserted: number;
+  updated: number;
+  pruned: number;
+  prunedJobs: { key: string; ncfile: string | null; material: string | null; preReserved: boolean }[];
+};
+
+export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
   const cfg = loadConfig();
   const root = cfg.paths.processedJobsRoot;
   if (!root) {
     logger.warn('No processedJobsRoot configured, skipping ingest');
-    return { inserted: 0, updated: 0, pruned: 0 };
+    return { inserted: 0, updated: 0, pruned: 0, prunedJobs: [] };
   }
   if (!existsSync(root)) {
     logger.error({ root }, 'processedJobsRoot path does not exist');
-    return { inserted: 0, updated: 0, pruned: 0 };
+    return { inserted: 0, updated: 0, pruned: 0, prunedJobs: [] };
   }
   // Safety guard: if root is temporarily unreachable, skip pruning this cycle
   try {
@@ -104,7 +111,7 @@ export async function ingestProcessedJobsRoot(): Promise<{ inserted: number; upd
     readdirSync(root, { withFileTypes: true });
   } catch (err) {
     logger.warn({ err, root }, 'Ingest: root not readable; skipping prune this cycle');
-    return { inserted: 0, updated: 0, pruned: 0 };
+    return { inserted: 0, updated: 0, pruned: 0, prunedJobs: [] };
   }
 
   let inserted = 0, updated = 0;
@@ -154,11 +161,12 @@ export async function ingestProcessedJobsRoot(): Promise<{ inserted: number; upd
   // Prune jobs that no longer exist on disk and have not been cut
   // Note: If there are no .nc files present, this will prune all uncut jobs.
   let pruned = 0;
+  const prunedJobs: { key: string; ncfile: string | null; material: string | null; preReserved: boolean }[] = [];
   try {
     // Additional safety: if scanning had errors, do not prune this cycle to avoid accidental mass deletes
     if (hadScanError) {
       logger.warn({ root }, 'Ingest: scan had errors; skipping prune this cycle');
-      return { inserted, updated, pruned: 0 };
+      return { inserted, updated, pruned: 0, prunedJobs: [] };
     }
     const keys = Array.from(presentKeys);
     const pruneSql = `
@@ -167,18 +175,28 @@ export async function ingestProcessedJobsRoot(): Promise<{ inserted: number; upd
       )
       DELETE FROM public.jobs j
       USING (
-        SELECT j.key, j.material, j.pre_reserved
+        SELECT j.key, j.ncfile, j.material, j.pre_reserved
         FROM public.jobs j
         LEFT JOIN present p ON p.key = j.key
         WHERE p.key IS NULL AND j.cut_at IS NULL AND j.nestpick_completed_at IS NULL
       ) d
       WHERE j.key = d.key
-      RETURNING d.material, d.pre_reserved`;
+      RETURNING d.key, d.ncfile, d.material, d.pre_reserved`;
 
-    const result = await withClient((c) => c.query<{ material: string | null; pre_reserved: boolean | null }>(pruneSql, [keys]));
+    const result = await withClient((c) =>
+      c.query<{ key: string; ncfile: string | null; material: string | null; pre_reserved: boolean | null }>(pruneSql, [keys])
+    );
     pruned = result.rowCount ?? 0;
 
     if (pruned > 0) {
+      for (const row of result.rows) {
+        prunedJobs.push({
+          key: row.key,
+          ncfile: row.ncfile,
+          material: row.material,
+          preReserved: Boolean(row.pre_reserved)
+        });
+      }
       // For any materials that had pre-reserved rows deleted, resync the Grundner pre_reserved count
       const affectedMaterials = new Set<string>();
       for (const row of result.rows) {
@@ -203,5 +221,5 @@ export async function ingestProcessedJobsRoot(): Promise<{ inserted: number; upd
     logger.warn({ err }, 'ingest: failed to prune missing uncut jobs');
   }
 
-  return { inserted, updated, pruned };
+  return { inserted, updated, pruned, prunedJobs };
 }

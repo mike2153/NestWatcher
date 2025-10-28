@@ -5,6 +5,8 @@ import { ok, err } from 'neverthrow';
 import type { AppError, Machine, ReadyImportRes, ReadyFile, ReadyDeleteRes } from '../../../shared/src';
 import { ReadyImportReq, ReadyDeleteReq } from '../../../shared/src';
 import { listMachines } from '../repo/machinesRepo';
+import { appendProductionListDel } from '../services/nestpick';
+import { pushAppMessage } from '../services/messages';
 import { importReadyFile } from '../services/readyImport';
 import { findJobDetailsByNcBase } from '../repo/jobsRepo';
 import { createAppError } from './errors';
@@ -544,6 +546,24 @@ export function registerFilesIpc() {
     logger.info(
       `files:ready:delete: result deleted=${deletedCount} errorCount=${errors.length} files=[${deletedFiles.join(', ')}]`
     );
+    // Send Nestpick deletion request for removed NCs
+    try {
+      const ncNames = deletedFiles
+        .filter((p) => p.toLowerCase().endsWith('.nc'))
+        .map((p) => p.replace(/^.*[\\\/]/, ''));
+      if (ncNames.length) {
+        await appendProductionListDel(machineId, ncNames);
+        const title =
+          ncNames.length === 1
+            ? `Released ${ncNames[0]} from Grundner (Ready delete)`
+            : `Released ${ncNames.length} jobs from Grundner (Ready delete)`;
+        const detail =
+          ncNames.length <= 3 ? `Jobs: ${ncNames.join(', ')}` : `Examples: ${ncNames.slice(0, 3).join(', ')}, ...`;
+        pushAppMessage({ title, body: detail, source: 'ready-delete' });
+      }
+    } catch (err) {
+      logger.warn({ err, machineId }, 'files:ready:delete: failed to write productionLIST_del.csv');
+    }
     return ok<ReadyDeleteRes, AppError>({ deleted: deletedCount, files: deletedFiles, errors });
   });
 
