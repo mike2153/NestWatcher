@@ -11,6 +11,7 @@ import { logger } from '../logger';
 import { loadConfig } from './config';
 import { withClient } from './db';
 import { placeOrderSawCsv } from './orderSaw';
+import { pushAppMessage } from './messages';
 
 const OVERWRITE_PATTERNS: RegExp[] = [
   /^planit.*\.csv$/i,
@@ -37,6 +38,11 @@ function walk(dir: string): string[] {
     else if (e.isFile()) out.push(p);
   }
   return out;
+}
+
+function toNcFileName(ncfile: string | null | undefined, key: string): string {
+  const base = ncfile && ncfile.trim() ? ncfile.trim() : key.substring(key.lastIndexOf('/') + 1) || key;
+  return base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
 }
 
 function isDir(path: string) {
@@ -556,6 +562,16 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
   } catch (err) {
     logger.warn({ err, key: job.key }, 'worklist: failed to append job event');
   }
+
+  pushAppMessage(
+    'job.staged',
+    {
+      ncFile: toNcFileName(job.ncfile, job.key),
+      folder: job.folder ?? '',
+      machineName: m.name ?? `Machine ${machineId}`
+    },
+    { source: 'worklist' }
+  );
 
   // After staging, place Grundner order_saw CSV, wait for .erl reply, record the check,
   // and then lock on confirmation. This should not fail the staging result; show a dialog to the user with outcome.

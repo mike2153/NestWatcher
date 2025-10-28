@@ -1,6 +1,7 @@
 import { logger } from '../logger';
 import type { DbStatus } from '../../../shared/src';
 import { resetPool, withClient } from './db';
+import { pushAppMessage } from './messages';
 
 const listeners = new Set<(status: DbStatus) => void>();
 
@@ -16,7 +17,19 @@ let running = false;
 let rerun = false;
 
 function emit(next: DbStatus) {
+  const prevOnline = status.online;
   status = next;
+  if (!prevOnline && next.online) {
+    pushAppMessage('db.restored', {}, { source: 'db-watchdog' });
+  } else if (prevOnline && !next.online) {
+    pushAppMessage(
+      'db.lost',
+      {
+        error: next.error ?? 'Unknown error'
+      },
+      { source: 'db-watchdog' }
+    );
+  }
   for (const listener of [...listeners]) {
     try {
       listener(status);

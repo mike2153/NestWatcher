@@ -367,8 +367,11 @@ export type GrundnerResyncReq = z.infer<typeof GrundnerResyncReq>;
 export const AppMessage = z.object({
   id: z.string(),
   createdAt: z.string(),
+  event: z.string(),
   title: z.string(),
   body: z.string(),
+  tone: z.enum(['success', 'info', 'warning', 'error']),
+  params: z.record(z.string(), z.any()).optional(),
   source: z.string().nullable().optional()
 });
 export type AppMessage = z.infer<typeof AppMessage>;

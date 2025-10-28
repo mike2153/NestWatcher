@@ -14,8 +14,20 @@ import { rerunJob } from '../services/rerun';
 import { addJobToWorklist } from '../services/worklist';
 import { ingestProcessedJobsRoot } from '../services/ingest';
 import { logger } from '../logger';
+import { pushAppMessage } from '../services/messages';
 import { createAppError } from './errors';
 import { registerResultHandler } from './result';
+
+function ensureNcExtension(value: string | null | undefined, fallbackBase: string): string {
+  const raw = value ?? fallbackBase;
+  return raw.toLowerCase().endsWith('.nc') ? raw : `${raw}.nc`;
+}
+
+function formatSampleList(values: string[], limit = 3): string {
+  if (!values.length) return '';
+  const trimmed = values.slice(0, limit);
+  return values.length > limit ? `${trimmed.join(', ')}, ...` : trimmed.join(', ');
+}
 
 async function unlockJobs(keys: string[]) {
   const seen = new Set<string>();
@@ -56,12 +68,27 @@ async function unlockJobs(keys: string[]) {
     return err(createAppError('jobs.notFound', message));
   }
 
-  const items = orderedKeys.map((key) => {
+  const ncNames = orderedKeys.map((key) => {
     const row = byKey.get(key)!;
-    return { ncfile: row.ncfile, material: row.material };
+    const base = key.includes('/') ? key.substring(key.lastIndexOf('/') + 1) : key;
+    return ensureNcExtension(row.ncfile, base);
   });
+  const items = orderedKeys.map((key, index) => {
+    const row = byKey.get(key)!;
+    return { ncfile: ncNames[index], material: row.material };
+  });
+  const sampleNcFiles = formatSampleList(ncNames);
   const result = await placeProductionDeleteCsv(items);
   if (!result.confirmed) {
+    pushAppMessage(
+      'unlock.failure',
+      {
+        count: orderedKeys.length,
+        sampleNcFiles,
+        reason: result.message ?? 'Delete not confirmed by Grundner'
+      },
+      { source: 'jobs' }
+    );
     return err(createAppError('grundner.deleteFailed', result.message ?? 'Delete not confirmed by Grundner'));
   }
 
@@ -75,8 +102,25 @@ async function unlockJobs(keys: string[]) {
       orderedKeys.length === 1
         ? 'Job is not currently locked.'
         : `Failed to unlock ${failures.length} job(s): ${failures.join(', ')}`;
+    pushAppMessage(
+      'unlock.failure',
+      {
+        count: orderedKeys.length,
+        sampleNcFiles,
+        reason: message
+      },
+      { source: 'jobs' }
+    );
     return err(createAppError('jobs.notLocked', message));
   }
+  pushAppMessage(
+    'unlock.success',
+    {
+      count: orderedKeys.length,
+      sampleNcFiles
+    },
+    { source: 'jobs' }
+  );
   broadcastAllocatedMaterialRefresh();
   return ok<null, AppError>(null);
 }
@@ -174,10 +218,25 @@ export function registerJobsIpc() {
     );
     if (rows.length === 0) return err(createAppError('jobs.notFound', 'No matching jobs found.'));
 
+    const ncNames = rows.map((row) => {
+      const base = row.key.includes('/') ? row.key.substring(row.key.lastIndexOf('/') + 1) : row.key;
+      return ensureNcExtension(row.ncfile, base);
+    });
+    const sampleNcFiles = formatSampleList(ncNames);
+
     try {
       const result = await placeOrderSawCsv(rows);
       if (!result.confirmed) {
         const message = result.erl ? result.erl : 'Timed out waiting for confirmation (.erl)';
+        pushAppMessage(
+          'lock.failure',
+          {
+            count: keys.length,
+            sampleNcFiles,
+            reason: message
+          },
+          { source: 'jobs' }
+        );
         return err(createAppError('grundner.orderFailed', message));
       }
 
@@ -185,10 +244,28 @@ export function registerJobsIpc() {
       for (const k of keys) {
         await lockJobAfterGrundnerConfirmation(k);
       }
+      pushAppMessage(
+        'lock.success',
+        {
+          count: keys.length,
+          sampleNcFiles
+        },
+        { source: 'jobs' }
+      );
       broadcastAllocatedMaterialRefresh();
       return ok<null, AppError>(null);
     } catch (ex) {
-      return err(createAppError('grundner.orderError', (ex as Error)?.message ?? String(ex)));
+      const message = (ex as Error)?.message ?? String(ex);
+      pushAppMessage(
+        'lock.failure',
+        {
+          count: keys.length,
+          sampleNcFiles,
+          reason: message
+        },
+        { source: 'jobs' }
+      );
+      return err(createAppError('grundner.orderError', message));
     }
   });
 

@@ -68,12 +68,10 @@ export type WatcherWorkerToMainMessage =
     }
   | {
       type: 'appMessage';
-      payload: {
-        title: string;
-        body: string;
-        timestamp: string;
-        source?: string;
-      };
+      event: string;
+      params?: Record<string, unknown>;
+      timestamp?: string;
+      source?: string;
     };
 
 export type MainToWatcherMessage = { type: 'shutdown'; reason?: string };

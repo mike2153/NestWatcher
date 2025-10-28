@@ -3,6 +3,7 @@ import { join, extname, basename, relative, dirname } from 'path';
 import { withClient } from './db';
 import { loadConfig } from './config';
 import { logger } from '../logger';
+import { pushAppMessage } from './messages';
 
 function walkDir(dir: string): { files: string[]; hadError: boolean } {
   const out: string[] = [];
@@ -91,7 +92,9 @@ export type IngestResult = {
   inserted: number;
   updated: number;
   pruned: number;
-  prunedJobs: { key: string; ncfile: string | null; material: string | null; preReserved: boolean }[];
+  addedJobs: { ncFile: string; folder: string }[];
+  updatedJobs: { ncFile: string; folder: string }[];
+  prunedJobs: { key: string; folder: string; ncFile: string; material: string | null; preReserved: boolean; isLocked: boolean }[];
 };
 
 export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
@@ -99,11 +102,19 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
   const root = cfg.paths.processedJobsRoot;
   if (!root) {
     logger.warn('No processedJobsRoot configured, skipping ingest');
-    return { inserted: 0, updated: 0, pruned: 0, prunedJobs: [] };
+    return { inserted: 0, updated: 0, pruned: 0, addedJobs: [], updatedJobs: [], prunedJobs: [] };
   }
   if (!existsSync(root)) {
     logger.error({ root }, 'processedJobsRoot path does not exist');
-    return { inserted: 0, updated: 0, pruned: 0, prunedJobs: [] };
+    pushAppMessage(
+      'jobsFolder.unreadable',
+      {
+        path: root,
+        error: 'Jobs folder path does not exist'
+      },
+      { source: 'jobs-ingest' }
+    );
+    return { inserted: 0, updated: 0, pruned: 0, addedJobs: [], updatedJobs: [], prunedJobs: [] };
   }
   // Safety guard: if root is temporarily unreachable, skip pruning this cycle
   try {
@@ -111,10 +122,20 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
     readdirSync(root, { withFileTypes: true });
   } catch (err) {
     logger.warn({ err, root }, 'Ingest: root not readable; skipping prune this cycle');
-    return { inserted: 0, updated: 0, pruned: 0, prunedJobs: [] };
+    pushAppMessage(
+      'jobsFolder.unreadable',
+      {
+        path: root,
+        error: err instanceof Error ? err.message : String(err)
+      },
+      { source: 'jobs-ingest' }
+    );
+    return { inserted: 0, updated: 0, pruned: 0, addedJobs: [], updatedJobs: [], prunedJobs: [] };
   }
 
   let inserted = 0, updated = 0;
+  const addedJobs: { ncFile: string; folder: string }[] = [];
+  const updatedJobs: { ncFile: string; folder: string }[] = [];
   const scan = walkDir(root);
   const files = scan.files.filter(p => extname(p).toLowerCase() === '.nc');
   const hadScanError = scan.hadError;
@@ -135,14 +156,20 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
                    ON CONFLICT (key) DO UPDATE SET
                      folder=EXCLUDED.folder,
                      ncfile=EXCLUDED.ncfile,
-                     material=COALESCE(EXCLUDED.material, jobs.material),
-                     parts=COALESCE(EXCLUDED.parts, jobs.parts),
-                     size=COALESCE(EXCLUDED.size, jobs.size),
-                     thickness=COALESCE(EXCLUDED.thickness, jobs.thickness),
+                     material=CASE WHEN EXCLUDED.material IS NOT NULL THEN EXCLUDED.material ELSE public.jobs.material END,
+                     parts=CASE WHEN EXCLUDED.parts IS NOT NULL THEN EXCLUDED.parts ELSE public.jobs.parts END,
+                     size=CASE WHEN EXCLUDED.size IS NOT NULL THEN EXCLUDED.size ELSE public.jobs.size END,
+                     thickness=CASE WHEN EXCLUDED.thickness IS NOT NULL THEN EXCLUDED.thickness ELSE public.jobs.thickness END,
                      updated_at=now()
-                   RETURNING (xmax = 0) AS inserted`;
+                   WHERE public.jobs.folder IS DISTINCT FROM EXCLUDED.folder
+                      OR public.jobs.ncfile IS DISTINCT FROM EXCLUDED.ncfile
+                      OR (EXCLUDED.material IS NOT NULL AND EXCLUDED.material IS DISTINCT FROM public.jobs.material)
+                      OR (EXCLUDED.parts IS NOT NULL AND EXCLUDED.parts IS DISTINCT FROM public.jobs.parts)
+                      OR (EXCLUDED.size IS NOT NULL AND EXCLUDED.size IS DISTINCT FROM public.jobs.size)
+                      OR (EXCLUDED.thickness IS NOT NULL AND EXCLUDED.thickness IS DISTINCT FROM public.jobs.thickness)
+                   RETURNING (xmax = 0) AS inserted, folder, ncfile`;
     try {
-      const res = await withClient(c => c.query<{ inserted: boolean }>(sql, [
+      const res = await withClient(c => c.query<{ inserted: boolean; folder: string | null; ncfile: string | null }>(sql, [
         key,
         folderLeaf,
         baseNoExt,
@@ -151,8 +178,20 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
         size ?? null,
         thickness ?? null
       ]));
-      const wasInserted = (res.rows?.[0]?.inserted ?? false) as boolean;
-      if (wasInserted) inserted++; else updated++;
+      if (!res.rowCount) {
+        continue;
+      }
+      const row = res.rows[0];
+      const ncRaw = row.ncfile ?? baseNoExt;
+      const ncFile = ncRaw.toLowerCase().endsWith('.nc') ? ncRaw : `${ncRaw}.nc`;
+      const folderValue = row.folder ?? folderLeaf;
+      if (row.inserted) {
+        inserted++;
+        addedJobs.push({ ncFile, folder: folderValue });
+      } else {
+        updated++;
+        updatedJobs.push({ ncFile, folder: folderValue });
+      }
     } catch (e) {
       logger.warn({ err: e }, 'ingest upsert failed');
       // Keep counters stable; treat failures as neither inserted nor updated
@@ -161,12 +200,20 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
   // Prune jobs that no longer exist on disk and have not been cut
   // Note: If there are no .nc files present, this will prune all uncut jobs.
   let pruned = 0;
-  const prunedJobs: { key: string; ncfile: string | null; material: string | null; preReserved: boolean }[] = [];
+  const prunedJobs: { key: string; folder: string; ncFile: string; material: string | null; preReserved: boolean; isLocked: boolean }[] = [];
   try {
     // Additional safety: if scanning had errors, do not prune this cycle to avoid accidental mass deletes
     if (hadScanError) {
       logger.warn({ root }, 'Ingest: scan had errors; skipping prune this cycle');
-      return { inserted, updated, pruned: 0, prunedJobs: [] };
+      pushAppMessage(
+        'jobsFolder.unreadable',
+        {
+          path: root,
+          error: 'Jobs folder scan encountered errors'
+        },
+        { source: 'jobs-ingest' }
+      );
+      return { inserted, updated, pruned: 0, addedJobs, updatedJobs, prunedJobs: [] };
     }
     const keys = Array.from(presentKeys);
     const pruneSql = `
@@ -175,26 +222,32 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
       )
       DELETE FROM public.jobs j
       USING (
-        SELECT j.key, j.ncfile, j.material, j.pre_reserved
+        SELECT j.key, j.ncfile, j.folder, j.material, j.pre_reserved, j.is_locked
         FROM public.jobs j
         LEFT JOIN present p ON p.key = j.key
         WHERE p.key IS NULL AND j.cut_at IS NULL AND j.nestpick_completed_at IS NULL
       ) d
       WHERE j.key = d.key
-      RETURNING d.key, d.ncfile, d.material, d.pre_reserved`;
+      RETURNING d.key, d.ncfile, d.folder, d.material, d.pre_reserved, d.is_locked`;
 
     const result = await withClient((c) =>
-      c.query<{ key: string; ncfile: string | null; material: string | null; pre_reserved: boolean | null }>(pruneSql, [keys])
+      c.query<{ key: string; ncfile: string | null; folder: string | null; material: string | null; pre_reserved: boolean | null; is_locked: boolean | null }>(pruneSql, [keys])
     );
     pruned = result.rowCount ?? 0;
 
     if (pruned > 0) {
       for (const row of result.rows) {
+        const key = row.key;
+        const folder = row.folder ?? (key.includes('/') ? key.substring(0, key.lastIndexOf('/')) : '');
+        const base = row.ncfile ?? (key.includes('/') ? key.substring(key.lastIndexOf('/') + 1) : key);
+        const ncFile = base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
         prunedJobs.push({
-          key: row.key,
-          ncfile: row.ncfile,
+          key,
+          folder,
+          ncFile,
           material: row.material,
-          preReserved: Boolean(row.pre_reserved)
+          preReserved: Boolean(row.pre_reserved),
+          isLocked: Boolean(row.is_locked)
         });
       }
       // For any materials that had pre-reserved rows deleted, resync the Grundner pre_reserved count
@@ -221,5 +274,5 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
     logger.warn({ err }, 'ingest: failed to prune missing uncut jobs');
   }
 
-  return { inserted, updated, pruned, prunedJobs };
+  return { inserted, updated, pruned, addedJobs, updatedJobs, prunedJobs };
 }

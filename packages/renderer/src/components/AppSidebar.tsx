@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Briefcase, Router, History, Settings, PieChart, AlarmClock, Layers, BellRing, Gauge, ListCheck, AlignVerticalJustifyEnd, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, Router, History, Settings, Layers, BellRing, Gauge, ListCheck, AlignVerticalJustifyEnd, MessageSquare } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,

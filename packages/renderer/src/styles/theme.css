@@ -10,9 +10,7 @@
     --card:linear-gradient(to right, #fffffff3 0%, #ffffffef 100%);  /* Card background - warm gradient */
     --card-foreground: theme('colors.zinc.900');   /* Card text - dark blue-gray */
     /* Solid popover for context menus (no transparency) */
-    --popover: #ffffff;
-    --popover-foreground: theme('colors.gray.800');
-    --primary: theme('colors.blue.500');          /* Primary action color - vibrant indigo */
+    --primary: #1647e0;         /* Primary action color - vibrant indigo */
     --destructive: theme('colors.rose.600');        /* Destructive actions - red */
     --muted: theme('colors.slate.100');             /* Muted background elements */
     --muted-foreground: theme('colors.slate.100');  /* Muted text - gray */
@@ -28,17 +26,17 @@
 
     /* Table colors */
     --table-bg:  #feffff; /* Table background gradient */
-    --table-header-bg: #f4f4f491; /* Table header background - dark to match table */
+    --table-header-bg: #e2e2e2; /* Table header background - dark to match table */
     --table-text: theme('colors.gray.900');        /* Table text - light for dark background */
     --table-border: theme('colors.neutral.100');     /* Table outer border */
     --table-row-border: theme('colors.neutral.300'); /* Horizontal lines between rows */
-    --table-hover-bg: #f4f4f491;   /* Row hover background */
-    --table-selected-bg: #f4f4f491; /* Row selected background */
+    --table-hover-bg: #e9e9e9;   /* Row hover background */
+    --table-selected-bg: #e9e9e9; /* Row selected background */
                                     
     /* Sidebar colors - Metallic/Marble effect */
-    --sidebar: linear-gradient(to right, #fafafa 0%, #fafafa 100%) ; /* Metallic gradient background */
+    --sidebar: #f7f6f6; /* Metallic gradient background */
     --sidebar-foreground: #404040; /* Light text on dark metallic bg */
-    --sidebar-accent: linear-gradient(135deg, theme('colors.red.700') 0%, theme('colors.red.900') 20%, theme('colors.red.700')100%);  /* Lighter metallic accent for active items */
+    --sidebar-accent:#eaeaeac5; /* Lighter metallic accent for active items */
     --sidebar-border: theme('colors.slate.600');     /* Metallic border */
 
     /* Input field styling */

@@ -7,6 +7,13 @@ function formatTime(value: string): string {
   return date.toLocaleString();
 }
 
+const toneClasses: Record<AppMessage['tone'], string> = {
+  success: 'border-emerald-300 bg-emerald-50 text-emerald-900',
+  info: 'border-yellow-300 bg-yellow-50 text-yellow-900',
+  warning: 'border-orange-300 bg-orange-50 text-orange-900',
+  error: 'border-red-300 bg-red-50 text-red-900'
+};
+
 export function MessagesPage() {
   const [messages, setMessages] = useState<AppMessage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,20 +61,23 @@ export function MessagesPage() {
     }
     return (
       <div className="space-y-3">
-        {messages.map((msg) => (
-          <div key={msg.id} className="rounded border border-border bg-background p-3 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-base font-semibold leading-tight">{msg.title}</h3>
-              <div className="text-xs text-muted-foreground">{formatTime(msg.createdAt)}</div>
-            </div>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{msg.body}</p>
-            {msg.source ? (
-              <div className="mt-2 text-xs uppercase tracking-wide text-muted-foreground">
-                Source: {msg.source}
+        {messages.map((msg) => {
+          const toneClass = toneClasses[msg.tone] ?? toneClasses.info;
+          return (
+            <div key={msg.id} className={`rounded border p-3 shadow-sm ${toneClass}`}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-base font-semibold leading-tight">{msg.title}</h3>
+                <div className="text-xs opacity-80">{formatTime(msg.createdAt)}</div>
               </div>
-            ) : null}
-          </div>
-        ))}
+              <p className="mt-2 text-sm leading-relaxed">{msg.body}</p>
+              {msg.source ? (
+                <div className="mt-2 text-xs uppercase tracking-wide opacity-75">
+                  Source: {msg.source}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
     );
   }, [error, loading, messages]);

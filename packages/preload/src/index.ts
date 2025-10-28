@@ -94,7 +94,9 @@ const api = {
         inserted: number;
         updated: number;
         pruned: number;
-        prunedJobs: { key: string; ncfile: string | null; material: string | null; preReserved: boolean }[];
+        addedJobs: { ncFile: string; folder: string }[];
+        updatedJobs: { ncFile: string; folder: string }[];
+        prunedJobs: { key: string; folder: string; ncFile: string; material: string | null; preReserved: boolean }[];
       }>('jobs:resync')
   },
   machines: {

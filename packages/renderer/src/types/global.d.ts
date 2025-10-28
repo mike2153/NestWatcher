@@ -69,7 +69,7 @@ declare global {
         rerun: (key: string) => Promise<Result<null, AppError>>;
         rerunAndStage: (key: string, machineId: number) => Promise<Result<WorklistAddResult, AppError>>;
         addToWorklist: (key: string, machineId: number) => Promise<Result<WorklistAddResult, AppError>>;
-        resync: () => Promise<Result<{ inserted: number; updated: number; pruned: number; prunedJobs: { key: string; ncfile: string | null; material: string | null; preReserved: boolean }[] }, AppError>>;
+        resync: () => Promise<Result<{ inserted: number; updated: number; pruned: number; addedJobs: { ncFile: string; folder: string }[]; updatedJobs: { ncFile: string; folder: string }[]; prunedJobs: { key: string; folder: string; ncFile: string; material: string | null; preReserved: boolean }[] }, AppError>>;
       };
       machines: {
         list: () => Promise<Result<MachinesListRes, AppError>>;

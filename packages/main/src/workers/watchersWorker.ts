@@ -101,15 +101,13 @@ function clearMachineHealthIssue(machineId: number | null, code: MachineHealthCo
   postMessageToMain({ type: 'machineHealthClear', payload: { machineId, code } });
 }
 
-function emitAppMessage(title: string, body: string, source?: string) {
+function emitAppMessage(event: string, params?: Record<string, unknown>, source?: string) {
   postMessageToMain({
     type: 'appMessage',
-    payload: {
-      title,
-      body,
-      timestamp: new Date().toISOString(),
-      source
-    }
+    event,
+    params,
+    timestamp: new Date().toISOString(),
+    source
   });
 }
 
@@ -124,6 +122,8 @@ let stageSanityTimer: NodeJS.Timeout | null = null;
 let sourceSanityTimer: NodeJS.Timeout | null = null;
 
 const autoPacHashes = new Map<string, string>();
+const pendingGrundnerReleases = new Map<string, number>();
+const PENDING_GRUNDNER_RELEASE_TTL_MS = 60_000;
 
 const NESTPICK_UNSTACK_FILENAME = 'Report_FullNestpickUnstack.csv';
 
@@ -999,6 +999,16 @@ async function handleAutoPacCsv(path: string) {
 
       if (lifecycle.ok && to === 'CNC_FINISH') {
         await forwardToNestpick(base, job, machineForJob, machines);
+        const fallbackNc = base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
+        emitAppMessage(
+          'cnc.completion',
+          {
+            ncFile: displayNcName(job.ncfile, fallbackNc),
+            folder: job.folder ?? '',
+            machineName: machineForJob.name ?? (machineId != null ? `Machine ${machineId}` : 'Unknown machine')
+          },
+          'autopac'
+        );
       }
       if (lifecycle.ok) {
         processedAny = true;
@@ -1834,6 +1844,53 @@ function normalizeNumber(value: string | undefined): number | null {
   return Number.isFinite(n) ? Math.trunc(n) : null;
 }
 
+function displayNcName(value: string | null | undefined, fallback: string): string {
+  const base = value && value.trim() ? value.trim() : fallback;
+  return base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
+}
+
+function normalizeNcName(value: string): string {
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.endsWith('.nc') ? trimmed : `${trimmed}.nc`;
+}
+
+function markPendingGrundnerRelease(ncName: string) {
+  const normalized = normalizeNcName(ncName);
+  pendingGrundnerReleases.set(normalized, Date.now() + PENDING_GRUNDNER_RELEASE_TTL_MS);
+}
+
+function markPendingGrundnerReleaseMany(ncNames: Iterable<string>) {
+  for (const name of ncNames) {
+    if (!name) continue;
+    markPendingGrundnerRelease(name);
+  }
+}
+
+function unmarkPendingGrundnerReleaseMany(ncNames: Iterable<string>) {
+  for (const name of ncNames) {
+    if (!name) continue;
+    pendingGrundnerReleases.delete(normalizeNcName(name));
+  }
+}
+
+function cleanupPendingGrundnerReleases(now = Date.now()) {
+  for (const [name, expiry] of pendingGrundnerReleases.entries()) {
+    if (expiry <= now) pendingGrundnerReleases.delete(name);
+  }
+}
+
+function isPendingGrundnerRelease(ncName: string | null | undefined, now = Date.now()): boolean {
+  if (!ncName) return false;
+  const normalized = normalizeNcName(ncName);
+  const expiry = pendingGrundnerReleases.get(normalized);
+  if (expiry == null) return false;
+  if (expiry <= now) {
+    pendingGrundnerReleases.delete(normalized);
+    return false;
+  }
+  return true;
+}
+
 function indexOfHeader(header: string[], candidates: string[]): number {
   const lower = header.map((h) => stripCsvCell(h).toLowerCase());
   for (const cand of candidates) {
@@ -1978,6 +2035,15 @@ async function stageSanityPollOnce() {
           reverted += 1;
           const name = (miss.ncfile && miss.ncfile.toLowerCase().endsWith('.nc')) ? miss.ncfile : `${miss.nc}.nc`;
           ncNamesToRelease.push(name);
+          const folder = miss.key.includes('/') ? miss.key.substring(0, miss.key.lastIndexOf('/')) : '';
+          emitAppMessage(
+            'job.ready.missing',
+            {
+              ncFile: name,
+              folder
+            },
+            'stage-sanity'
+          );
           try {
             await appendJobEvent(
               miss.key,
@@ -1992,19 +2058,11 @@ async function stageSanityPollOnce() {
         }
       }
       if (ncNamesToRelease.length) {
+        markPendingGrundnerReleaseMany(ncNamesToRelease);
         try {
           await appendProductionListDel(machineId, ncNamesToRelease);
-          const sample = ncNamesToRelease.slice(0, 3).join(', ');
-          const summary =
-            ncNamesToRelease.length === 1
-              ? `Released ${ncNamesToRelease[0]} from Grundner (Ready-To-Run missing)`
-              : `Released ${ncNamesToRelease.length} jobs from Grundner (Ready-To-Run missing)`;
-          const description =
-            ncNamesToRelease.length <= 3
-              ? `Jobs: ${sample}`
-              : `Examples: ${sample}${ncNamesToRelease.length > 3 ? ', ...' : ''}`;
-          emitAppMessage(summary, description, 'stage-sanity');
         } catch (e) {
+          unmarkPendingGrundnerReleaseMany(ncNamesToRelease);
           recordWorkerError(STAGE_SANITY_WATCHER_NAME, e, { machineId, label: STAGE_SANITY_WATCHER_LABEL });
         }
       }
@@ -2139,6 +2197,7 @@ function startSourceSanityPoller() {
 
 async function grundnerPollOnce(folder: string) {
   try {
+    cleanupPendingGrundnerReleases();
     const reqPath = join(folder, 'stock_request.csv');
     const stockPath = join(folder, 'stock.csv');
 
@@ -2178,6 +2237,43 @@ async function grundnerPollOnce(folder: string) {
     grundnerLastHash = hash;
     const items = parseGrundnerCsv(raw);
     if (!items.length) return;
+    const keyFor = (row: { typeData: number | null; customerId: string | null }) =>
+      `${row.typeData ?? 'null'}::${row.customerId ?? 'null'}`;
+    const uniqueKeys = new Map<string, { typeData: number | null; customerId: string | null }>();
+    const itemsByKey = new Map<string, GrundnerCsvRow>();
+    for (const item of items) {
+      const key = keyFor(item);
+      uniqueKeys.set(key, { typeData: item.typeData ?? null, customerId: item.customerId ?? null });
+      itemsByKey.set(key, item);
+    }
+    const preReserved = new Map<string, number | null>();
+    if (uniqueKeys.size) {
+      const conditions: string[] = [];
+      const params: (number | string | null)[] = [];
+      let paramIndex = 1;
+      for (const value of uniqueKeys.values()) {
+        conditions.push(
+          `(public.grundner.type_data IS NOT DISTINCT FROM $${paramIndex}::int AND public.grundner.customer_id IS NOT DISTINCT FROM $${paramIndex + 1}::text)`
+        );
+        params.push(value.typeData, value.customerId);
+        paramIndex += 2;
+      }
+      try {
+        const previousRows = await withClient((c) =>
+          c
+            .query<{ type_data: number | null; customer_id: string | null; reserved_stock: number | null }>(
+              `SELECT type_data, customer_id, reserved_stock FROM public.grundner WHERE ${conditions.join(' OR ')}`,
+              params
+            )
+            .then((r) => r.rows)
+        );
+        for (const row of previousRows) {
+          preReserved.set(keyFor({ typeData: row.type_data, customerId: row.customer_id }), row.reserved_stock);
+        }
+      } catch (err) {
+        recordWorkerError('grundner:pre-reserved', err);
+      }
+    }
     const result = await upsertGrundnerInventory(items);
     if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {
       scheduleRendererRefresh('grundner');
@@ -2185,10 +2281,66 @@ async function grundnerPollOnce(folder: string) {
     }
 
     if (result.changed.length) {
+      const changedKeys = new Set(result.changed.map((row) => keyFor(row)));
+      for (const item of items) {
+        const key = keyFor(item);
+        if (!changedKeys.has(key)) continue;
+        const oldReserved = preReserved.has(key) ? preReserved.get(key) : null;
+        const newReserved = item.reservedStock;
+        const materialLabel = item.customerId?.trim() || (item.typeData != null ? String(item.typeData) : 'Unknown');
+        emitAppMessage(
+          'grundner.stock.updated',
+          {
+            material: materialLabel,
+            oldReserved: oldReserved != null ? oldReserved : 'N/A',
+            newReserved: newReserved != null ? newReserved : 'N/A'
+          },
+          'grundner-poller'
+        );
+      }
+    }
+
+    if (result.changed.length) {
+      const now = Date.now();
+      cleanupPendingGrundnerReleases(now);
       try {
         const conflicts = await findGrundnerAllocationConflicts(result.changed);
         if (conflicts.length) {
-          const summary = `Grundner stock updated for ${conflicts.length} allocated material(s)`;
+          const byMaterial = new Map<string, { count: number; reserved: number | null }>();
+          for (const row of conflicts) {
+            const normalizedNc = row.ncfile ? normalizeNcName(row.ncfile) : null;
+            if (normalizedNc && isPendingGrundnerRelease(normalizedNc, now)) {
+              continue;
+            }
+            const label = row.material?.trim() || (row.typeData != null ? String(row.typeData) : 'Unknown');
+            const key = keyFor({ typeData: row.typeData, customerId: row.customerId });
+            const reservedValue = itemsByKey.get(key)?.reservedStock ?? null;
+            const existing = byMaterial.get(label);
+            if (existing) {
+              existing.count += 1;
+              if (existing.reserved == null && reservedValue != null) {
+                existing.reserved = reservedValue;
+              }
+            } else {
+              byMaterial.set(label, { count: 1, reserved: reservedValue });
+            }
+          }
+          if (!byMaterial.size) {
+            continue;
+          }
+          for (const [materialLabel, detail] of byMaterial) {
+            emitAppMessage(
+              'grundner.conflict',
+              {
+                material: materialLabel,
+                jobCount: detail.count,
+                reserved: detail.reserved != null ? detail.reserved : 'N/A'
+              },
+              'grundner-poller'
+            );
+          }
+          const totalConflicts = Array.from(byMaterial.values()).reduce((acc, entry) => acc + entry.count, 0);
+          const summary = `Grundner stock updated for ${totalConflicts} allocated material(s)`;
           postMessageToMain({
             type: 'appAlert',
             category: 'grundner',
@@ -2247,27 +2399,29 @@ function startJobsIngestPolling() {
     if (shuttingDown) return;
     try {
       const result = await ingestProcessedJobsRoot();
+      for (const job of result.addedJobs ?? []) {
+        emitAppMessage('job.detected', { ncFile: job.ncFile, folder: job.folder }, 'jobs-ingest');
+      }
+      for (const job of result.updatedJobs ?? []) {
+        emitAppMessage('job.updated', { ncFile: job.ncFile, folder: job.folder }, 'jobs-ingest');
+      }
       const pruned = result.prunedJobs ?? [];
       if (pruned.length) {
-        const uniqueNames = new Set<string>();
+        const lockedNames = new Set<string>();
         for (const job of pruned) {
-          const base = (job.ncfile && job.ncfile.trim()) ? job.ncfile.trim() : job.key.split('/').pop() ?? job.key;
-          if (!base) continue;
-          const name = base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
-          uniqueNames.add(name);
+          emitAppMessage('job.removed', { ncFile: job.ncFile, folder: job.folder }, 'jobs-ingest');
+          // Only collect locked jobs for unlock trigger
+          if (job.isLocked) {
+            lockedNames.add(job.ncFile);
+          }
         }
-        const names = Array.from(uniqueNames);
+        const names = Array.from(lockedNames);
         if (names.length) {
+          markPendingGrundnerReleaseMany(names);
           try {
             await appendProductionListDel(0, names);
-            const summary =
-              names.length === 1
-                ? `Released ${names[0]} from Grundner (job deleted)`
-                : `Released ${names.length} jobs from Grundner (jobs deleted)`;
-            const detail =
-              names.length <= 3 ? `Jobs: ${names.join(', ')}` : `Examples: ${names.slice(0, 3).join(', ')}, ...`;
-            emitAppMessage(summary, detail, 'jobs-ingest');
           } catch (err) {
+            unmarkPendingGrundnerReleaseMany(names);
             recordWorkerError('jobs-ingest', err, { count: names.length });
           }
         }

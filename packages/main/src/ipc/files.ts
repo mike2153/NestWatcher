@@ -548,18 +548,24 @@ export function registerFilesIpc() {
     );
     // Send Nestpick deletion request for removed NCs
     try {
-      const ncNames = deletedFiles
+      const ncEntries = deletedFiles
         .filter((p) => p.toLowerCase().endsWith('.nc'))
-        .map((p) => p.replace(/^.*[\\\/]/, ''));
-      if (ncNames.length) {
-        await appendProductionListDel(machineId, ncNames);
-        const title =
-          ncNames.length === 1
-            ? `Released ${ncNames[0]} from Grundner (Ready delete)`
-            : `Released ${ncNames.length} jobs from Grundner (Ready delete)`;
-        const detail =
-          ncNames.length <= 3 ? `Jobs: ${ncNames.join(', ')}` : `Examples: ${ncNames.slice(0, 3).join(', ')}, ...`;
-        pushAppMessage({ title, body: detail, source: 'ready-delete' });
+        .map((rel) => {
+          const normalized = rel.replace(/\\/g, '/');
+          const parts = normalized.split('/');
+          const file = parts.pop() ?? normalized;
+          const folder = parts.join('/') || '';
+          const ncFile = file.toLowerCase().endsWith('.nc') ? file : `${file}.nc`;
+          return { ncFile, folder };
+        });
+      if (ncEntries.length) {
+        await appendProductionListDel(
+          machineId,
+          ncEntries.map((entry) => entry.ncFile)
+        );
+        for (const entry of ncEntries) {
+          pushAppMessage('job.ready.delete', { ncFile: entry.ncFile, folder: entry.folder }, { source: 'ready-delete' });
+        }
       }
     } catch (err) {
       logger.warn({ err, machineId }, 'files:ready:delete: failed to write productionLIST_del.csv');

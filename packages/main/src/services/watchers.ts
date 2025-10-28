@@ -92,6 +92,20 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
         ...(message.context ?? {}),
         label: message.label ?? message.name
       };
+      const offlinePath =
+        (message.context as { folder?: string; dir?: string; path?: string } | undefined)?.folder ??
+        (message.context as { dir?: string; path?: string } | undefined)?.dir ??
+        (message.context as { path?: string } | undefined)?.path;
+      if (offlinePath) {
+        pushAppMessage(
+          'watcher.offline',
+          {
+            watcherName: message.label ?? message.name,
+            path: offlinePath
+          },
+          { source: 'watchers' }
+        );
+      }
       recordWatcherError(message.name, toError(message.error), context);
       break;
     }
@@ -129,12 +143,19 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
       break;
     }
     case 'appMessage': {
-      pushAppMessage({
-        title: message.payload.title,
-        body: message.payload.body,
-        source: message.payload.source,
-        timestamp: message.payload.timestamp
+      const entry = pushAppMessage(message.event, message.params, {
+        source: message.source,
+        timestamp: message.timestamp
       });
+      for (const win of BrowserWindow.getAllWindows()) {
+        try {
+          if (!win.isDestroyed()) {
+            win.webContents.send('messages:append', entry);
+          }
+        } catch (err) {
+          logger.warn({ err }, 'watchers: failed to push app message to renderer');
+        }
+      }
       break;
     }
     default:
