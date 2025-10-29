@@ -61,20 +61,14 @@
 
     /* Alpha variants - using Tailwind colors with opacity */
     --muted-a50: color-mix(in srgb, theme('colors.cyan.900') 50%, transparent);  /* Table row hover, table footer bg, inputs */
-    --muted-a40: color-mix(in srgb, theme('colors.slate.100') 40%, transparent);  /* [unused] */
-    --muted-a30: color-mix(in srgb, theme('colors.slate.100') 30%, transparent);  /* [unused] */
-    --muted-a10: color-mix(in srgb, theme('colors.slate.100') 10%, transparent);  /* [unused] */
     --primary-a10: color-mix(in srgb, theme('colors.indigo.500') 10%, transparent);  /* Selected row bg, gradient effects */
     --primary-a15: color-mix(in srgb, theme('colors.indigo.500') 15%, transparent);  /* Box shadows, hover shadows */
     --primary-a20: color-mix(in srgb, theme('colors.indigo.500') 20%, transparent);  /* Borders on focus, selected row borders, resizer hover */
     --primary-a30: color-mix(in srgb, theme('colors.indigo.500') 30%, transparent);  /* Focus states, strong borders, box shadows */
-    --border-a05: color-mix(in srgb, theme('colors.slate.200') 5%, transparent);   /* [unused] */
     --border-a06: color-mix(in srgb, theme('colors.slate.200') 6%, transparent);   /* Subtle box shadows */
     --border-a08: color-mix(in srgb, theme('colors.slate.200') 8%, transparent);   /* Box shadows, elevated shadows */
     --border-a10: color-mix(in srgb, theme('colors.slate.200') 10%, transparent);  /* Box shadows, table cell borders */
     --border-a30: color-mix(in srgb, theme('colors.slate.200') 30%, transparent);  /* Table header borders */
-    --card-a95: color-mix(in srgb, theme('colors.white') 95%, transparent);        /* [unused] */
-    --card-a90: color-mix(in srgb, theme('colors.white') 90%, transparent);        /* [unused] */
   }
 
   .dark {

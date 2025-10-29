@@ -1,6 +1,6 @@
 import { ok } from 'neverthrow';
 import type { AppError } from '../../../shared/src';
-import { AllocatedMaterialListRes } from '../../../shared/src';
+import type { AllocatedMaterialListRes } from '../../../shared/src';
 import { listAllocatedMaterial } from '../repo/allocatedMaterialRepo';
 import { registerResultHandler } from './result';
 

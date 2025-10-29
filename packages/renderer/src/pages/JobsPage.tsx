@@ -21,17 +21,22 @@ import { JOB_STATUS_VALUES } from '../../../shared/src';
 import { cn } from '../utils/cn';
 import { GlobalTable } from '@/components/table/GlobalTable';
 import { Button } from '@/components/ui/button';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, ContextMenuLabel, ContextMenuSeparator, ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent } from '@/components/ui/context-menu';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubTrigger,
+  ContextMenuSubContent
+} from '@/components/ui/context-menu';
 import {
   Filter,
   FilterX,
-  Lock,
-  Unlock,
-  Plus,
   Eye,
   EyeOff,
-  RefreshCw,
-  PlayCircle
+  RefreshCw
 } from 'lucide-react';
 
 const COLUMN_SIZING_KEY = 'jobs:columnSizing';
@@ -45,11 +50,6 @@ type FiltersState = {
   statuses: JobStatus[];
   materials: string[];
   machineId?: number;
-};
-
-type ContextMenuState = {
-  position: { x: number; y: number };
-  keys: string[];
 };
 
 const defaultFilters: FiltersState = {
@@ -142,7 +142,6 @@ export function JobsPage() {
   const [columnSizing, _setColumnSizing] = useState<ColumnSizingState>(loadColumnSizing);
   // Context menu is now handled by shadcn-style component; keep only selection logic
   
-  const [bulkMachine, setBulkMachine] = useState<number | ''>('');
   const [actionBusy, setActionBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [autoRefreshEnabled, _setAutoRefreshEnabled] = useState(() => {
@@ -640,7 +639,6 @@ export function JobsPage() {
 
       await refresh();
       setRowSelection({});
-      setBulkMachine('');
     } finally {
       setActionBusy(false);
     }
@@ -791,7 +789,6 @@ export function JobsPage() {
               setSearch('');
               setFilters(reset);
               setRowSelection({});
-              setBulkMachine('');
               refresh({ filters: reset, search: '' });
             }}
             disabled={loading}

@@ -30,9 +30,7 @@ export async function rerunJob(key: string): Promise<{ ok: true; created: string
   if (!base) return { ok: false, error: 'Job ncfile missing' };
   const origBase = originalBase(base);
 
-  // Determine original row to retrieve qty
   const relDir = toRelDirFromKey(key);
-  const origKey = (relDir ? `${relDir}/${origBase}` : origBase).slice(0, 100);
   // Determine next run number by scanning the source directory for existing runN_ copies
   const srcDir = relDir ? resolve(root, relDir.split('/').join(sep)) : root;
   let nextRun = 2; // Start at run2 for the second run

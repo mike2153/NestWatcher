@@ -321,7 +321,6 @@ export function AppLayout() {
   const machineHealthEntries: MachineHealthEntry[] = diagnostics?.machineHealth ?? [];
   const machineHealthAlerts = machineHealthEntries.filter((issue) => issue.severity !== 'info');
   const watcherIssues = diagnosticsWatchers.filter((watcher) => watcher.status !== 'watching');
-  const watcherAlerts = watcherIssues.filter((watcher) => watcher.status === 'error');
   const recentErrorIsFresh = diagnosticsErrors.some((entry) => {
     const parsed = Date.parse(entry.timestamp);
     return !Number.isNaN(parsed) && Date.now() - parsed < 15 * 60 * 1000;

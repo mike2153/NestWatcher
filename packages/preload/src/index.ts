@@ -144,13 +144,17 @@ const api = {
       const channel = 'allocatedMaterial:refresh';
       const handler = () => listener();
       ipcRenderer.on(channel, handler);
+      invokeResult<null>('allocatedMaterial:subscribe').catch(() => {});
       return () => {
         ipcRenderer.removeListener(channel, handler);
+        invokeResult<null>('allocatedMaterial:unsubscribe').catch(() => {});
       };
     }
   },
   messages: {
     list: () => invokeResult<MessagesListRes>('messages:list'),
+    unreadCount: () => invokeResult<number>('messages:unreadCount'),
+    markAllRead: () => invokeResult<null>('messages:markRead'),
     subscribe: (listener: (entry: AppMessage) => void) => {
       const channel = 'messages:append';
       const handler = (_event: Electron.IpcRendererEvent, entry: AppMessage) => listener(entry);
@@ -159,6 +163,16 @@ const api = {
       return () => {
         ipcRenderer.removeListener(channel, handler);
         invokeResult<null>('messages:unsubscribe').catch(() => {});
+      };
+    },
+    subscribeCount: (listener: (count: number) => void) => {
+      const channel = 'messages:count';
+      const handler = (_event: Electron.IpcRendererEvent, count: number) => listener(count);
+      ipcRenderer.on(channel, handler);
+      invokeResult<null>('messages:subscribeCount').catch(() => {});
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+        invokeResult<null>('messages:unsubscribeCount').catch(() => {});
       };
     }
   },

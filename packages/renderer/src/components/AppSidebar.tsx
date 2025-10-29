@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { LayoutDashboard, Router, History, Settings, Layers, BellRing, Gauge, ListCheck, AlignVerticalJustifyEnd, MessageSquare } from 'lucide-react';
 import {
@@ -24,6 +25,30 @@ const nav = [
 ];
 
 export function AppSidebar() {
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const res = await window.api.messages.unreadCount();
+      if (!active) return;
+      if (res.ok) {
+        setUnreadCount(res.value);
+      } else {
+        setUnreadCount(0);
+      }
+    })();
+
+    const unsubscribe = window.api.messages.subscribeCount((count) => {
+      setUnreadCount(count);
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
   return (
     <Sidebar>
       <SidebarHeader>
@@ -33,6 +58,8 @@ export function AppSidebar() {
         <SidebarMenu>
           {nav.map((item) => {
             const Icon = item.icon;
+            const showBadge = item.to === '/messages' && unreadCount > 0;
+            const badgeValue = unreadCount > 99 ? '99+' : unreadCount.toString();
             return (
               <SidebarMenuItem key={item.to}>
                 <NavLink
@@ -44,6 +71,11 @@ export function AppSidebar() {
                 >
                   <Icon />
                   <span className="ml-2 text-base font-medium">{item.label}</span>
+                  {showBadge ? (
+                    <span className="ml-auto inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1 text-xs font-semibold leading-none text-white">
+                      {badgeValue}
+                    </span>
+                  ) : null}
                 </NavLink>
               </SidebarMenuItem>
             );

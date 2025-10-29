@@ -372,7 +372,8 @@ export const AppMessage = z.object({
   body: z.string(),
   tone: z.enum(['success', 'info', 'warning', 'error']),
   params: z.record(z.string(), z.any()).optional(),
-  source: z.string().nullable().optional()
+  source: z.string().nullable().optional(),
+  read: z.boolean()
 });
 export type AppMessage = z.infer<typeof AppMessage>;
 

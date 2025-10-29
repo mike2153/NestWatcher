@@ -10,7 +10,7 @@ function formatTime(value: string): string {
 const toneClasses: Record<AppMessage['tone'], string> = {
   success: 'border-emerald-300 bg-emerald-50 text-emerald-900',
   info: 'border-yellow-300 bg-yellow-50 text-yellow-900',
-  warning: 'border-orange-300 bg-orange-50 text-orange-900',
+  warning: 'border-red-200 bg-red-50 text-red-900',
   error: 'border-red-300 bg-red-50 text-red-900'
 };
 
@@ -31,6 +31,7 @@ export function MessagesPage() {
         setMessages([]);
       } else {
         setMessages(res.value.items ?? []);
+        void window.api.messages.markAllRead();
       }
       setLoading(false);
     })();
@@ -39,8 +40,10 @@ export function MessagesPage() {
       setMessages((prev) => {
         if (prev.some((m) => m.id === entry.id)) return prev;
         const next = [entry, ...prev];
-        return next.length > 200 ? next.slice(0, 200) : next;
+        if (next.length > 200) next.length = 200;
+        return next;
       });
+      void window.api.messages.markAllRead();
     });
 
     return () => {
@@ -96,3 +99,4 @@ export function MessagesPage() {
     </div>
   );
 }
+

@@ -208,7 +208,7 @@ function ContextMenuSubContentBase({ children, className }: { children: React.Re
     if (!anchor) return;
     const r = anchor.getBoundingClientRect();
     setPos({ top: Math.min(r.top, window.innerHeight - 240), left: Math.min(r.right + 16, window.innerWidth - 200) });
-  }, [sctx?.open]);
+  }, [sctx]);
   if (!mctx?.open || !sctx?.open || !pos) return null;
   return (
     <div className="fixed inset-0 z-50 pointer-events-none">

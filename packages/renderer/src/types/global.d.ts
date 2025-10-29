@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   AppError,
   AlarmEntry,
   CopyDiagnosticsResult,
@@ -103,7 +103,10 @@ declare global {
       };
       messages: {
         list: () => Promise<Result<MessagesListRes, AppError>>;
+        unreadCount: () => Promise<Result<number, AppError>>;
+        markAllRead: () => Promise<Result<null, AppError>>;
         subscribe: (listener: (entry: AppMessage) => void) => () => void;
+        subscribeCount: (listener: (count: number) => void) => () => void;
       };
       hypernest: {
         open: () => Promise<Result<null, AppError>>;

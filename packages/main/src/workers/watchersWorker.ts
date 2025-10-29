@@ -1,4 +1,4 @@
-﻿import chokidar, { type FSWatcher } from 'chokidar';
+import chokidar, { type FSWatcher } from 'chokidar';
 import { createHash } from 'crypto';
 import { existsSync, mkdirSync } from 'fs';
 import { promises as fsp } from 'fs';
@@ -124,6 +124,8 @@ let sourceSanityTimer: NodeJS.Timeout | null = null;
 const autoPacHashes = new Map<string, string>();
 const pendingGrundnerReleases = new Map<string, number>();
 const PENDING_GRUNDNER_RELEASE_TTL_MS = 60_000;
+const pendingGrundnerConflicts = new Map<string, number>();
+const GRUNDNER_CONFLICT_GRACE_MS = 120_000;
 
 const NESTPICK_UNSTACK_FILENAME = 'Report_FullNestpickUnstack.csv';
 
@@ -1891,6 +1893,12 @@ function isPendingGrundnerRelease(ncName: string | null | undefined, now = Date.
   return true;
 }
 
+function cleanupPendingGrundnerConflicts(now = Date.now()) {
+  for (const [material, expiry] of pendingGrundnerConflicts.entries()) {
+    if (expiry <= now) pendingGrundnerConflicts.delete(material);
+  }
+}
+
 function indexOfHeader(header: string[], candidates: string[]): number {
   const lower = header.map((h) => stripCsvCell(h).toLowerCase());
   for (const cand of candidates) {
@@ -2303,16 +2311,19 @@ async function grundnerPollOnce(folder: string) {
     if (result.changed.length) {
       const now = Date.now();
       cleanupPendingGrundnerReleases(now);
+      cleanupPendingGrundnerConflicts(now);
       try {
         const conflicts = await findGrundnerAllocationConflicts(result.changed);
         if (conflicts.length) {
           const byMaterial = new Map<string, { count: number; reserved: number | null }>();
+          const materialSet = new Set<string>();
           for (const row of conflicts) {
             const normalizedNc = row.ncfile ? normalizeNcName(row.ncfile) : null;
             if (normalizedNc && isPendingGrundnerRelease(normalizedNc, now)) {
               continue;
             }
             const label = row.material?.trim() || (row.typeData != null ? String(row.typeData) : 'Unknown');
+            materialSet.add(label);
             const key = keyFor({ typeData: row.typeData, customerId: row.customerId });
             const reservedValue = itemsByKey.get(key)?.reservedStock ?? null;
             const existing = byMaterial.get(label);
@@ -2326,32 +2337,58 @@ async function grundnerPollOnce(folder: string) {
             }
           }
           if (!byMaterial.size) {
-            continue;
+            for (const label of Array.from(pendingGrundnerConflicts.keys())) {
+              if (!materialSet.has(label)) pendingGrundnerConflicts.delete(label);
+            }
+          } else {
+            const effectiveConflicts: Array<{ material: string; detail: { count: number; reserved: number | null } }> = [];
+            for (const [materialLabel, detail] of byMaterial) {
+              const expiry = pendingGrundnerConflicts.get(materialLabel);
+              if (!expiry) {
+                pendingGrundnerConflicts.set(materialLabel, now + GRUNDNER_CONFLICT_GRACE_MS);
+                continue;
+              }
+              if (expiry > now) {
+                continue;
+              }
+              pendingGrundnerConflicts.delete(materialLabel);
+              effectiveConflicts.push({ material: materialLabel, detail });
+            }
+
+            for (const label of Array.from(pendingGrundnerConflicts.keys())) {
+              if (!materialSet.has(label)) pendingGrundnerConflicts.delete(label);
+            }
+
+            if (effectiveConflicts.length) {
+              for (const { material, detail } of effectiveConflicts) {
+                emitAppMessage(
+                  'grundner.conflict',
+                  {
+                    material,
+                    jobCount: detail.count,
+                    reserved: detail.reserved != null ? detail.reserved : 'N/A'
+                  },
+                  'grundner-poller'
+                );
+              }
+              const totalConflicts = effectiveConflicts.reduce((acc, entry) => acc + entry.detail.count, 0);
+              const summary = `Grundner stock updated for ${totalConflicts} allocated material(s)`;
+              const conflictDetails = effectiveConflicts.map(({ material, detail }) => ({ material, detail }));
+              postMessageToMain({
+                type: 'appAlert',
+                category: 'grundner',
+                summary,
+                details: { conflicts: conflictDetails }
+              });
+              recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
+                label: GRUNDNER_WATCHER_LABEL,
+                message: summary,
+                context: { conflicts: conflictDetails }
+              });
+            }
           }
-          for (const [materialLabel, detail] of byMaterial) {
-            emitAppMessage(
-              'grundner.conflict',
-              {
-                material: materialLabel,
-                jobCount: detail.count,
-                reserved: detail.reserved != null ? detail.reserved : 'N/A'
-              },
-              'grundner-poller'
-            );
-          }
-          const totalConflicts = Array.from(byMaterial.values()).reduce((acc, entry) => acc + entry.count, 0);
-          const summary = `Grundner stock updated for ${totalConflicts} allocated material(s)`;
-          postMessageToMain({
-            type: 'appAlert',
-            category: 'grundner',
-            summary,
-            details: { conflicts }
-          });
-          recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
-            label: GRUNDNER_WATCHER_LABEL,
-            message: summary,
-            context: { conflicts }
-          });
+        } else {
+          pendingGrundnerConflicts.clear();
         }
       } catch (err) {
         recordWorkerError('grundner:conflict-check', err);

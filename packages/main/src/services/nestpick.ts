@@ -1,7 +1,6 @@
 import { promises as fsp } from 'fs';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { getMachine } from '../repo/machinesRepo';
 import { loadConfig } from './config';
 import { logger } from '../logger';
 
