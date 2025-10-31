@@ -1,9 +1,19 @@
-import { app } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { DbSettingsSchema, CURRENT_SETTINGS_VERSION } from '../../../shared/src';
 import type { Settings } from '../../../shared/src';
 import { logger } from '../logger';
+
+type ElectronApp = import('electron').App;
+
+let electronApp: ElectronApp | undefined;
+try {
+  const electronModule = require('electron') as typeof import('electron');
+  electronApp = electronModule?.app;
+} catch {
+  // In worker/thread contexts the electron module is unavailable; fall back to Node paths.
+  electronApp = undefined;
+}
 
 const DEFAULT_SETTINGS: Settings = {
   version: CURRENT_SETTINGS_VERSION,
@@ -71,7 +81,7 @@ export function getConfigPath() {
 
   // Prefer Electron's userData directory in both dev and prod to avoid polluting the repo
   try {
-    const userDataDir = app?.getPath?.('userData');
+    const userDataDir = electronApp?.getPath?.('userData');
     if (userDataDir && typeof userDataDir === 'string') {
       return join(userDataDir, 'settings.json');
     }
@@ -79,7 +89,7 @@ export function getConfigPath() {
     // fall through to process.execPath below
   }
 
-  const isPackaged = app?.isPackaged ?? false;
+  const isPackaged = electronApp?.isPackaged ?? false;
   if (isPackaged) {
     return join(dirname(process.execPath), 'settings.json');
   }

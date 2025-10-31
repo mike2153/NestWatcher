@@ -1,9 +1,18 @@
-import { app } from 'electron';
 import { createWriteStream, existsSync, mkdirSync, readdirSync, unlinkSync, type WriteStream } from 'fs';
 import { join } from 'path';
 import { Writable } from 'stream';
 import pino, { multistream, type Level, type StreamEntry } from 'pino';
 import { isMainThread, parentPort } from 'worker_threads';
+import type { App } from 'electron';
+
+let electronApp: App | undefined;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+  const electronModule = require('electron') as { app?: App };
+  electronApp = electronModule?.app;
+} catch {
+  electronApp = undefined;
+}
 
 const FALLBACK_LOG_DIR = join(process.cwd(), 'logs');
 const DEFAULT_RETENTION_DAYS = 14;
@@ -11,11 +20,14 @@ const DEFAULT_RETENTION_DAYS = 14;
 function resolveLogDirectory(): string {
   const envDir = process.env.WOODTRON_LOG_DIR?.trim();
   if (envDir) return envDir;
-  try {
-    return join(app.getPath('userData'), 'logs');
-  } catch {
-    return FALLBACK_LOG_DIR;
+  if (electronApp) {
+    try {
+      return join(electronApp.getPath('userData'), 'logs');
+    } catch {
+      /* noop */
+    }
   }
+  return FALLBACK_LOG_DIR;
 }
 
 function resolveRetentionDays(): number {

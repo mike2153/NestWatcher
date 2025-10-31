@@ -9,3 +9,5 @@ packages/*/dist/
 logs/
 resources/hypernest
 resources/
+dist/
+build/

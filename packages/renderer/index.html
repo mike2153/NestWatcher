@@ -7,24 +7,7 @@
   </head>
   <body>
     <div id="root"></div>
-    <script>
-      (function () {
-        try {
-          var stored = localStorage.getItem('ui:theme') || 'system';
-          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-          var root = document.documentElement;
-          var isDark = stored === 'dark' || (stored === 'system' && prefersDark);
-          if (isDark) {
-            root.classList.add('dark');
-          } else {
-            root.classList.remove('dark');
-          }
-        } catch (error) {
-          console.warn('Failed to apply stored theme preference', error);
-        }
-      })();
-    </script>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="./src/theme-preload.ts"></script>
+    <script type="module" src="./src/main.tsx"></script>
   </body>
   </html>
-
