@@ -2,6 +2,7 @@ import { ok } from 'neverthrow';
 import type { AppError } from '../../../shared/src';
 import { GrundnerListReq, GrundnerUpdateReq, GrundnerResyncReq } from '../../../shared/src';
 import { listGrundner, updateGrundnerRow, resyncGrundnerReserved } from '../repo/grundnerRepo';
+import { pushAppMessage } from '../services/messages';
 import { registerResultHandler } from './result';
 
 export function registerGrundnerIpc() {
@@ -20,6 +21,14 @@ export function registerGrundnerIpc() {
   registerResultHandler('grundner:resync', async (_e, raw) => {
     const req = GrundnerResyncReq.parse(raw ?? {});
     const updated = await resyncGrundnerReserved(req.id);
+    pushAppMessage(
+      'grundner.resync',
+      {
+        user: 'UI',
+        mode: req.id != null ? 'single' : 'all'
+      },
+      { source: 'grundner' }
+    );
     return ok<{ updated: number }, AppError>({ updated });
   });
 }

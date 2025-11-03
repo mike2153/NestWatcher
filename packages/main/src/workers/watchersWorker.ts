@@ -1,4 +1,4 @@
-﻿import chokidar, { type FSWatcher } from 'chokidar';
+import chokidar, { type FSWatcher } from 'chokidar';
 import { createHash } from 'crypto';
 import { existsSync, mkdirSync } from 'fs';
 import { promises as fsp } from 'fs';
@@ -10,9 +10,9 @@ import { parentPort } from 'worker_threads';
 import type { Machine, MachineHealthCode } from '../../../shared/src';
 import { loadConfig } from '../services/config';
 import { logger } from '../logger';
-import { testConnection, withClient } from '../services/db';
+import { getPool, testConnection, withClient } from '../services/db';
 import { appendJobEvent } from '../repo/jobEventsRepo';
-import { upsertGrundnerInventory, type GrundnerCsvRow } from '../repo/grundnerRepo';
+import { upsertGrundnerInventory, type GrundnerCsvRow, findGrundnerAllocationConflicts } from '../repo/grundnerRepo';
 import { listMachines } from '../repo/machinesRepo';
 import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLifecycle, resyncGrundnerPreReservedForMaterial } from '../repo/jobsRepo';
 import { upsertCncStats } from '../repo/cncStatsRepo';
@@ -20,6 +20,8 @@ import type { CncStatsUpsert } from '../repo/cncStatsRepo';
 import { normalizeTelemetryPayload } from './telemetryParser';
 import type { WatcherWorkerToMainMessage, MainToWatcherMessage } from './watchersMessages';
 import { ingestProcessedJobsRoot } from '../services/ingest';
+import { appendProductionListDel } from '../services/nestpick';
+import { archiveCompletedJob } from '../services/archive';
 
 const { access, copyFile, readFile, readdir, rename, stat, unlink, open } = fsp;
 
@@ -100,6 +102,16 @@ function clearMachineHealthIssue(machineId: number | null, code: MachineHealthCo
   postMessageToMain({ type: 'machineHealthClear', payload: { machineId, code } });
 }
 
+function emitAppMessage(event: string, params?: Record<string, unknown>, source?: string) {
+  postMessageToMain({
+    type: 'appMessage',
+    event,
+    params,
+    timestamp: new Date().toISOString(),
+    source
+  });
+}
+
 function trackWatcher(watcher: FSWatcher) {
   fsWatchers.add(watcher);
   watcher.on('close', () => fsWatchers.delete(watcher));
@@ -111,6 +123,10 @@ let stageSanityTimer: NodeJS.Timeout | null = null;
 let sourceSanityTimer: NodeJS.Timeout | null = null;
 
 const autoPacHashes = new Map<string, string>();
+const pendingGrundnerReleases = new Map<string, number>();
+const PENDING_GRUNDNER_RELEASE_TTL_MS = 60_000;
+const pendingGrundnerConflicts = new Map<string, number>();
+const GRUNDNER_CONFLICT_GRACE_MS = 120_000;
 
 const NESTPICK_UNSTACK_FILENAME = 'Report_FullNestpickUnstack.csv';
 
@@ -142,6 +158,11 @@ const GRUNDNER_WATCHER_NAME = 'watcher:grundner';
 const GRUNDNER_WATCHER_LABEL = 'Grundner Stock Poller';
 let grundnerTimer: NodeJS.Timeout | null = null;
 let grundnerLastHash: string | null = null;
+
+type RefreshChannel = 'grundner' | 'allocated-material';
+const refreshTimers = new Map<RefreshChannel, NodeJS.Timeout>();
+let notificationClient: PoolClient | null = null;
+let notificationRestartTimer: NodeJS.Timeout | null = null;
 
 const STAGE_SANITY_WATCHER_NAME = 'watcher:stage-sanity';
 const STAGE_SANITY_WATCHER_LABEL = 'Stage Sanity';
@@ -228,6 +249,83 @@ async function waitForFileRelease(path: string, attempts = 10, intervalMs = 200)
     }
   }
   return false;
+}
+
+function scheduleRendererRefresh(channel: RefreshChannel) {
+  if (refreshTimers.has(channel)) return;
+  const timer = setTimeout(() => {
+    refreshTimers.delete(channel);
+    postMessageToMain({ type: 'dbNotify', channel });
+  }, 250);
+  if (typeof timer.unref === 'function') timer.unref();
+  refreshTimers.set(channel, timer);
+}
+
+async function startDbNotificationListener() {
+  try {
+    await withClient(async () => {
+      /* Ensure pool is ready */
+    });
+    const pool = getPool();
+    if (!pool) {
+      throw new Error('watchers: database pool unavailable for LISTEN');
+    }
+    const client = await pool.connect();
+    notificationClient = client;
+    await client.query('SET search_path TO public');
+    await client.query('LISTEN grundner_changed');
+    await client.query('LISTEN allocated_material_changed');
+    client.on('notification', (msg) => {
+      if (!msg.channel) return;
+      if (msg.channel === 'grundner_changed') {
+        scheduleRendererRefresh('grundner');
+      } else if (msg.channel === 'allocated_material_changed') {
+        scheduleRendererRefresh('allocated-material');
+      }
+    });
+    client.on('error', (err) => {
+      recordWorkerError('watchers:db-listener', err);
+      try {
+        client.removeAllListeners();
+        client.release();
+      } catch {
+        /* noop */
+      }
+      notificationClient = null;
+      if (!notificationRestartTimer) {
+        notificationRestartTimer = setTimeout(() => {
+          notificationRestartTimer = null;
+          void startDbNotificationListener();
+        }, 1000);
+        if (typeof notificationRestartTimer.unref === 'function') {
+          notificationRestartTimer.unref();
+        }
+      }
+    });
+    client.on('end', () => {
+      notificationClient = null;
+      if (!notificationRestartTimer && !shuttingDown) {
+        notificationRestartTimer = setTimeout(() => {
+          notificationRestartTimer = null;
+          void startDbNotificationListener();
+        }, 1000);
+        if (typeof notificationRestartTimer.unref === 'function') {
+          notificationRestartTimer.unref();
+        }
+      }
+    });
+  } catch (err) {
+    recordWorkerError('watchers:db-listener', err);
+    if (!notificationRestartTimer && !shuttingDown) {
+      notificationRestartTimer = setTimeout(() => {
+        notificationRestartTimer = null;
+        void startDbNotificationListener();
+      }, 1000);
+      if (typeof notificationRestartTimer.unref === 'function') {
+        notificationRestartTimer.unref();
+      }
+    }
+  }
 }
 
 async function hashFile(path: string) {
@@ -904,6 +1002,34 @@ async function handleAutoPacCsv(path: string) {
 
       if (lifecycle.ok && to === 'CNC_FINISH') {
         await forwardToNestpick(base, job, machineForJob, machines);
+        // Only emit CNC completion message if machine doesn't have Nestpick capability
+        if (!machineForJob.nestpickEnabled) {
+          const fallbackNc = base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
+          emitAppMessage(
+            'cnc.completion',
+            {
+              ncFile: displayNcName(job.ncfile, fallbackNc),
+              folder: job.folder ?? '',
+              machineName: machineForJob.name ?? (machineId != null ? `Machine ${machineId}` : 'Unknown machine')
+            },
+            'autopac'
+          );
+
+          // Archive completed job files for non-Nestpick machines
+          logger.info({ jobKey: job.key, status: 'CNC_FINISH', folder: job.folder }, 'watcher: archiving completed job');
+          const arch = await archiveCompletedJob({
+            jobKey: job.key,
+            jobFolder: job.folder,
+            ncfile: job.ncfile,
+            status: 'CNC_FINISH',
+            sourceFiles: []
+          });
+          if (!arch.ok) {
+            logger.warn({ jobKey: job.key, error: arch.error }, 'watcher: archive failed');
+          } else {
+            logger.info({ jobKey: job.key, archiveDir: arch.archivedPath }, 'watcher: archive complete');
+          }
+        }
       }
       if (lifecycle.ok) {
         processedAny = true;
@@ -965,9 +1091,43 @@ async function handleNestpickProcessed(machine: Machine, path: string) {
       if (lifecycle.ok) {
         await appendJobEvent(job.key, 'nestpick:complete', { file: path }, machine.machineId);
         processedAny = true;
+
+        // Archive completed job files
+        logger.info({ jobKey: job.key, status: 'NESTPICK_COMPLETE', folder: job.folder }, 'watcher: archiving completed job');
+        const arch = await archiveCompletedJob({
+          jobKey: job.key,
+          jobFolder: job.folder,
+          ncfile: job.ncfile,
+          status: 'NESTPICK_COMPLETE',
+          sourceFiles: [] // Files will be identified from the job folder
+        });
+        if (!arch.ok) {
+          logger.warn({ jobKey: job.key, error: arch.error }, 'watcher: archive failed');
+        } else {
+          logger.info({ jobKey: job.key, archiveDir: arch.archivedPath }, 'watcher: archive complete');
+        }
+
+        // Emit Nestpick completion message for machines with Nestpick capability
+        if (machine.nestpickEnabled) {
+          const fallbackNc = base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
+          emitAppMessage(
+            'nestpick.completion',
+            {
+              ncFile: displayNcName(job.ncfile, fallbackNc),
+              folder: job.folder ?? '',
+              machineName: machine.name ?? (machine.machineId != null ? `Machine ${machine.machineId}` : 'Unknown machine')
+            },
+            'nestpick-processed'
+          );
+        }
       }
     }
-    await moveToArchive(path, join(machine.nestpickFolder, 'archive'));
+    // Check if file still exists before trying to move it (may have been moved by another process)
+    if (await fileExists(path)) {
+      await moveToArchive(path, join(machine.nestpickFolder, 'archive'));
+    } else {
+      logger.warn({ file: path }, 'watcher: processed file already moved/deleted, skipping archive');
+    }
     recordWatcherEvent(nestpickProcessedWatcherName(machine), {
       label: nestpickProcessedWatcherLabel(machine),
       message: `Processed ${basename(path)}`
@@ -1048,6 +1208,36 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
         if (!lifecycle.ok) {
           const previous = 'previousStatus' in lifecycle ? lifecycle.previousStatus : undefined;
           logger.warn({ jobKey: job.key, base, previousStatus: previous }, 'watcher: unstack lifecycle not progressed');
+        } else {
+          // Archive completed job files
+          logger.info({ jobKey: job.key, status: 'NESTPICK_COMPLETE', folder: job.folder }, 'watcher: archiving completed job');
+          const arch = await archiveCompletedJob({
+            jobKey: job.key,
+            jobFolder: job.folder,
+            ncfile: job.ncfile,
+            status: 'NESTPICK_COMPLETE',
+            sourceFiles: []
+          });
+          if (!arch.ok) {
+            logger.warn({ jobKey: job.key, error: arch.error }, 'watcher: archive failed');
+          } else {
+            logger.info({ jobKey: job.key, archiveDir: arch.archivedPath }, 'watcher: archive complete');
+          }
+
+          // Emit Nestpick completion message for machines with Nestpick capability
+          if (machine.nestpickEnabled) {
+            const fallbackNc = base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
+            emitAppMessage(
+              'nestpick.completion',
+              {
+                ncFile: displayNcName(job.ncfile, fallbackNc),
+                folder: job.folder ?? '',
+                machineName: machine.name ?? (machine.machineId != null ? `Machine ${machine.machineId}` : 'Unknown machine'),
+                pallet: sourcePlaceValue
+              },
+              'nestpick-unstack'
+            );
+          }
         }
         processedAny = true;
       } else {
@@ -1055,8 +1245,13 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
       }
     }
     const archiveDir = join(machine.nestpickFolder, 'archive');
-    await moveToArchive(path, archiveDir);
-    logger.info({ file: path, archiveDir, processedAny }, 'watcher: unstack archived');
+    // Check if file still exists before trying to move it (may have been moved by another process)
+    if (await fileExists(path)) {
+      await moveToArchive(path, archiveDir);
+      logger.info({ file: path, archiveDir, processedAny }, 'watcher: unstack archived');
+    } else {
+      logger.warn({ file: path, archiveDir }, 'watcher: unstack file already moved/deleted, skipping archive');
+    }
 
     if (unmatched.length) {
       postMessageToMain({
@@ -1302,6 +1497,25 @@ async function shutdown(reason?: string) {
   if (grundnerTimer) {
     clearInterval(grundnerTimer);
     grundnerTimer = null;
+  }
+  if (notificationRestartTimer) {
+    clearTimeout(notificationRestartTimer);
+    notificationRestartTimer = null;
+  }
+  if (notificationClient) {
+    try {
+      await notificationClient.query('UNLISTEN grundner_changed');
+      await notificationClient.query('UNLISTEN allocated_material_changed');
+    } catch (err) {
+      logger.warn({ err }, 'watchersWorker: failed to unlisten db notifications');
+    } finally {
+      try {
+        notificationClient.release();
+      } catch (err) {
+        logger.warn({ err }, 'watchersWorker: failed to release db listener');
+      }
+      notificationClient = null;
+    }
   }
   const watchers = Array.from(fsWatchers);
   for (const watcher of watchers) {
@@ -1720,6 +1934,59 @@ function normalizeNumber(value: string | undefined): number | null {
   return Number.isFinite(n) ? Math.trunc(n) : null;
 }
 
+function displayNcName(value: string | null | undefined, fallback: string): string {
+  const base = value && value.trim() ? value.trim() : fallback;
+  return base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
+}
+
+function normalizeNcName(value: string): string {
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.endsWith('.nc') ? trimmed : `${trimmed}.nc`;
+}
+
+function markPendingGrundnerRelease(ncName: string) {
+  const normalized = normalizeNcName(ncName);
+  pendingGrundnerReleases.set(normalized, Date.now() + PENDING_GRUNDNER_RELEASE_TTL_MS);
+}
+
+function markPendingGrundnerReleaseMany(ncNames: Iterable<string>) {
+  for (const name of ncNames) {
+    if (!name) continue;
+    markPendingGrundnerRelease(name);
+  }
+}
+
+function unmarkPendingGrundnerReleaseMany(ncNames: Iterable<string>) {
+  for (const name of ncNames) {
+    if (!name) continue;
+    pendingGrundnerReleases.delete(normalizeNcName(name));
+  }
+}
+
+function cleanupPendingGrundnerReleases(now = Date.now()) {
+  for (const [name, expiry] of pendingGrundnerReleases.entries()) {
+    if (expiry <= now) pendingGrundnerReleases.delete(name);
+  }
+}
+
+function isPendingGrundnerRelease(ncName: string | null | undefined, now = Date.now()): boolean {
+  if (!ncName) return false;
+  const normalized = normalizeNcName(ncName);
+  const expiry = pendingGrundnerReleases.get(normalized);
+  if (expiry == null) return false;
+  if (expiry <= now) {
+    pendingGrundnerReleases.delete(normalized);
+    return false;
+  }
+  return true;
+}
+
+function cleanupPendingGrundnerConflicts(now = Date.now()) {
+  for (const [material, expiry] of pendingGrundnerConflicts.entries()) {
+    if (expiry <= now) pendingGrundnerConflicts.delete(material);
+  }
+}
+
 function indexOfHeader(header: string[], candidates: string[]): number {
   const lower = header.map((h) => stripCsvCell(h).toLowerCase());
   for (const cand of candidates) {
@@ -1825,13 +2092,13 @@ async function stageSanityPollOnce() {
     if (!staged.length) return;
 
     // Group by machineId
-    const byMachine = new Map<number, { key: string; nc: string }[]>();
+    const byMachine = new Map<number, { key: string; nc: string; ncfile: string | null }[]>();
     for (const row of staged) {
       const mid = row.machine_id!;
       const ncBase = (row.ncfile ?? '').toLowerCase().replace(/\.nc$/i, '');
       if (!ncBase) continue;
       const list = byMachine.get(mid) ?? [];
-      list.push({ key: row.key, nc: ncBase });
+      list.push({ key: row.key, nc: ncBase, ncfile: row.ncfile });
       byMachine.set(mid, list);
     }
     if (!byMachine.size) return;
@@ -1851,6 +2118,7 @@ async function stageSanityPollOnce() {
       }
       // Missing items
       const missing = items.filter((it) => !present.has(it.nc));
+      const ncNamesToRelease: string[] = [];
       for (const miss of missing) {
         // Revert to PENDING if still STAGED
         const res = await withClient((c) =>
@@ -1861,6 +2129,17 @@ async function stageSanityPollOnce() {
         );
         if ((res.rowCount ?? 0) > 0) {
           reverted += 1;
+          const name = (miss.ncfile && miss.ncfile.toLowerCase().endsWith('.nc')) ? miss.ncfile : `${miss.nc}.nc`;
+          ncNamesToRelease.push(name);
+          const folder = miss.key.includes('/') ? miss.key.substring(0, miss.key.lastIndexOf('/')) : '';
+          emitAppMessage(
+            'job.ready.missing',
+            {
+              ncFile: name,
+              folder
+            },
+            'stage-sanity'
+          );
           try {
             await appendJobEvent(
               miss.key,
@@ -1872,6 +2151,15 @@ async function stageSanityPollOnce() {
           } catch {
             /* ignore appendJobEvent failure when reverting staged job */
           }
+        }
+      }
+      if (ncNamesToRelease.length) {
+        markPendingGrundnerReleaseMany(ncNamesToRelease);
+        try {
+          await appendProductionListDel(machineId, ncNamesToRelease);
+        } catch (e) {
+          unmarkPendingGrundnerReleaseMany(ncNamesToRelease);
+          recordWorkerError(STAGE_SANITY_WATCHER_NAME, e, { machineId, label: STAGE_SANITY_WATCHER_LABEL });
         }
       }
     }
@@ -2005,6 +2293,7 @@ function startSourceSanityPoller() {
 
 async function grundnerPollOnce(folder: string) {
   try {
+    cleanupPendingGrundnerReleases();
     const reqPath = join(folder, 'stock_request.csv');
     const stockPath = join(folder, 'stock.csv');
 
@@ -2044,10 +2333,159 @@ async function grundnerPollOnce(folder: string) {
     grundnerLastHash = hash;
     const items = parseGrundnerCsv(raw);
     if (!items.length) return;
-    const { inserted, updated } = await upsertGrundnerInventory(items);
+    const keyFor = (row: { typeData: number | null; customerId: string | null }) =>
+      `${row.typeData ?? 'null'}::${row.customerId ?? 'null'}`;
+    const uniqueKeys = new Map<string, { typeData: number | null; customerId: string | null }>();
+    const itemsByKey = new Map<string, GrundnerCsvRow>();
+    for (const item of items) {
+      const key = keyFor(item);
+      uniqueKeys.set(key, { typeData: item.typeData ?? null, customerId: item.customerId ?? null });
+      itemsByKey.set(key, item);
+    }
+    const preReserved = new Map<string, number | null>();
+    if (uniqueKeys.size) {
+      const conditions: string[] = [];
+      const params: (number | string | null)[] = [];
+      let paramIndex = 1;
+      for (const value of uniqueKeys.values()) {
+        conditions.push(
+          `(public.grundner.type_data IS NOT DISTINCT FROM $${paramIndex}::int AND public.grundner.customer_id IS NOT DISTINCT FROM $${paramIndex + 1}::text)`
+        );
+        params.push(value.typeData, value.customerId);
+        paramIndex += 2;
+      }
+      try {
+        const previousRows = await withClient((c) =>
+          c
+            .query<{ type_data: number | null; customer_id: string | null; reserved_stock: number | null }>(
+              `SELECT type_data, customer_id, reserved_stock FROM public.grundner WHERE ${conditions.join(' OR ')}`,
+              params
+            )
+            .then((r) => r.rows)
+        );
+        for (const row of previousRows) {
+          preReserved.set(keyFor({ typeData: row.type_data, customerId: row.customer_id }), row.reserved_stock);
+        }
+      } catch (err) {
+        recordWorkerError('grundner:pre-reserved', err);
+      }
+    }
+    const result = await upsertGrundnerInventory(items);
+    if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {
+      scheduleRendererRefresh('grundner');
+      scheduleRendererRefresh('allocated-material');
+    }
+
+    if (result.changed.length) {
+      const changedKeys = new Set(result.changed.map((row) => keyFor(row)));
+      for (const item of items) {
+        const key = keyFor(item);
+        if (!changedKeys.has(key)) continue;
+        const oldReserved = preReserved.has(key) ? preReserved.get(key) : null;
+        const newReserved = item.reservedStock;
+        const materialLabel = item.customerId?.trim() || (item.typeData != null ? String(item.typeData) : 'Unknown');
+        emitAppMessage(
+          'grundner.stock.updated',
+          {
+            material: materialLabel,
+            oldReserved: oldReserved != null ? oldReserved : 'N/A',
+            newReserved: newReserved != null ? newReserved : 'N/A'
+          },
+          'grundner-poller'
+        );
+      }
+    }
+
+    if (result.changed.length) {
+      const now = Date.now();
+      cleanupPendingGrundnerReleases(now);
+      cleanupPendingGrundnerConflicts(now);
+      try {
+        const conflicts = await findGrundnerAllocationConflicts(result.changed);
+        if (conflicts.length) {
+          const byMaterial = new Map<string, { count: number; reserved: number | null }>();
+          const materialSet = new Set<string>();
+          for (const row of conflicts) {
+            const normalizedNc = row.ncfile ? normalizeNcName(row.ncfile) : null;
+            if (normalizedNc && isPendingGrundnerRelease(normalizedNc, now)) {
+              continue;
+            }
+            const label = row.material?.trim() || (row.typeData != null ? String(row.typeData) : 'Unknown');
+            materialSet.add(label);
+            const key = keyFor({ typeData: row.typeData, customerId: row.customerId });
+            const reservedValue = itemsByKey.get(key)?.reservedStock ?? null;
+            const existing = byMaterial.get(label);
+            if (existing) {
+              existing.count += 1;
+              if (existing.reserved == null && reservedValue != null) {
+                existing.reserved = reservedValue;
+              }
+            } else {
+              byMaterial.set(label, { count: 1, reserved: reservedValue });
+            }
+          }
+          if (!byMaterial.size) {
+            for (const label of Array.from(pendingGrundnerConflicts.keys())) {
+              if (!materialSet.has(label)) pendingGrundnerConflicts.delete(label);
+            }
+          } else {
+            const effectiveConflicts: Array<{ material: string; detail: { count: number; reserved: number | null } }> = [];
+            for (const [materialLabel, detail] of byMaterial) {
+              const expiry = pendingGrundnerConflicts.get(materialLabel);
+              if (!expiry) {
+                pendingGrundnerConflicts.set(materialLabel, now + GRUNDNER_CONFLICT_GRACE_MS);
+                continue;
+              }
+              if (expiry > now) {
+                continue;
+              }
+              pendingGrundnerConflicts.delete(materialLabel);
+              effectiveConflicts.push({ material: materialLabel, detail });
+            }
+
+            for (const label of Array.from(pendingGrundnerConflicts.keys())) {
+              if (!materialSet.has(label)) pendingGrundnerConflicts.delete(label);
+            }
+
+            if (effectiveConflicts.length) {
+              for (const { material, detail } of effectiveConflicts) {
+                emitAppMessage(
+                  'grundner.conflict',
+                  {
+                    material,
+                    jobCount: detail.count,
+                    reserved: detail.reserved != null ? detail.reserved : 'N/A'
+                  },
+                  'grundner-poller'
+                );
+              }
+              const totalConflicts = effectiveConflicts.reduce((acc, entry) => acc + entry.detail.count, 0);
+              const summary = `Grundner stock updated for ${totalConflicts} allocated material(s)`;
+              const conflictDetails = effectiveConflicts.map(({ material, detail }) => ({ material, detail }));
+              postMessageToMain({
+                type: 'appAlert',
+                category: 'grundner',
+                summary,
+                details: { conflicts: conflictDetails }
+              });
+              recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
+                label: GRUNDNER_WATCHER_LABEL,
+                message: summary,
+                context: { conflicts: conflictDetails }
+              });
+            }
+          }
+        } else {
+          pendingGrundnerConflicts.clear();
+        }
+      } catch (err) {
+        recordWorkerError('grundner:conflict-check', err);
+      }
+    }
+
     recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
       label: GRUNDNER_WATCHER_LABEL,
-      message: `Synced Grundner stock (inserted ${inserted}, updated ${updated})`
+      message: `Synced Grundner stock (inserted ${result.inserted}, updated ${result.updated}, deleted ${result.deleted})`
     });
   } catch (err) {
     recordWatcherError(GRUNDNER_WATCHER_NAME, err, { label: GRUNDNER_WATCHER_LABEL });
@@ -2085,7 +2523,34 @@ function startJobsIngestPolling() {
   async function runIngest() {
     if (shuttingDown) return;
     try {
-      await ingestProcessedJobsRoot();
+      const result = await ingestProcessedJobsRoot();
+      for (const job of result.addedJobs ?? []) {
+        emitAppMessage('job.detected', { ncFile: job.ncFile, folder: job.folder }, 'jobs-ingest');
+      }
+      for (const job of result.updatedJobs ?? []) {
+        emitAppMessage('job.updated', { ncFile: job.ncFile, folder: job.folder }, 'jobs-ingest');
+      }
+      const pruned = result.prunedJobs ?? [];
+      if (pruned.length) {
+        const lockedNames = new Set<string>();
+        for (const job of pruned) {
+          emitAppMessage('job.removed', { ncFile: job.ncFile, folder: job.folder }, 'jobs-ingest');
+          // Only collect locked jobs for unlock trigger
+          if (job.isLocked) {
+            lockedNames.add(job.ncFile);
+          }
+        }
+        const names = Array.from(lockedNames);
+        if (names.length) {
+          markPendingGrundnerReleaseMany(names);
+          try {
+            await appendProductionListDel(0, names);
+          } catch (err) {
+            unmarkPendingGrundnerReleaseMany(names);
+            recordWorkerError('jobs-ingest', err, { count: names.length });
+          }
+        }
+      }
     } catch (err) {
       logger.error({ err }, 'Jobs ingest poll failed');
     }
@@ -2109,6 +2574,7 @@ function startJobsIngestPolling() {
 async function initWatchers() {
   logger.info('watchers: waiting for database readiness before starting');
   await waitForDbReady();
+  await startDbNotificationListener();
   const cfg = loadConfig();
   if (cfg.paths.autoPacCsvDir) {
     setupAutoPacWatcher(cfg.paths.autoPacCsvDir);

@@ -102,7 +102,6 @@ export function MachinesPage() {
 
   return (
     <div className="space-y-4 w-full">
-      <h1 className="text-xl font-semibold">Machines</h1>
       <div className="border rounded bg-table text-[var(--table-text)]">
         <Table>
           <TableHeader>

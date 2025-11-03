@@ -1,7 +1,8 @@
-import { existsSync, promises as fsp } from 'fs';
+import { existsSync, promises as fsp, readdirSync } from 'fs';
 import { basename, join, resolve, sep } from 'path';
 import { loadConfig } from './config';
 import { withClient } from './db';
+import { getArchivePath } from './archive';
 
 function toRelDirFromKey(key: string): string {
   const idx = key.lastIndexOf('/');
@@ -18,10 +19,10 @@ export async function rerunJob(key: string): Promise<{ ok: true; created: string
   if (!root) return { ok: false, error: 'processedJobsRoot not configured' };
   if (!existsSync(root)) return { ok: false, error: 'processedJobsRoot does not exist' };
 
-  // Load current qty and base
+  // Load current job row (folder, ncfile)
   const row = await withClient((c) => c
-    .query<{ key: string; folder: string | null; ncfile: string | null; qty: number | null }>(
-      'SELECT key, folder, ncfile, qty FROM public.jobs WHERE key = $1', [key]
+    .query<{ key: string; folder: string | null; ncfile: string | null }>(
+      'SELECT key, folder, ncfile FROM public.jobs WHERE key = $1', [key]
     )
     .then((r) => r.rows[0])
   );
@@ -30,18 +31,28 @@ export async function rerunJob(key: string): Promise<{ ok: true; created: string
   if (!base) return { ok: false, error: 'Job ncfile missing' };
   const origBase = originalBase(base);
 
-  // Determine original row to retrieve qty
   const relDir = toRelDirFromKey(key);
-  const origKey = (relDir ? `${relDir}/${origBase}` : origBase).slice(0, 100);
-  const orig = await withClient((c) => c
-    .query<{ key: string; qty: number | null }>('SELECT key, qty FROM public.jobs WHERE key = $1', [origKey])
-    .then((r) => r.rows[0])
-  );
-  const nextQty = (orig?.qty ?? 0) + 1;
-  const prefix = `run${nextQty}_`;
-
-  // Source folder
+  // Determine next run number by scanning the source directory for existing runN_ copies
   const srcDir = relDir ? resolve(root, relDir.split('/').join(sep)) : root;
+  let nextRun = 2; // Start at run2 for the second run
+  try {
+    const entries = readdirSync(srcDir, { withFileTypes: true });
+    const pattern = new RegExp(`^run(\\d+)_${origBase.replace(/[.*+?^${}()|[\\]\\]/g, r => r)}(?:\\.[A-Za-z0-9]+)?$`, 'i');
+    let maxRun = 1;
+    for (const e of entries) {
+      if (!e.isFile()) continue;
+      const m = e.name.match(pattern);
+      if (m) {
+        const n = Number(m[1]);
+        if (!Number.isNaN(n) && n > maxRun) maxRun = n;
+      }
+    }
+    nextRun = Math.max(2, maxRun + 1);
+  } catch {
+    // ignore and use default nextRun
+  }
+  const prefix = `run${nextRun}_`;
+
   const created: string[] = [];
 
   const targets = [
@@ -50,23 +61,48 @@ export async function rerunJob(key: string): Promise<{ ok: true; created: string
     `${origBase}.pts`,
     `${origBase}.bmp`,
     `${origBase}.jpg`,
+    `${origBase}.jpeg`,
     `${origBase}.csv`
   ];
 
+  // First, try to find files in the processed directory
+  const srcFiles = new Map<string, string>();
   for (const name of targets) {
     const src = join(srcDir, name);
-    if (!existsSync(src)) continue; // Optional
+    if (existsSync(src)) {
+      srcFiles.set(name, src);
+    }
+  }
+
+  // If files are missing, check the archive
+  if (srcFiles.size < targets.length && row.folder) {
+    const archivePath = getArchivePath(row.folder, cfg);
+    if (archivePath && existsSync(archivePath)) {
+      // Check archive directory for missing files
+      for (const name of targets) {
+        if (!srcFiles.has(name)) {
+          const archiveSrc = join(archivePath, name);
+          if (existsSync(archiveSrc)) {
+            srcFiles.set(name, archiveSrc);
+          }
+        }
+      }
+    }
+  }
+
+  // Copy found files with the new run prefix
+  for (const [name, srcPath] of srcFiles) {
     const dest = join(srcDir, `${prefix}${name}`);
     try {
-      await fsp.copyFile(src, dest);
+      await fsp.copyFile(srcPath, dest);
       created.push(dest);
     } catch (err) {
-      return { ok: false, error: `Copy failed for ${basename(src)}: ${(err as Error).message}` };
+      return { ok: false, error: `Copy failed for ${basename(srcPath)}: ${(err as Error).message}` };
     }
   }
 
   if (created.length === 0) {
-    return { ok: false, error: 'No source files found to copy' };
+    return { ok: false, error: 'No source files found to copy (checked processed and archive)' };
   }
 
   return { ok: true, created };

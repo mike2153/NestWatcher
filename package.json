@@ -1,13 +1,15 @@
 {
     "name":  "woodtron-electron",
     "version":  "0.1.0",
+    "author": "Michael Beasley",
     "private":  true,
-    "description":  "Electron + TypeScript + React + shadcn/ui desktop app",
+    "main": "packages/main/dist/main.js",
+    "description":  "JobMan By Woodtron",
     "license":  "UNLICENSED",
     "packageManager":  "pnpm@9.0.0",
     "engines":  {
-                    "node":  "\u003e=20",
-                    "pnpm":  "\u003e=9"
+                    "node":  ">=20",
+                    "pnpm":  ">=9"
                 },
     "workspaces":  [
                        "packages/*"
@@ -17,8 +19,8 @@
                     "dev:renderer":  "pnpm -C packages/renderer dev",
                     "dev:main":  "esbuild packages/main/src/main.ts packages/main/src/workers/watchersWorker.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --external:fsevents --outdir=packages/main/dist --sourcemap --watch",
                     "dev:preload":  "esbuild packages/preload/src/index.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --outfile=packages/preload/dist/index.js --sourcemap --watch",
-                    "dev:electron":  "wait-on http-get://localhost:5180 packages/preload/dist/index.js packages/main/dist/main.js packages/main/dist/workers/watchersWorker.js \u0026\u0026 cross-env VITE_DEV_SERVER_URL=http://localhost:5180 pnpm -C packages/main exec electron dist/main.js",
-                    "build":  "pnpm build:preload \u0026\u0026 pnpm build:main \u0026\u0026 pnpm -C packages/renderer build",
+                    "dev:electron":  "wait-on http-get://localhost:5180 packages/preload/dist/index.js packages/main/dist/main.js packages/main/dist/workers/watchersWorker.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5180 pnpm -C packages/main exec electron dist/main.js",
+                    "build":  "pnpm build:preload && pnpm build:main && pnpm -C packages/renderer build",
                     "build:main":  "esbuild packages/main/src/main.ts packages/main/src/workers/watchersWorker.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --external:fsevents --outdir=packages/main/dist --sourcemap",
                     "build:preload":  "esbuild packages/preload/src/index.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --outfile=packages/preload/dist/index.js --sourcemap",
                     "lint":  "eslint \"packages/**/*.{ts,tsx}\"",
@@ -35,6 +37,7 @@
                             "@vitest/coverage-v8":  "^2.1.1",
                             "concurrently":  "^9.0.1",
                             "cross-env":  "^7.0.3",
+                            "electron": "^31.0.0",
                             "esbuild":  "^0.21.5",
                             "eslint":  "^8.57.0",
                             "eslint-plugin-react":  "^7.35.0",

@@ -1,8 +1,9 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { dialog } from 'electron';
+import { BrowserWindow, dialog } from 'electron';
 import { Worker } from 'worker_threads';
 import { logger } from '../logger';
+import { pushAppMessage } from './messages';
 import {
   registerWatcher,
   watcherReady,
@@ -91,6 +92,20 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
         ...(message.context ?? {}),
         label: message.label ?? message.name
       };
+      const offlinePath =
+        (message.context as { folder?: string; dir?: string; path?: string } | undefined)?.folder ??
+        (message.context as { dir?: string; path?: string } | undefined)?.dir ??
+        (message.context as { path?: string } | undefined)?.path;
+      if (offlinePath) {
+        pushAppMessage(
+          'watcher.offline',
+          {
+            watcherName: message.label ?? message.name,
+            path: offlinePath
+          },
+          { source: 'watchers' }
+        );
+      }
       recordWatcherError(message.name, toError(message.error), context);
       break;
     }
@@ -108,6 +123,41 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
     case 'machineHealthClear':
       clearMachineHealthIssue(message.payload.machineId, message.payload.code);
       break;
+    case 'dbNotify': {
+      const channelName =
+        message.channel === 'grundner' ? 'grundner:refresh' : 'allocatedMaterial:refresh';
+      for (const win of BrowserWindow.getAllWindows()) {
+        try {
+          if (!win.isDestroyed()) {
+            win.webContents.send(channelName);
+          }
+        } catch (err) {
+          logger.warn({ err, channel: channelName }, 'watchers: failed to broadcast dbNotify');
+        }
+      }
+      break;
+    }
+    case 'appAlert': {
+      const error = new Error(message.summary);
+      recordWorkerError(`app-alert:${message.category}`, error, message.details);
+      break;
+    }
+    case 'appMessage': {
+      const entry = pushAppMessage(message.event, message.params, {
+        source: message.source,
+        timestamp: message.timestamp
+      });
+      for (const win of BrowserWindow.getAllWindows()) {
+        try {
+          if (!win.isDestroyed()) {
+            win.webContents.send('messages:append', entry);
+          }
+        } catch (err) {
+          logger.warn({ err }, 'watchers: failed to push app message to renderer');
+        }
+      }
+      break;
+    }
     default:
       logger.warn({ message }, 'watchers: received unknown worker message');
   }
@@ -202,4 +252,64 @@ export async function shutdownWatchers(): Promise<void> {
       current.terminate().then(finish, finish);
     }
   });
+}
+
+export async function restartWatchers(): Promise<{ ok: boolean; error?: string }> {
+  try {
+    logger.info('watchers: manual restart requested');
+
+    // Gracefully shutdown current worker if running
+    const current = worker;
+    if (current) {
+      worker = null;
+
+      await new Promise<void>((resolve) => {
+        let finished = false;
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          resolve();
+        };
+
+        const timeout = setTimeout(() => {
+          logger.warn('watchers: restart shutdown timeout, forcing termination');
+          current.terminate().then(finish, finish);
+        }, 3_000);
+
+        current.once('exit', () => {
+          clearTimeout(timeout);
+          finish();
+        });
+
+        try {
+          const message: MainToWatcherMessage = { type: 'shutdown', reason: 'manual-restart' };
+          current.postMessage(message);
+        } catch (err) {
+          logger.warn({ err }, 'watchers: error during restart shutdown');
+          clearTimeout(timeout);
+          current.terminate().then(finish, finish);
+        }
+      });
+    }
+
+    // Clear restart timer if any
+    if (restartTimer) {
+      clearTimeout(restartTimer);
+      restartTimer = null;
+    }
+
+    // Small delay to ensure clean shutdown
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Spawn new worker
+    spawnWorker();
+
+    logger.info('watchers: manual restart completed');
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    logger.error({ err }, 'watchers: manual restart failed');
+    recordWorkerError('watchers-restart', err);
+    return { ok: false, error: message };
+  }
 }

@@ -10,7 +10,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
-import psycopg2
+# Support either psycopg2 (v2) or psycopg (v3)
+try:
+    import psycopg2 as _psycopg
+except Exception:
+    try:
+        import psycopg as _psycopg  # type: ignore
+    except Exception as e:
+        raise SystemExit(
+            "Missing database driver. Install one of:\n"
+            "  pip install psycopg2-binary\n"
+            "  pip install \"psycopg[binary]\""
+        ) from e
 
 
 @dataclass
@@ -217,7 +228,7 @@ def load_settings(repo_root: Path) -> Tuple[DbConfig, Settings]:
 
 
 def connect_db(cfg: DbConfig):
-    return psycopg2.connect(
+    return _psycopg.connect(
         host=cfg.host,
         port=cfg.port,
         dbname=cfg.database,
@@ -346,6 +357,29 @@ def find_file_by_name(root: Path, target_name: str) -> Optional[Path]:
     return None
 
 
+def pick_random_fs_job(processed_root: Path) -> Optional[Job]:
+    """Scan the processed_root for any .nc file and construct a Job for it.
+
+    Returns a Job whose folder is relative to processed_root (if applicable)
+    and whose ncfile is the discovered filename.
+    """
+    nc_files: list[Path] = []
+    for base, _dirs, files in os.walk(processed_root):
+        for name in files:
+            if name.lower().endswith(".nc"):
+                nc_files.append(Path(base) / name)
+    if not nc_files:
+        return None
+    choice = random.choice(nc_files)
+    try:
+        rel = choice.relative_to(processed_root)
+        folder = str(rel.parent) if str(rel.parent) != "." else ""
+    except Exception:
+        folder = str(choice.parent)
+    key = f"FS/{folder}/{choice.name}" if folder else f"FS/{choice.name}"
+    return Job(key=key, folder=folder, ncfile=choice.name)
+
+
 def find_source_root(processed_root: Path, job: Job) -> Path:
     # Follow the spirit of worklist.ts: if job.folder is absolute and exists → use it;
     # if it is relative and exists under processed_root → use it; otherwise fall back to processed_root.
@@ -363,15 +397,12 @@ def find_source_root(processed_root: Path, job: Job) -> Path:
 
 
 def ensure_unique_dir(base_dir: Path) -> Path:
-    if not base_dir.exists():
-        return base_dir
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    candidate = base_dir.parent / f"{base_dir.name}_{ts}"
-    suffix = 1
-    while candidate.exists():
-        candidate = base_dir.parent / f"{base_dir.name}_{ts}_{suffix}"
-        suffix += 1
-    return candidate
+    """Deprecated behavior retained for compatibility.
+
+    The simulator now stages directly into the base directory without adding
+    timestamps. This function simply returns the base path unchanged.
+    """
+    return base_dir
 
 
 def stage_job(processed_root: Path, job: Job, machine: Machine, dry_run=False) -> Optional[Path]:
@@ -382,7 +413,8 @@ def stage_job(processed_root: Path, job: Job, machine: Machine, dry_run=False) -
     source_root = find_source_root(processed_root, job)
     leaf = derive_job_leaf(job.folder, job.ncfile, job.key)
     dest_base = Path(machine.ap_jobfolder) / leaf
-    dest = ensure_unique_dir(dest_base)
+    # No timestamped folders: if the folder exists, reuse it; otherwise create it.
+    dest = dest_base
 
     if dry_run:
         print(f"[stage] Would stage into: {dest}")
@@ -453,6 +485,36 @@ def atomic_write(path: Path, data: str):
     os.replace(tmp, path)
 
 
+def remove_staged_job_files(dest_root: Path, base_stem: str):
+    """Remove staged files for a given job base from the destination folder.
+
+    Deletes files matching the job base (e.g., base.*, images starting with base)
+    recursively under dest_root. Leaves unrelated files intact. Prunes any empty
+    directories created during staging.
+    """
+    allowed_exts = {".nc", ".csv", ".lpt", ".pts", ".bmp", ".jpg", ".jpeg", ".txt"}
+    base_lower = base_stem.lower()
+    if not dest_root or not dest_root.exists():
+        return
+    # Delete matching files
+    for path in dest_root.rglob("*"):
+        try:
+            if path.is_file():
+                name = path.name.lower()
+                stem, ext = os.path.splitext(name)
+                if (name.startswith(base_lower) or stem == base_lower) and ext in allowed_exts:
+                    path.unlink(missing_ok=True)
+        except Exception:
+            pass
+    # Prune empty directories bottom-up
+    for d in sorted([p for p in dest_root.rglob("*") if p.is_dir()], key=lambda p: len(str(p)), reverse=True):
+        try:
+            if not any(d.iterdir()):
+                d.rmdir()
+        except Exception:
+            pass
+
+
 def write_autopac_csv(auto_pac_dir: Path, machine_token: str, kind: str, bases: list[str], dry_run=False) -> Path:
     # kind ∈ {load_finish, label_finish, cnc_finish}
     filename = f"{kind}{machine_token}.csv"
@@ -502,6 +564,9 @@ def main():
     parser.add_argument("--once", action="store_true", help="Run a single simulation cycle and exit")
     parser.add_argument("--no-stage", action="store_true", help="Skip staging step")
     parser.add_argument("--dry-run", action="store_true", help="Print actions without writing files")
+    parser.add_argument("--job-source", choices=["db", "fs"], default="fs", help="Where to pick jobs from: filesystem (fs) under processedJobsRoot, or database (db)")
+    parser.add_argument("--wait-app", action="store_true", help="Wait for the app to consume each AutoPAC CSV before the next step")
+    parser.add_argument("--wait-timeout", type=int, default=90, help="Seconds to wait for app consumption when --wait-app is set (default: 90)")
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -523,26 +588,88 @@ def main():
             machine = get_machine(conn, args.machine)
         print(f"[machine] Using {machine.name} (#{machine.machine_id})")
 
-        job = pick_random_job(conn)
+        if args.job_source == "fs":
+            if not processed_root:
+                print("processedJobsRoot is required when --job-source fs", file=sys.stderr)
+                sys.exit(1)
+            job = pick_random_fs_job(processed_root)
+            if not job:
+                print(f"[warn] No .nc files found under {processed_root}")
+                sys.exit(1)
+        else:
+            job = pick_random_job(conn)
         base = Path(job.ncfile or job.key).stem
         print(f"[job] Selected {job.key} (base '{base}')")
 
         # Stage
+        staged_ok = True
+        staged_dest: Optional[Path] = None
         if not args.no_stage:
-            stage_job(processed_root, job, machine, dry_run=args.dry_run)
+            try:
+                staged_dest = stage_job(processed_root, job, machine, dry_run=args.dry_run)
+            except Exception as e:
+                staged_ok = False
+                print(f"[warn] Staging failed: {e}")
+                # Try filesystem fallback to find any NC under processed_root
+                if processed_root:
+                    fs_job = pick_random_fs_job(processed_root)
+                    if fs_job:
+                        try:
+                            base = Path(fs_job.ncfile or fs_job.key).stem
+                            print(f"[job] Fallback to filesystem NC {fs_job.key} (base '{base}')")
+                            staged_dest = stage_job(processed_root, fs_job, machine, dry_run=args.dry_run)
+                            job = fs_job
+                            staged_ok = True
+                        except Exception as e2:
+                            print(f"[warn] Fallback staging failed: {e2}")
+                if not staged_ok:
+                    print("[skip] Skipping AutoPAC for this job due to staging failure")
+                    # For one-off runs, don't attempt AutoPAC when staging fails
+                    return
 
         # AutoPAC: LOAD_FINISH → LABEL_FINISH → CNC_FINISH
         auto_pac_dir = Path(app_settings.auto_pac_csv_dir)
         machine_token = machine.name if machine.name else str(machine.machine_id)
 
-        sleep_random(args.min_delay, args.max_delay)
-        write_autopac_csv(auto_pac_dir, machine_token, "load_finish", [base], dry_run=args.dry_run)
+        def wait_consumed(p: Path, timeout_s: int) -> bool:
+            end = time.time() + timeout_s
+            while time.time() < end:
+                if not p.exists():
+                    print(f"[autopac] {p.name} consumed by app")
+                    return True
+                time.sleep(0.25)
+            print(f"[warn] Timeout waiting for app to consume {p.name}")
+            return False
 
         sleep_random(args.min_delay, args.max_delay)
-        write_autopac_csv(auto_pac_dir, machine_token, "label_finish", [base], dry_run=args.dry_run)
+        p = write_autopac_csv(auto_pac_dir, machine_token, "load_finish", [base], dry_run=args.dry_run)
+        if args.wait_app and not args.dry_run:
+            if not wait_consumed(p, args.wait_timeout):
+                print("[skip] Aborting remaining steps due to unconsumed load_finish CSV")
+                if staged_dest:
+                    print(f"[clean] Removing staged files for base '{base}' from {staged_dest}")
+                    remove_staged_job_files(staged_dest, base)
+                return
 
         sleep_random(args.min_delay, args.max_delay)
-        write_autopac_csv(auto_pac_dir, machine_token, "cnc_finish", [base], dry_run=args.dry_run)
+        p = write_autopac_csv(auto_pac_dir, machine_token, "label_finish", [base], dry_run=args.dry_run)
+        if args.wait_app and not args.dry_run:
+            if not wait_consumed(p, args.wait_timeout):
+                print("[skip] Aborting remaining steps due to unconsumed label_finish CSV")
+                if staged_dest:
+                    print(f"[clean] Removing staged files for base '{base}' from {staged_dest}")
+                    remove_staged_job_files(staged_dest, base)
+                return
+
+        sleep_random(args.min_delay, args.max_delay)
+        p = write_autopac_csv(auto_pac_dir, machine_token, "cnc_finish", [base], dry_run=args.dry_run)
+        if args.wait_app and not args.dry_run:
+            if not wait_consumed(p, args.wait_timeout):
+                print("[skip] CNC finish not consumed; skipping Nestpick")
+                if staged_dest:
+                    print(f"[clean] Removing staged files for base '{base}' from {staged_dest}")
+                    remove_staged_job_files(staged_dest, base)
+                return
 
         # After CNC_FINISH, the app should forward parts CSV to Nestpick (Nestpick.csv).
         # Before writing Unstack, try to read PalletName from Nestpick.csv then delete it.
@@ -567,6 +694,9 @@ def run_forever():
     parser.add_argument("--between-max", type=int, default=15, help="Maximum seconds between cycles (default: 15)")
     parser.add_argument("--no-stage", action="store_true", help="Skip staging step")
     parser.add_argument("--dry-run", action="store_true", help="Print actions without writing files")
+    parser.add_argument("--job-source", choices=["db", "fs"], default="fs", help="Where to pick jobs from: filesystem (fs) under processedJobsRoot, or database (db)")
+    parser.add_argument("--wait-app", action="store_true", help="Wait for the app to consume each AutoPAC CSV before the next step")
+    parser.add_argument("--wait-timeout", type=int, default=90, help="Seconds to wait for app consumption when --wait-app is set (default: 90)")
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -592,7 +722,18 @@ def run_forever():
                 cycle += 1
                 print(f"\n=== Simulation cycle {cycle} ===")
                 try:
-                    job = pick_random_job(conn)
+                    if args.job_source == "fs":
+                        if not processed_root:
+                            print("processedJobsRoot is required when --job-source fs", file=sys.stderr)
+                            time.sleep(max(1, args.between_min))
+                            continue
+                        job = pick_random_fs_job(processed_root)
+                        if not job:
+                            print(f"[warn] No .nc files found under {processed_root}")
+                            time.sleep(max(1, args.between_min))
+                            continue
+                    else:
+                        job = pick_random_job(conn)
                 except Exception as e:
                     print(f"[warn] Could not pick a job: {e}")
                     time.sleep(max(1, args.between_min))
@@ -601,23 +742,86 @@ def run_forever():
                 base = Path(job.ncfile or job.key).stem
                 print(f"[job] Selected {job.key} (base '{base}')")
 
+                # Attempt staging; if it fails, do NOT write AutoPAC CSVs for this job.
+                staged_ok = True
+                staged_dest: Optional[Path] = None
                 if not args.no_stage and processed_root:
                     try:
-                        stage_job(processed_root, job, machine, dry_run=args.dry_run)
+                        staged_dest = stage_job(processed_root, job, machine, dry_run=args.dry_run)
                     except Exception as e:
+                        staged_ok = False
                         print(f"[warn] Staging failed: {e}")
+                        print("[info] Will try another job without writing AutoPAC CSVs")
 
-                auto_pac_dir = Path(app_settings.auto_pac_csv_dir)
-                machine_token = machine.name if machine.name else str(machine.machine_id)
+                # If staging failed, try a few different DB jobs before giving up this cycle
+                retry_attempts = 5
+                while not staged_ok and retry_attempts > 0:
+                    retry_attempts -= 1
+                    try:
+                        job = pick_random_job(conn)
+                        base = Path(job.ncfile or job.key).stem
+                        print(f"[job] Trying alternate job {job.key} (base '{base}')")
+                        staged_dest = stage_job(processed_root, job, machine, dry_run=args.dry_run)
+                        staged_ok = True
+                        break
+                    except Exception as e:
+                        print(f"[warn] Alternate staging failed: {e}")
 
-                sleep_random(args.min_delay, args.max_delay)
-                write_autopac_csv(auto_pac_dir, machine_token, "load_finish", [base], dry_run=args.dry_run)
+                # Last resort: scan filesystem for any NC to stage
+                if not staged_ok and processed_root:
+                    fs_job = pick_random_fs_job(processed_root)
+                    if fs_job:
+                        try:
+                            base = Path(fs_job.ncfile or fs_job.key).stem
+                            print(f"[job] Fallback to filesystem NC {fs_job.key} (base '{base}')")
+                            staged_dest = stage_job(processed_root, fs_job, machine, dry_run=args.dry_run)
+                            job = fs_job
+                            staged_ok = True
+                        except Exception as e:
+                            print(f"[warn] Fallback staging failed: {e}")
 
-                sleep_random(args.min_delay, args.max_delay)
-                write_autopac_csv(auto_pac_dir, machine_token, "label_finish", [base], dry_run=args.dry_run)
+                if not args.no_stage and not staged_ok:
+                    print("[skip] No successfully staged job found; skipping AutoPAC this cycle")
+                else:
+                    auto_pac_dir = Path(app_settings.auto_pac_csv_dir)
+                    machine_token = machine.name if machine.name else str(machine.machine_id)
 
-                sleep_random(args.min_delay, args.max_delay)
-                write_autopac_csv(auto_pac_dir, machine_token, "cnc_finish", [base], dry_run=args.dry_run)
+                    def wait_consumed(p: Path, timeout_s: int) -> bool:
+                        end = time.time() + timeout_s
+                        while time.time() < end:
+                            if not p.exists():
+                                print(f"[autopac] {p.name} consumed by app")
+                                return True
+                            time.sleep(0.25)
+                        print(f"[warn] Timeout waiting for app to consume {p.name}")
+                        return False
+
+                    sleep_random(args.min_delay, args.max_delay)
+                    p = write_autopac_csv(auto_pac_dir, machine_token, "load_finish", [base], dry_run=args.dry_run)
+                    if args.wait_app and not args.dry_run and not wait_consumed(p, args.wait_timeout):
+                        print("[skip] Skipping remaining steps for this cycle due to unconsumed load_finish CSV")
+                        if staged_dest:
+                            print(f"[clean] Removing staged files for base '{base}' from {staged_dest}")
+                            remove_staged_job_files(staged_dest, base)
+                        continue
+
+                    sleep_random(args.min_delay, args.max_delay)
+                    p = write_autopac_csv(auto_pac_dir, machine_token, "label_finish", [base], dry_run=args.dry_run)
+                    if args.wait_app and not args.dry_run and not wait_consumed(p, args.wait_timeout):
+                        print("[skip] Skipping remaining steps for this cycle due to unconsumed label_finish CSV")
+                        if staged_dest:
+                            print(f"[clean] Removing staged files for base '{base}' from {staged_dest}")
+                            remove_staged_job_files(staged_dest, base)
+                        continue
+
+                    sleep_random(args.min_delay, args.max_delay)
+                    p = write_autopac_csv(auto_pac_dir, machine_token, "cnc_finish", [base], dry_run=args.dry_run)
+                    if args.wait_app and not args.dry_run and not wait_consumed(p, args.wait_timeout):
+                        print("[skip] CNC finish not consumed; skipping Nestpick for this cycle")
+                        if staged_dest:
+                            print(f"[clean] Removing staged files for base '{base}' from {staged_dest}")
+                            remove_staged_job_files(staged_dest, base)
+                        continue
 
                 if machine.nestpick_enabled and machine.nestpick_folder:
                     sleep_random(args.min_delay, args.max_delay)

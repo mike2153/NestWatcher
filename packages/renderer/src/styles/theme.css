@@ -5,11 +5,12 @@
     /* Core colors - Light theme with gradient effects */
     --background: linear-gradient(135deg, theme('colors.neutral.200') 0%, theme('colors.neutral.100') 50%, theme('colors.neutral.100') 100%);
       /* Header/UI elements background gradient */
-    --background-body: linear-gradient(to right, #d9d8e8, #d8d8e6, #dbd7ec);/* Main app body background. Use plain hex values so it can be easily customized. */
+    --background-body: linear-gradient(to right, #feffff 0%, #feffff 100%)/* Main app body background. Use plain hex values so it can be easily customized. */
     --foreground: theme('colors.zinc.900');         /* Main text color - nearly black */
-    --card: linear-gradient(135deg, theme('colors.gray.600') 0%, theme('colors.neutral.700') 50%, theme('colors.neutral.300') 100%);  /* Card background - warm gradient */
+    --card:linear-gradient(to right, #fffffff3 0%, #ffffffef 100%);  /* Card background - warm gradient */
     --card-foreground: theme('colors.zinc.900');   /* Card text - dark blue-gray */
-    --primary: theme('colors.blue.500');          /* Primary action color - vibrant indigo */
+    /* Solid popover for context menus (no transparency) */
+    --primary: #1647e0;         /* Primary action color - vibrant indigo */
     --destructive: theme('colors.rose.600');        /* Destructive actions - red */
     --muted: theme('colors.slate.100');             /* Muted background elements */
     --muted-foreground: theme('colors.slate.100');  /* Muted text - gray */
@@ -24,18 +25,18 @@
     --status-error-text: theme('colors.rose.700');
 
     /* Table colors */
-    --table-bg:  linear-gradient(135deg, theme('colors.gray.50') 0%, theme('colors.gray.100') 50%, theme('colors.gray.300') 100%);  /* Table background gradient */
-    --table-header-bg:  linear-gradient(to right, #8b8a97, #d9d7ec);  /* Table header background - dark to match table */
-    --table-text: theme('colors.gray.800');        /* Table text - light for dark background */
+    --table-bg:  #feffff; /* Table background gradient */
+    --table-header-bg: #e2e2e2; /* Table header background - dark to match table */
+    --table-text: theme('colors.gray.900');        /* Table text - light for dark background */
     --table-border: theme('colors.neutral.100');     /* Table outer border */
     --table-row-border: theme('colors.neutral.300'); /* Horizontal lines between rows */
-    --table-hover-bg: linear-gradient(135deg, theme('colors.gray.300') 0%, theme('colors.gray.400') 30%, theme('colors.gray.300') 100%);  /* Row hover background */
-    --table-selected-bg: linear-gradient(135deg, theme('colors.gray.400') 0%, theme('colors.gray.300') 50%, theme('colors.gray.400') 100%); /* Row selected background */
+    --table-hover-bg: #e9e9e9;   /* Row hover background */
+    --table-selected-bg: #e9e9e9; /* Row selected background */
                                     
     /* Sidebar colors - Metallic/Marble effect */
-    --sidebar: linear-gradient(135deg, theme('colors.neutral.900') 0%, theme('colors.neutral.700') 50%, theme('colors.neutral.900') 100%);  /* Metallic gradient background */
-    --sidebar-foreground: theme('colors.slate.100'); /* Light text on dark metallic bg */
-    --sidebar-accent: linear-gradient(135deg, theme('colors.red.700') 0%, theme('colors.red.900') 20%, theme('colors.red.700')100%);  /* Lighter metallic accent for active items */
+    --sidebar: #f7f6f6; /* Metallic gradient background */
+    --sidebar-foreground: #404040; /* Light text on dark metallic bg */
+    --sidebar-accent:#eaeaeac5; /* Lighter metallic accent for active items */
     --sidebar-border: theme('colors.slate.600');     /* Metallic border */
 
     /* Input field styling */
@@ -60,20 +61,14 @@
 
     /* Alpha variants - using Tailwind colors with opacity */
     --muted-a50: color-mix(in srgb, theme('colors.cyan.900') 50%, transparent);  /* Table row hover, table footer bg, inputs */
-    --muted-a40: color-mix(in srgb, theme('colors.slate.100') 40%, transparent);  /* [unused] */
-    --muted-a30: color-mix(in srgb, theme('colors.slate.100') 30%, transparent);  /* [unused] */
-    --muted-a10: color-mix(in srgb, theme('colors.slate.100') 10%, transparent);  /* [unused] */
     --primary-a10: color-mix(in srgb, theme('colors.indigo.500') 10%, transparent);  /* Selected row bg, gradient effects */
     --primary-a15: color-mix(in srgb, theme('colors.indigo.500') 15%, transparent);  /* Box shadows, hover shadows */
     --primary-a20: color-mix(in srgb, theme('colors.indigo.500') 20%, transparent);  /* Borders on focus, selected row borders, resizer hover */
     --primary-a30: color-mix(in srgb, theme('colors.indigo.500') 30%, transparent);  /* Focus states, strong borders, box shadows */
-    --border-a05: color-mix(in srgb, theme('colors.slate.200') 5%, transparent);   /* [unused] */
     --border-a06: color-mix(in srgb, theme('colors.slate.200') 6%, transparent);   /* Subtle box shadows */
     --border-a08: color-mix(in srgb, theme('colors.slate.200') 8%, transparent);   /* Box shadows, elevated shadows */
     --border-a10: color-mix(in srgb, theme('colors.slate.200') 10%, transparent);  /* Box shadows, table cell borders */
     --border-a30: color-mix(in srgb, theme('colors.slate.200') 30%, transparent);  /* Table header borders */
-    --card-a95: color-mix(in srgb, theme('colors.white') 95%, transparent);        /* [unused] */
-    --card-a90: color-mix(in srgb, theme('colors.white') 90%, transparent);        /* [unused] */
   }
 
   .dark {
@@ -201,6 +196,12 @@
     background-clip: text;
     font-size: 1.5rem;
     font-weight: 600;
-    font-family: 'aptos' ,sans-serif;  /* Add this line */
+    /* Inherit global app font (Geist Variable) */
+    font-family: inherit;
+  }
+
+  /* Apply Geist globally */
+  body, button, input, select, textarea {
+    font-family: "Geist Variable", Geist, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
 }

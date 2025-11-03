@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   AppError,
   AlarmEntry,
   CopyDiagnosticsResult,
@@ -9,6 +9,8 @@
   GrundnerListRes,
   GrundnerResyncReq,
   GrundnerUpdateReq,
+  AppMessage,
+  MessagesListRes,
   HistoryListReq,
   HistoryListRes,
   JobEventsReq,
@@ -35,7 +37,8 @@
   DiagnosticsLogTailReq,
   DiagnosticsLogTailRes,
   ThemePreferenceReq,
-  ThemePreferenceRes
+  ThemePreferenceRes,
+  AllocatedMaterialListRes
 } from '../../../shared/src';
 import type { TelemetrySummaryReq, TelemetrySummaryRes, AlarmsHistoryReq, AlarmsHistoryRes } from '../../../shared/src';
 
@@ -62,9 +65,11 @@ declare global {
         lock: (key: string) => Promise<Result<null, AppError>>;
         unlock: (key: string) => Promise<Result<null, AppError>>;
         lockBatch: (keys: string[]) => Promise<Result<null, AppError>>;
+        unlockBatch: (keys: string[]) => Promise<Result<null, AppError>>;
         rerun: (key: string) => Promise<Result<null, AppError>>;
+        rerunAndStage: (key: string, machineId: number) => Promise<Result<WorklistAddResult, AppError>>;
         addToWorklist: (key: string, machineId: number) => Promise<Result<WorklistAddResult, AppError>>;
-        resync: () => Promise<Result<{ inserted: number; updated: number; pruned: number }, AppError>>;
+        resync: () => Promise<Result<{ inserted: number; updated: number; pruned: number; addedJobs: { ncFile: string; folder: string }[]; updatedJobs: { ncFile: string; folder: string }[]; prunedJobs: { key: string; folder: string; ncFile: string; material: string | null; preReserved: boolean }[] }, AppError>>;
       };
       machines: {
         list: () => Promise<Result<MachinesListRes, AppError>>;
@@ -90,6 +95,18 @@ declare global {
         list: (req?: GrundnerListReq) => Promise<Result<GrundnerListRes, AppError>>;
         update: (input: GrundnerUpdateReq) => Promise<Result<{ ok: boolean; updated: number }, AppError>>;
         resync: (input?: GrundnerResyncReq) => Promise<Result<{ updated: number }, AppError>>;
+        subscribeRefresh: (listener: () => void) => () => void;
+      };
+      allocatedMaterial: {
+        list: () => Promise<Result<AllocatedMaterialListRes, AppError>>;
+        subscribe: (listener: () => void) => () => void;
+      };
+      messages: {
+        list: () => Promise<Result<MessagesListRes, AppError>>;
+        unreadCount: () => Promise<Result<number, AppError>>;
+        markAllRead: () => Promise<Result<null, AppError>>;
+        subscribe: (listener: (entry: AppMessage) => void) => () => void;
+        subscribeCount: (listener: (count: number) => void) => () => void;
       };
       hypernest: {
         open: () => Promise<Result<null, AppError>>;
@@ -109,6 +126,7 @@ declare global {
       diagnostics: {
         get: () => Promise<Result<DiagnosticsSnapshot, AppError>>;
         copy: () => Promise<Result<CopyDiagnosticsResult, AppError>>;
+        restartWatchers: () => Promise<Result<{ ok: true }, AppError>>;
         listLogs: () => Promise<Result<DiagnosticsLogsRes, AppError>>;
         logTail: (req: DiagnosticsLogTailReq) => Promise<Result<DiagnosticsLogTailRes, AppError>>;
         subscribe: (listener: (snapshot: DiagnosticsSnapshot) => void) => () => void;

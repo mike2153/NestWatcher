@@ -40,7 +40,8 @@ export const SettingsSchema = z.object({
     processedJobsRoot: z.string().default(''),
     autoPacCsvDir: z.string().default(''),
     grundnerFolderPath: z.string().default(''),
-  }).default({ processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '' }),
+    archiveRoot: z.string().default(''),
+  }).default({ processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '' }),
   test: z.object({
     testDataFolderPath: z.string().default(''),
     useTestDataMode: z.boolean().default(false),
@@ -48,7 +49,11 @@ export const SettingsSchema = z.object({
   }).default({ testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' }),
   grundner: z.object({
     reservedAdjustmentMode: z.enum(['delta', 'absolute']).default('delta')
-  }).default({ reservedAdjustmentMode: 'delta' })
+  }).default({ reservedAdjustmentMode: 'delta' }),
+  jobs: z.object({
+    completedJobsTimeframe: z.enum(['1day', '3days', '7days', '1month', 'all']).default('7days'),
+    statusFilter: z.array(z.enum(['pending', 'processing', 'complete'])).default(['pending', 'processing', 'complete'])
+  }).default({ completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] })
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -79,7 +84,8 @@ export const JobsListFilter = z.object({
   thickness: z.string().optional(),
   status: z.enum(['all', 'cut', 'uncut']).optional(),
   statusIn: z.array(JobStatus).optional(),
-  machineId: z.number().int().optional()
+  machineId: z.number().int().optional(),
+  completedTimeframe: z.enum(['1day', '3days', '7days', '1month', 'all']).optional()
 });
 
 export const JobsListReq = z.object({
@@ -138,6 +144,9 @@ export type UnlockReq = z.infer<typeof UnlockReq>;
 
 export const LockBatchReq = z.object({ keys: z.array(z.string().min(1)).min(1) });
 export type LockBatchReq = z.infer<typeof LockBatchReq>;
+
+export const UnlockBatchReq = z.object({ keys: z.array(z.string().min(1)).min(1) });
+export type UnlockBatchReq = z.infer<typeof UnlockBatchReq>;
 
 export const JobEvent = z.object({
   id: z.number().int(),
@@ -361,7 +370,47 @@ export type GrundnerUpdateReq = z.infer<typeof GrundnerUpdateReq>;
 export const GrundnerResyncReq = z.object({ id: z.number().int().optional() });
 export type GrundnerResyncReq = z.infer<typeof GrundnerResyncReq>;
 
+export const AppMessage = z.object({
+  id: z.string(),
+  createdAt: z.string(),
+  event: z.string(),
+  title: z.string(),
+  body: z.string(),
+  tone: z.enum(['success', 'info', 'warning', 'error']),
+  params: z.record(z.string(), z.any()).optional(),
+  source: z.string().nullable().optional(),
+  read: z.boolean()
+});
+export type AppMessage = z.infer<typeof AppMessage>;
 
+export const MessagesListRes = z.object({ items: z.array(AppMessage) });
+export type MessagesListRes = z.infer<typeof MessagesListRes>;
+
+export const AllocatedMaterialRow = z.object({
+  grundnerId: z.number().int().nullable(),
+  typeData: z.number().int().nullable(),
+  customerId: z.string().nullable(),
+  lengthMm: z.number().int().nullable(),
+  widthMm: z.number().int().nullable(),
+  thicknessMm: z.number().int().nullable(),
+  stock: z.number().int().nullable(),
+  stockAvailable: z.number().int().nullable(),
+  reservedStock: z.number().int().nullable(),
+  preReserved: z.number().int().nullable(),
+  jobKey: z.string(),
+  folder: z.string().nullable(),
+  ncfile: z.string().nullable(),
+  material: z.string().nullable(),
+  jobPreReserved: z.boolean(),
+  jobLocked: z.boolean(),
+  updatedAt: z.string().nullable(),
+  allocatedAt: z.string().nullable(),
+  allocationStatus: z.enum(['pre_reserved', 'locked'])
+});
+export type AllocatedMaterialRow = z.infer<typeof AllocatedMaterialRow>;
+
+export const AllocatedMaterialListRes = z.object({ items: z.array(AllocatedMaterialRow) });
+export type AllocatedMaterialListRes = z.infer<typeof AllocatedMaterialListRes>;
 
 
 

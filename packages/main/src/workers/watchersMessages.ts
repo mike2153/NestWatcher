@@ -55,6 +55,23 @@ export type WatcherWorkerToMainMessage =
         machineId: number | null;
         code: MachineHealthCode;
       };
+    }
+  | {
+      type: 'dbNotify';
+      channel: 'grundner' | 'allocated-material';
+    }
+  | {
+      type: 'appAlert';
+      category: 'grundner' | 'app';
+      summary: string;
+      details?: Record<string, unknown>;
+    }
+  | {
+      type: 'appMessage';
+      event: string;
+      params?: Record<string, unknown>;
+      timestamp?: string;
+      source?: string;
     };
 
 export type MainToWatcherMessage = { type: 'shutdown'; reason?: string };

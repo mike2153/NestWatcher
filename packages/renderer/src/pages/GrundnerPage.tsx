@@ -6,7 +6,21 @@ import {
 } from '@tanstack/react-table';
 import type { ColumnDef, SortingState } from '@tanstack/react-table';
 import { GlobalTable } from '@/components/table/GlobalTable';
-import type { GrundnerListReq, GrundnerRow, WatcherStatus } from '../../../shared/src';
+
+// Percent widths for Grundner table columns
+const GRUNDNER_COL_PCT = {
+  typeData: 8,
+  customerId: 16,
+  lengthMm: 8,
+  widthMm: 8,
+  thicknessMm: 8,
+  preReserved: 10,
+  stock: 10,
+  reservedStock: 10,
+  stockAvailable: 10,
+  lastUpdated: 12,
+} as const;
+import type { GrundnerListReq, GrundnerRow } from '../../../shared/src';
 function formatTimestamp(value: string) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
@@ -162,48 +176,23 @@ export function GrundnerPage() {
     }
   };
 
-  // Auto-refresh on Grundner watcher push events (throttled)
+  // Auto-refresh on backend notifications (throttled)
   useEffect(() => {
-    const MIN_GAP_MS = 15_000; // throttle auto refresh
-
-    const unsubscribe = window.api.diagnostics.subscribe((snapshot) => {
-      try {
-        const watcher = snapshot?.watchers?.find((w: WatcherStatus) => w?.label === 'Grundner Stock Poller');
-        if (!watcher?.lastEventAt) return;
-        const eventTs = Date.parse(watcher.lastEventAt);
-        if (!Number.isFinite(eventTs)) return;
-        // Only react to events after our last successful load
-        if (eventTs <= lastLoadedAtRef.current) return;
-
-        // Only refresh when we actually synced rows
-        const msg: string = watcher.lastEvent ?? '';
-        const m = msg.match(/Synced Grundner stock \(inserted\s+(\d+),\s*updated\s+(\d+)\)/i);
-        if (!m) return;
-        const inserted = Number(m[1] ?? 0) || 0;
-        const updated = Number(m[2] ?? 0) || 0;
-        if (inserted + updated <= 0) return;
-
-        const now = Date.now();
-        if (now - lastAutoRefreshAtRef.current < MIN_GAP_MS) return;
-
-        // Avoid disrupting active edits or in-flight loads; defer if needed
-        if (loading || Object.keys(editing).length > 0) {
-          setPendingAutoRefresh(true);
-          return;
-        }
-        lastAutoRefreshAtRef.current = now;
-        void load();
-      } catch {
-        /* ignore diagnostics parsing errors */
+    const MIN_GAP_MS = 5_000;
+    const unsubscribe = window.api.grundner.subscribeRefresh(() => {
+      const now = Date.now();
+      if (now - lastAutoRefreshAtRef.current < MIN_GAP_MS) {
+        return;
       }
+      if (loading || Object.keys(editing).length > 0) {
+        setPendingAutoRefresh(true);
+        return;
+      }
+      lastAutoRefreshAtRef.current = now;
+      void load();
     });
-
-    return () => {
-      try { unsubscribe?.(); } catch {
-        /* ignore unsubscribe errors */
-      }
-    };
-  }, [editing, loading, load]);
+    return unsubscribe;
+  }, [editing, load, loading]);
 
   // When edits finish and a refresh is pending, run it (throttled)
   useEffect(() => {
@@ -211,84 +200,77 @@ export function GrundnerPage() {
     if (loading) return;
     if (Object.keys(editing).length > 0) return;
     const now = Date.now();
-    const MIN_GAP_MS = 15_000;
+    const MIN_GAP_MS = 5_000;
     if (now - lastAutoRefreshAtRef.current < MIN_GAP_MS) return;
     setPendingAutoRefresh(false);
     lastAutoRefreshAtRef.current = now;
     void load();
   }, [pendingAutoRefresh, editing, loading, load]);
+  // Percentage-based column widths; normalized automatically by GlobalTable
+
   const columns = useMemo<ColumnDef<GrundnerRow>[]>(() => [
     {
       id: 'typeData',
       accessorKey: 'typeData',
       header: 'Type',
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      size: 60,
-      meta: { widthClass: 'w-[100px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.typeData, minWidthPx: 80 }
     },
     {
       id: 'customerId',
       accessorKey: 'customerId',
       header: 'Customer ID',
       cell: (ctx) => ctx.getValue<string | null>() ?? '',
-      size: 260,
-      meta: { widthClass: 'w-[220px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.customerId, minWidthPx: 160 }
     },
     {
       id: 'lengthMm',
       accessorKey: 'lengthMm',
       header: 'Length',
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      size: 60,
-      meta: { widthClass: 'w-[60px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.lengthMm, minWidthPx: 60 }
     },
     {
       id: 'widthMm',
       accessorKey: 'widthMm',
       header: 'Width',
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      size: 110,
-      meta: { widthClass: 'w-[110px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.widthMm, minWidthPx: 80 }
     },
     {
       id: 'thicknessMm',
       accessorKey: 'thicknessMm',
       header: 'Thickness',
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      size: 110,
-      meta: { widthClass: 'w-[110px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.thicknessMm, minWidthPx: 80 }
     },
     {
       id: 'preReserved',
       accessorKey: 'preReserved',
       header: 'Pre-Reserved',
-      size: 120,
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      meta: { widthClass: 'w-[120px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.preReserved, minWidthPx: 100 }
     },
     {
       id: 'stock',
       accessorKey: 'stock',
       header: 'Stock',
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      size: 90,
-      meta: { widthClass: 'w-[90px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.stock, minWidthPx: 80 }
     },
     {
       id: 'reservedStock',
       accessorKey: 'reservedStock',
       header: 'Locked',
-      size: 120,
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      meta: { widthClass: 'w-[120px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.reservedStock, minWidthPx: 100 }
     },
     {
       id: 'stockAvailable',
       accessorKey: 'stockAvailable',
       header: 'Available',
-      size: 120,
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      meta: { widthClass: 'w-[120px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.stockAvailable, minWidthPx: 100 }
     },
     {
       id: 'lastUpdated',
@@ -298,8 +280,7 @@ export function GrundnerPage() {
         const v = ctx.getValue<string | null>();
         return v ? formatTimestamp(v) : '';
       },
-      size: 180,
-      meta: { widthClass: 'w-[180px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.lastUpdated, minWidthPx: 140 }
     },
   ], []);
 
@@ -310,45 +291,41 @@ export function GrundnerPage() {
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    defaultColumn: { size: 120 }
+    enableColumnResizing: false
   });
 
   return (
-    <div className="space-y-4 w-full">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Grundner Inventory</h1>
-          <p className="text-sm text-muted-foreground">Stock {totalStock} • Available {totalAvailable} • Locked {totalReserved}</p>
+    <div className="space-y-2 w-full">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-wrap gap-3 items-end">
+          <label className="flex flex-col gap-1 text-sm">
+            <span>Search</span>
+            <input className="border rounded px-2 py-1" value={filters.search} onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))} placeholder="Type data or customer" />
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={filters.onlyAvailable} onChange={(e) => setFilters((prev) => ({ ...prev, onlyAvailable: e.target.checked }))} />
+            Only available
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={filters.onlyReserved} onChange={(e) => setFilters((prev) => ({ ...prev, onlyReserved: e.target.checked }))} />
+            Only reserved
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span>Limit</span>
+            <select className="border rounded px-2 py-1" value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
+              {[100, 200, 300, 500].map((value) => (
+                <option key={value} value={value}>{value}</option>
+              ))}
+            </select>
+          </label>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col items-end gap-1">
           <button className="border rounded px-3 py-1" onClick={exportCsv}>Export to CSV</button>
+          <p className="mt-2 text-sm text-muted-foreground">Stock {totalStock} • Available {totalAvailable} • Locked {totalReserved}</p>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3 items-end">
-        <label className="flex flex-col gap-1 text-sm">
-          <span>Search</span>
-          <input className="border rounded px-2 py-1" value={filters.search} onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))} placeholder="Type data or customer" />
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={filters.onlyAvailable} onChange={(e) => setFilters((prev) => ({ ...prev, onlyAvailable: e.target.checked }))} />
-          Only available
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={filters.onlyReserved} onChange={(e) => setFilters((prev) => ({ ...prev, onlyReserved: e.target.checked }))} />
-          Only reserved
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span>Limit</span>
-          <select className="border rounded px-2 py-1" value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
-            {[100, 200, 300, 500].map((value) => (
-              <option key={value} value={value}>{value}</option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <GlobalTable table={table} stickyHeader fillEmptyRows />
+      <GlobalTable table={table} stickyHeader fillEmptyRows maxHeight="calc(100vh - 160px)" />
     </div>
   );
 }

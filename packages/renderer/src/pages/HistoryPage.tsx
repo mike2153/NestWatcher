@@ -204,11 +204,8 @@ export function HistoryPage() {
 
   return (
     <div className="space-y-4 w-full">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">History</h1>
-          <p className="text-sm text-muted-foreground">{loading ? "Loading..." : `${rows.length} completed jobs`}</p>
-        </div>
+      <div className="flex items-center justify-end gap-3">
+        <div className="text-sm text-muted-foreground">{loading ? "Loading..." : `${rows.length} completed jobs`}</div>
         <button className="border rounded px-3 py-1 text-sm" onClick={fetchHistory} disabled={loading}>
           Refresh
         </button>
@@ -241,7 +238,7 @@ export function HistoryPage() {
           <span>From</span>
           <input
             type="date"
-            className="border rounded px-2 py-1"
+            className="border rounded px-2 py-1 min-w-[12rem]"
             value={filters.from}
             onChange={(e) => setFilters((prev) => ({ ...prev, from: e.target.value }))}
           />
@@ -250,7 +247,7 @@ export function HistoryPage() {
           <span>To</span>
           <input
             type="date"
-            className="border rounded px-2 py-1"
+            className="border rounded px-2 py-1 min-w-[12rem]"
             value={filters.to}
             onChange={(e) => setFilters((prev) => ({ ...prev, to: e.target.value }))}
           />

@@ -10,6 +10,8 @@ import type {
   LogWriteReq,
   ThemePreferenceReq,
   ThemePreferenceRes,
+  AllocatedMaterialListRes,
+  AppMessage,
   GrundnerListReq,
   GrundnerListRes,
   GrundnerResyncReq,
@@ -40,7 +42,8 @@ import type {
   WorklistAddResult,
   TelemetrySummaryReq,
   TelemetrySummaryRes,
-  AlarmsHistoryReq
+  AlarmsHistoryReq,
+  MessagesListRes
 } from '../../shared/src';
 import { type ResultEnvelope } from '../../shared/src/result';
 
@@ -82,9 +85,19 @@ const api = {
     lock: (key: string) => invokeResult<null>('jobs:lock', { key }),
     unlock: (key: string) => invokeResult<null>('jobs:unlock', { key }),
     lockBatch: (keys: string[]) => invokeResult<null>('jobs:lockBatch', { keys }),
+    unlockBatch: (keys: string[]) => invokeResult<null>('jobs:unlockBatch', { keys }),
     rerun: (key: string) => invokeResult<null>('jobs:rerun', { key }),
     addToWorklist: (key: string, machineId: number) => invokeResult<WorklistAddResult>('jobs:addToWorklist', { key, machineId }),
-    resync: () => invokeResult<{ inserted: number; updated: number; pruned: number }>('jobs:resync')
+    rerunAndStage: (key: string, machineId: number) => invokeResult<WorklistAddResult>('jobs:rerunAndStage', { key, machineId }),
+    resync: () =>
+      invokeResult<{
+        inserted: number;
+        updated: number;
+        pruned: number;
+        addedJobs: { ncFile: string; folder: string }[];
+        updatedJobs: { ncFile: string; folder: string }[];
+        prunedJobs: { key: string; folder: string; ncFile: string; material: string | null; preReserved: boolean }[];
+      }>('jobs:resync')
   },
   machines: {
     list: () => invokeResult<MachinesListRes>('machines:list'),
@@ -115,7 +128,53 @@ const api = {
   grundner: {
     list: (req?: GrundnerListReq) => invokeResult<GrundnerListRes>('grundner:list', req ?? {}),
     update: (input: GrundnerUpdateReq) => invokeResult<{ ok: boolean; updated: number }>('grundner:update', input),
-    resync: (input?: GrundnerResyncReq) => invokeResult<{ updated: number }>('grundner:resync', input ?? {})
+    resync: (input?: GrundnerResyncReq) => invokeResult<{ updated: number }>('grundner:resync', input ?? {}),
+    subscribeRefresh: (listener: () => void) => {
+      const channel = 'grundner:refresh';
+      const handler = () => listener();
+      ipcRenderer.on(channel, handler);
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+      };
+    }
+  },
+  allocatedMaterial: {
+    list: () => invokeResult<AllocatedMaterialListRes>('allocatedMaterial:list'),
+    subscribe: (listener: () => void) => {
+      const channel = 'allocatedMaterial:refresh';
+      const handler = () => listener();
+      ipcRenderer.on(channel, handler);
+      invokeResult<null>('allocatedMaterial:subscribe').catch(() => {});
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+        invokeResult<null>('allocatedMaterial:unsubscribe').catch(() => {});
+      };
+    }
+  },
+  messages: {
+    list: () => invokeResult<MessagesListRes>('messages:list'),
+    unreadCount: () => invokeResult<number>('messages:unreadCount'),
+    markAllRead: () => invokeResult<null>('messages:markRead'),
+    subscribe: (listener: (entry: AppMessage) => void) => {
+      const channel = 'messages:append';
+      const handler = (_event: Electron.IpcRendererEvent, entry: AppMessage) => listener(entry);
+      ipcRenderer.on(channel, handler);
+      invokeResult<null>('messages:subscribe').catch(() => {});
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+        invokeResult<null>('messages:unsubscribe').catch(() => {});
+      };
+    },
+    subscribeCount: (listener: (count: number) => void) => {
+      const channel = 'messages:count';
+      const handler = (_event: Electron.IpcRendererEvent, count: number) => listener(count);
+      ipcRenderer.on(channel, handler);
+      invokeResult<null>('messages:subscribeCount').catch(() => {});
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+        invokeResult<null>('messages:unsubscribeCount').catch(() => {});
+      };
+    }
   },
   hypernest: {
     open: () => invokeResult<null>('hypernest:open')
@@ -150,6 +209,7 @@ const api = {
   diagnostics: {
     get: () => invokeResult<DiagnosticsSnapshot>('diagnostics:get'),
     copy: () => invokeResult<CopyDiagnosticsResult>('diagnostics:copy'),
+    restartWatchers: () => invokeResult<{ ok: true }>('diagnostics:restart-watchers'),
     listLogs: () => invokeResult<DiagnosticsLogsRes>('diagnostics:logs:list'),
     logTail: (req: DiagnosticsLogTailReq) =>
       invokeResult<DiagnosticsLogTailRes>('diagnostics:logs:tail', req),
