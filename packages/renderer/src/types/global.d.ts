@@ -126,6 +126,7 @@ declare global {
       diagnostics: {
         get: () => Promise<Result<DiagnosticsSnapshot, AppError>>;
         copy: () => Promise<Result<CopyDiagnosticsResult, AppError>>;
+        restartWatchers: () => Promise<Result<{ ok: true }, AppError>>;
         listLogs: () => Promise<Result<DiagnosticsLogsRes, AppError>>;
         logTail: (req: DiagnosticsLogTailReq) => Promise<Result<DiagnosticsLogTailRes, AppError>>;
         subscribe: (listener: (snapshot: DiagnosticsSnapshot) => void) => () => void;

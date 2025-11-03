@@ -139,9 +139,6 @@ export async function listJobs(req: JobsListReq) {
 
   const conditions: SqlExpression[] = [];
 
-  // Hide completed jobs from Jobs view
-  conditions.push(sql`${jobs.status} <> 'NESTPICK_COMPLETE'`);
-
   if (filter.folder) {
     conditions.push(eq(jobs.folder, filter.folder));
   }
@@ -166,6 +163,31 @@ export async function listJobs(req: JobsListReq) {
   }
   if (filter.machineId != null) {
     conditions.push(eq(jobs.machineId, filter.machineId));
+  }
+  // Filter completed jobs by timeframe
+  if (filter.completedTimeframe && filter.completedTimeframe !== 'all') {
+    const now = new Date();
+    let cutoffDate: Date;
+    switch (filter.completedTimeframe) {
+      case '1day':
+        cutoffDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        break;
+      case '3days':
+        cutoffDate = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+        break;
+      case '7days':
+        cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case '1month':
+        cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      default:
+        cutoffDate = new Date(0); // No filter
+    }
+    // Only apply timeframe filter to completed jobs
+    conditions.push(
+      sql`(${jobs.status} <> 'NESTPICK_COMPLETE' OR ${jobs.nestpickCompletedAt} >= ${cutoffDate.toISOString()})`
+    );
   }
   if (search && search.trim()) {
     const term = `%${search.trim()}%`;
@@ -645,14 +667,14 @@ export async function updateLifecycle(
 
       // Enforce business rules:
       // - Leaving PENDING: clear preReserved
-      // - On NESTPICK_COMPLETE: clear lock
+      // - On LOAD_FINISH: clear lock (stock has been removed from Grundner)
       let shouldDecrementReserved = false;
       if (to !== 'PENDING' && current.preReserved) {
         patch.preReserved = false;
         shouldDecrementReserved = true;
         touched = true;
       }
-      if (to === 'NESTPICK_COMPLETE' && current.isLocked) {
+      if (to === 'LOAD_FINISH' && current.isLocked) {
         patch.isLocked = false;
         touched = true;
       }

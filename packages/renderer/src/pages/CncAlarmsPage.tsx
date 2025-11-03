@@ -75,24 +75,39 @@ export function CncAlarmsPage() {
   }, [filterFrom, filterTo, machineIds]);
 
   const columnHelper = createColumnHelper<AlarmsHistoryRes['items'][number]>();
+  // Percent widths for columns (normalized in GlobalTable)
   const columns = useMemo(() => [
     columnHelper.accessor('startAt', {
       header: 'DateTime',
-      cell: (ctx) => formatTime(ctx.getValue())
+      cell: (ctx) => formatTime(ctx.getValue()),
+      meta: { widthPercent: 20, minWidthPx: 140 }
     }),
-    columnHelper.accessor('alarmId', { header: 'Alarm ID', cell: (ctx) => ctx.getValue() ?? '' }),
-    columnHelper.accessor('description', { header: 'Description' }),
+    columnHelper.accessor('alarmId', {
+      header: 'Alarm ID',
+      cell: (ctx) => ctx.getValue() ?? '',
+      meta: { widthPercent: 12, minWidthPx: 90 }
+    }),
+    columnHelper.accessor('description', {
+      header: 'Description',
+      meta: { widthPercent: 40, minWidthPx: 200 }
+    }),
     columnHelper.accessor('machineName', {
       header: 'Machine',
-      cell: (ctx) => ctx.getValue() ?? (ctx.row.original.machineId != null ? `Machine ${ctx.row.original.machineId}` : 'Unknown')
+      cell: (ctx) => ctx.getValue() ?? (ctx.row.original.machineId != null ? `Machine ${ctx.row.original.machineId}` : 'Unknown'),
+      meta: { widthPercent: 16, minWidthPx: 120 }
     }),
-    columnHelper.accessor('durationMinutes', { header: 'Duration (min)', cell: (ctx) => ctx.getValue() })
+    columnHelper.accessor('durationMinutes', {
+      header: 'Duration (min)',
+      cell: (ctx) => ctx.getValue(),
+      meta: { widthPercent: 12, minWidthPx: 100 }
+    })
   ], [columnHelper]);
 
   const table = useReactTable({
     data: data?.items ?? [],
     columns,
-    getCoreRowModel: getCoreRowModel()
+    getCoreRowModel: getCoreRowModel(),
+    enableColumnResizing: false
   });
 
   return (

@@ -18,6 +18,19 @@ const DEFAULT_AUTO_REFRESH_SECONDS = 30;
 
 type RouterReadyFile = ReadyFile & { machineId: number };
 
+// Percent-based widths (normalized by GlobalTable)
+const ROUTER_COL_PCT = {
+  machine: 12,
+  folder: 14,
+  name: 18,
+  material: 10,
+  size: 10,
+  parts: 6,
+  status: 12,
+  staged: 12,
+  inDb: 6,
+} as const;
+
 function formatIso(value: string | null) {
   if (!value) return '';
   const d = new Date(value);
@@ -247,14 +260,14 @@ export function RouterPage() {
     return map;
   }, [machines]);
 
+  
+
   const columns = useMemo<ColumnDef<RouterReadyFile>[]>(() => [
     {
       id: 'machine',
       header: 'Machine',
-      size: 180,
-      minSize: 140,
-      maxSize: 260,
       enableSorting: false,
+      meta: { widthPercent: ROUTER_COL_PCT.machine, minWidthPx: 140 },
       cell: ({ row }) => {
         const id = row.original.machineId;
         const name = machineNameById.get(id) ?? String(id ?? '');
@@ -264,10 +277,8 @@ export function RouterPage() {
     {
       accessorKey: 'relativePath',
       header: 'Folder',
-      size: 220,
-      minSize: 180,
-      maxSize: 300,
       enableSorting: false,
+      meta: { widthPercent: ROUTER_COL_PCT.folder, minWidthPx: 160 },
       cell: ({ row }) => (
         <div className="truncate">{extractLeafFolder(row.original.relativePath)}</div>
       )
@@ -275,46 +286,36 @@ export function RouterPage() {
     {
       accessorKey: 'name',
       header: 'NC File',
-      size: 240,
-      minSize: 200,
-      maxSize: 360,
       enableSorting: false,
+      meta: { widthPercent: ROUTER_COL_PCT.name, minWidthPx: 180 },
       cell: ({ row }) => <div className="truncate">{row.original.name}</div>
     },
     {
       accessorKey: 'jobMaterial',
       header: 'Material',
-      size: 140,
-      minSize: 120,
-      maxSize: 200,
       enableSorting: false,
+      meta: { widthPercent: ROUTER_COL_PCT.material, minWidthPx: 120 },
       cell: ({ row }) => <div className="truncate">{row.original.jobMaterial ?? '-'}</div>
     },
     {
       accessorKey: 'jobSize',
       header: 'Size',
-      size: 140,
-      minSize: 120,
-      maxSize: 200,
       enableSorting: false,
+      meta: { widthPercent: ROUTER_COL_PCT.size, minWidthPx: 120 },
       cell: ({ row }) => <div className="truncate">{row.original.jobSize ?? '-'}</div>
     },
     {
       accessorKey: 'jobParts',
       header: 'Parts',
-      size: 80,
-      minSize: 60,
-      maxSize: 120,
       enableSorting: false,
+      meta: { widthPercent: ROUTER_COL_PCT.parts, minWidthPx: 70 },
       cell: ({ row }) => <div className="truncate">{row.original.jobParts ?? '-'}</div>
     },
     {
       accessorKey: 'status',
       header: 'Status',
-      size: 180,
-      minSize: 160,
-      maxSize: 260,
       enableSorting: false,
+      meta: { widthPercent: ROUTER_COL_PCT.status, minWidthPx: 140 },
       cell: ({ row }) => {
         const status = row.original.status;
         if (!status) return <span className="text-muted-foreground">-</span>;
@@ -328,10 +329,8 @@ export function RouterPage() {
     {
       accessorKey: 'addedAtR2R',
       header: 'Staged',
-      size: 200,
-      minSize: 160,
-      maxSize: 260,
       enableSorting: false,
+      meta: { widthPercent: ROUTER_COL_PCT.staged, minWidthPx: 150 },
       cell: ({ row }) => {
         const raw =
           row.original.addedAtR2R ??
@@ -343,10 +342,8 @@ export function RouterPage() {
     {
       accessorKey: 'inDatabase',
       header: 'In Database',
-      size: 140,
-      minSize: 120,
-      maxSize: 200,
       enableSorting: false,
+      meta: { widthPercent: ROUTER_COL_PCT.inDb, minWidthPx: 100 },
       cell: ({ row }) => <div className="truncate">{row.original.inDatabase ? 'Yes' : 'No'}</div>
     }
   ], [extractLeafFolder, machineNameById]);
@@ -358,8 +355,7 @@ export function RouterPage() {
     onRowSelectionChange: setRowSelection,
     getRowId: (row) => row.relativePath,
     getCoreRowModel: getCoreRowModel(),
-    columnResizeMode: 'onChange',
-    enableColumnResizing: true,
+    enableColumnResizing: false,
     enableRowSelection: true,
     enableSorting: false
   });

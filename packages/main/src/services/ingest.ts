@@ -197,8 +197,8 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
       // Keep counters stable; treat failures as neither inserted nor updated
     }
   }
-  // Prune jobs that no longer exist on disk and have not been cut
-  // Note: If there are no .nc files present, this will prune all uncut jobs.
+  // Prune jobs that no longer exist on disk and are still PENDING
+  // Once a job has moved beyond PENDING (pushed to production), keep it as historical record
   let pruned = 0;
   const prunedJobs: { key: string; folder: string; ncFile: string; material: string | null; preReserved: boolean; isLocked: boolean }[] = [];
   try {
@@ -225,7 +225,7 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
         SELECT j.key, j.ncfile, j.folder, j.material, j.pre_reserved, j.is_locked
         FROM public.jobs j
         LEFT JOIN present p ON p.key = j.key
-        WHERE p.key IS NULL AND j.cut_at IS NULL AND j.nestpick_completed_at IS NULL
+        WHERE p.key IS NULL AND j.status = 'PENDING'
       ) d
       WHERE j.key = d.key
       RETURNING d.key, d.ncfile, d.folder, d.material, d.pre_reserved, d.is_locked`;

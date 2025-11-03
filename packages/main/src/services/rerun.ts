@@ -2,6 +2,7 @@ import { existsSync, promises as fsp, readdirSync } from 'fs';
 import { basename, join, resolve, sep } from 'path';
 import { loadConfig } from './config';
 import { withClient } from './db';
+import { getArchivePath } from './archive';
 
 function toRelDirFromKey(key: string): string {
   const idx = key.lastIndexOf('/');
@@ -64,20 +65,44 @@ export async function rerunJob(key: string): Promise<{ ok: true; created: string
     `${origBase}.csv`
   ];
 
+  // First, try to find files in the processed directory
+  const srcFiles = new Map<string, string>();
   for (const name of targets) {
     const src = join(srcDir, name);
-    if (!existsSync(src)) continue; // Optional
+    if (existsSync(src)) {
+      srcFiles.set(name, src);
+    }
+  }
+
+  // If files are missing, check the archive
+  if (srcFiles.size < targets.length && row.folder) {
+    const archivePath = getArchivePath(row.folder, cfg);
+    if (archivePath && existsSync(archivePath)) {
+      // Check archive directory for missing files
+      for (const name of targets) {
+        if (!srcFiles.has(name)) {
+          const archiveSrc = join(archivePath, name);
+          if (existsSync(archiveSrc)) {
+            srcFiles.set(name, archiveSrc);
+          }
+        }
+      }
+    }
+  }
+
+  // Copy found files with the new run prefix
+  for (const [name, srcPath] of srcFiles) {
     const dest = join(srcDir, `${prefix}${name}`);
     try {
-      await fsp.copyFile(src, dest);
+      await fsp.copyFile(srcPath, dest);
       created.push(dest);
     } catch (err) {
-      return { ok: false, error: `Copy failed for ${basename(src)}: ${(err as Error).message}` };
+      return { ok: false, error: `Copy failed for ${basename(srcPath)}: ${(err as Error).message}` };
     }
   }
 
   if (created.length === 0) {
-    return { ok: false, error: 'No source files found to copy' };
+    return { ok: false, error: 'No source files found to copy (checked processed and archive)' };
   }
 
   return { ok: true, created };

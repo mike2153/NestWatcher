@@ -2,14 +2,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { DbSettingsSchema, CURRENT_SETTINGS_VERSION } from '../../../shared/src';
 import type { Settings } from '../../../shared/src';
+import type { App as ElectronApp } from 'electron';
 import { logger } from '../logger';
-
-type ElectronApp = import('electron').App;
 
 let electronApp: ElectronApp | undefined;
 try {
-  const electronModule = require('electron') as typeof import('electron');
-  electronApp = electronModule?.app;
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { app } = require('electron');
+  electronApp = app as ElectronApp;
 } catch {
   // In worker/thread contexts the electron module is unavailable; fall back to Node paths.
   electronApp = undefined;
@@ -26,9 +26,10 @@ const DEFAULT_SETTINGS: Settings = {
     sslMode: 'disable',
     statementTimeoutMs: 30000
   },
-  paths: { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '' },
+  paths: { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '' },
   test: { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' },
-  grundner: { reservedAdjustmentMode: 'delta' }
+  grundner: { reservedAdjustmentMode: 'delta' },
+  jobs: { completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] }
 };
 
 let cache: Settings | null = null;
@@ -41,7 +42,8 @@ function cloneDefaults(): Settings {
     db: { ...DEFAULT_SETTINGS.db },
     paths: { ...DEFAULT_SETTINGS.paths },
     test: { ...DEFAULT_SETTINGS.test },
-    grundner: { ...DEFAULT_SETTINGS.grundner }
+    grundner: { ...DEFAULT_SETTINGS.grundner },
+    jobs: { ...DEFAULT_SETTINGS.jobs }
   };
 }
 
@@ -55,7 +57,8 @@ function normalizeSettings(input: MaybeSettings): Settings {
     db,
     paths: { ...DEFAULT_SETTINGS.paths, ...(base.paths ?? {}) },
     test: { ...DEFAULT_SETTINGS.test, ...(base.test ?? {}) },
-    grundner: { ...DEFAULT_SETTINGS.grundner, ...(base.grundner ?? {}) }
+    grundner: { ...DEFAULT_SETTINGS.grundner, ...(base.grundner ?? {}) },
+    jobs: { ...DEFAULT_SETTINGS.jobs, ...(base.jobs ?? {}) }
   };
 }
 
@@ -66,7 +69,8 @@ function mergeSettingsInternal(base: Settings, update: MaybeSettings): Settings 
     db: { ...base.db, ...(partial.db ?? {}) },
     paths: { ...base.paths, ...(partial.paths ?? {}) },
     test: { ...base.test, ...(partial.test ?? {}) },
-    grundner: { ...base.grundner, ...(partial.grundner ?? {}) }
+    grundner: { ...base.grundner, ...(partial.grundner ?? {}) },
+    jobs: { ...base.jobs, ...(partial.jobs ?? {}) }
   });
 }
 

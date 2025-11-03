@@ -12,6 +12,19 @@ import type { RowSelectionState } from '@tanstack/react-table';
 
 const numberFormatter = new Intl.NumberFormat(undefined, { useGrouping: false });
 
+// Percent widths normalized in GlobalTable
+const ALLOCATED_COL_PCT = {
+  typeData: 7,
+  customerId: 14,
+  folder: 18,
+  ncfile: 16,
+  dimensions: 14,
+  status: 9,
+  stock: 7,
+  available: 7,
+  allocatedAt: 8,
+} as const;
+
 function formatNumber(value: number | null | undefined): string {
   if (value == null) return 'N/A';
   return numberFormatter.format(value);
@@ -90,7 +103,7 @@ export function AllocatedMaterialPage() {
         return value != null ? String(value) : 'N/A';
       },
       sortingFn: 'basic',
-      meta: { widthClass: 'w-[70px]' }
+      meta: { widthPercent: ALLOCATED_COL_PCT.typeData, minWidthPx: 70 }
     },
     // 2) Customer ID
     {
@@ -98,7 +111,8 @@ export function AllocatedMaterialPage() {
       header: 'Customer ID',
       accessorKey: 'customerId',
       cell: (info) => info.getValue<string | null>() ?? 'N/A',
-      sortingFn: 'alphanumeric'
+      sortingFn: 'alphanumeric',
+      meta: { widthPercent: ALLOCATED_COL_PCT.customerId, minWidthPx: 140 }
     },
     // 3) Folder
     {
@@ -107,7 +121,7 @@ export function AllocatedMaterialPage() {
       accessorKey: 'folder',
       cell: (info) => info.getValue<string | null>() ?? 'N/A',
       sortingFn: 'alphanumeric',
-      meta: { widthClass: 'w-[320px]' }
+      meta: { widthPercent: ALLOCATED_COL_PCT.folder, minWidthPx: 180 }
     },
     // 4) NC File
     {
@@ -115,7 +129,8 @@ export function AllocatedMaterialPage() {
       header: 'NC File',
       accessorKey: 'ncfile',
       cell: (info) => info.getValue<string | null>() ?? 'N/A',
-      sortingFn: 'alphanumeric'
+      sortingFn: 'alphanumeric',
+      meta: { widthPercent: ALLOCATED_COL_PCT.ncfile, minWidthPx: 160 }
     },
     // 5) Dimensions
     {
@@ -123,7 +138,8 @@ export function AllocatedMaterialPage() {
       header: 'Dimensions (LxWxT)',
       accessorFn: (row) => formatDimensions(row),
       cell: (info) => info.getValue<string>(),
-      sortingFn: 'alphanumeric'
+      sortingFn: 'alphanumeric',
+      meta: { widthPercent: ALLOCATED_COL_PCT.dimensions, minWidthPx: 140 }
     },
     // 6) Status
     {
@@ -131,7 +147,8 @@ export function AllocatedMaterialPage() {
       header: 'Status',
       accessorFn: (row) => (row.jobLocked ? 2 : 1),
       cell: ({ row }) => (row.original.jobLocked ? 'Locked' : 'Pre-Reserved'),
-      sortingFn: 'basic'
+      sortingFn: 'basic',
+      meta: { widthPercent: ALLOCATED_COL_PCT.status, minWidthPx: 110 }
     },
     // 7) Stock
     {
@@ -139,7 +156,8 @@ export function AllocatedMaterialPage() {
       header: 'Stock',
       accessorKey: 'stock',
       cell: (info) => formatNumber(info.getValue<number | null>()),
-      sortingFn: 'basic'
+      sortingFn: 'basic',
+      meta: { widthPercent: ALLOCATED_COL_PCT.stock, minWidthPx: 80 }
     },
     // 8) Available
     {
@@ -147,7 +165,8 @@ export function AllocatedMaterialPage() {
       header: 'Available',
       accessorKey: 'stockAvailable',
       cell: (info) => formatNumber(info.getValue<number | null>()),
-      sortingFn: 'basic'
+      sortingFn: 'basic',
+      meta: { widthPercent: ALLOCATED_COL_PCT.available, minWidthPx: 80 }
     },
     // 9) Allocated Date
     {
@@ -155,7 +174,8 @@ export function AllocatedMaterialPage() {
       header: 'Allocated Date',
       accessorKey: 'allocatedAt',
       cell: (info) => formatTimestamp(info.getValue<string | null>()),
-      sortingFn: 'datetime'
+      sortingFn: 'datetime',
+      meta: { widthPercent: ALLOCATED_COL_PCT.allocatedAt, minWidthPx: 140 }
     }
   ], []);
 

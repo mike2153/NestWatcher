@@ -238,7 +238,7 @@ export function HistoryPage() {
           <span>From</span>
           <input
             type="date"
-            className="border rounded px-2 py-1"
+            className="border rounded px-2 py-1 min-w-[12rem]"
             value={filters.from}
             onChange={(e) => setFilters((prev) => ({ ...prev, from: e.target.value }))}
           />
@@ -247,7 +247,7 @@ export function HistoryPage() {
           <span>To</span>
           <input
             type="date"
-            className="border rounded px-2 py-1"
+            className="border rounded px-2 py-1 min-w-[12rem]"
             value={filters.to}
             onChange={(e) => setFilters((prev) => ({ ...prev, to: e.target.value }))}
           />

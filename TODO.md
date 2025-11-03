@@ -9,7 +9,7 @@ Scope: Jobs table behavior, message rules, and archive/rerun flows. Each item in
 - UI: No default hiding; keep existing filters working. Sorting and selection should continue to behave.
 
 Acceptance
-- Jobs with `CNC_FINISH` and `NESTPICK_COMPLETE` appear in `/jobs` list.
+- Jobs with `CNC_FINISH` and `NESTPICK_COMPLETE` appear in `/jobs` list. - Taking into account the machine setting for Nestpick enabled.
 - Row count and pagination still function; auto-refresh preserves visibility.
 
 Implementation Notes

@@ -36,6 +36,7 @@ export function AppLayout() {
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [copyingDiagnostics, setCopyingDiagnostics] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [restartingWatchers, setRestartingWatchers] = useState(false);
   const [logList, setLogList] = useState<DiagnosticsLogSummary[]>([]);
   const [logListLoading, setLogListLoading] = useState(false);
   const [logSelectedFile, setLogSelectedFile] = useState<string | null>(null);
@@ -373,6 +374,25 @@ export function AppLayout() {
     setCopyingDiagnostics(false);
   };
 
+  const handleRestartWatchers = async () => {
+    if (!confirm('Restart all watchers? This will temporarily stop monitoring until watchers reinitialize.')) {
+      return;
+    }
+    setRestartingWatchers(true);
+    setCopyFeedback(null);
+    const res = await window.api.diagnostics.restartWatchers();
+    if (!res.ok) {
+      setCopyFeedback({ type: 'error', message: `Restart failed: ${res.error.message}` });
+      setRestartingWatchers(false);
+      return;
+    }
+    setCopyFeedback({
+      type: 'success',
+      message: 'Watchers restarted successfully. Monitoring will resume shortly.'
+    });
+    setRestartingWatchers(false);
+  };
+
   const alarmBadgeClass = cn(
     'inline-flex min-w-[1.5rem] items-center justify-center rounded-full px-1.5 text-xs font-medium',
     hasActiveAlarms ? 'bg-red-500 text-white' : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-100'
@@ -488,6 +508,13 @@ export function AppLayout() {
           <div className="flex items-center justify-between border-b px-3 py-2">
             <div className="text-sm font-semibold">Diagnostics</div>
             <div className="flex items-center gap-2">
+              <button
+                className="text-xs rounded border px-2 py-1 bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100"
+                onClick={handleRestartWatchers}
+                disabled={restartingWatchers}
+              >
+                {restartingWatchers ? 'Restarting...' : 'Restart Watchers'}
+              </button>
               <button
                 className="text-xs rounded border px-2 py-1"
                 onClick={handleCopyDiagnostics}

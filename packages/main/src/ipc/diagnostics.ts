@@ -3,6 +3,7 @@ import { ok, err } from 'neverthrow';
 import type { AppError, CopyDiagnosticsResult, DiagnosticsLogSummary, DiagnosticsLogTailRes, DiagnosticsLogStreamReq } from '../../../shared/src';
 import { DiagnosticsLogTailReq, DiagnosticsLogStreamReq as DiagnosticsLogStreamReqSchema } from '../../../shared/src';
 import { getDiagnosticsSnapshot, subscribeDiagnostics, buildDiagnosticsCopyPayload, listDiagnosticsLogs, getDiagnosticsLogTail, subscribeLogStream } from '../services/diagnostics';
+import { restartWatchers } from '../services/watchers';
 import { logger } from '../logger';
 import { createAppError } from './errors';
 import { registerResultHandler } from './result';
@@ -154,6 +155,22 @@ export function registerDiagnosticsIpc() {
       logSubscribers.delete(id);
     }
     return ok<null, AppError>(null);
+  });
+
+  registerResultHandler('diagnostics:restart-watchers', async () => {
+    try {
+      logger.info('diagnostics: watchers restart requested via IPC');
+      const result = await restartWatchers();
+      if (result.ok) {
+        return ok<{ ok: true }, AppError>({ ok: true });
+      } else {
+        return err(createAppError('WATCHERS_RESTART_FAILED', result.error ?? 'Unknown error'));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error({ error }, 'diagnostics: watchers restart failed');
+      return err(createAppError('WATCHERS_RESTART_FAILED', message));
+    }
   });
 }
 

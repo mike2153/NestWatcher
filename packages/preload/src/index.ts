@@ -209,6 +209,7 @@ const api = {
   diagnostics: {
     get: () => invokeResult<DiagnosticsSnapshot>('diagnostics:get'),
     copy: () => invokeResult<CopyDiagnosticsResult>('diagnostics:copy'),
+    restartWatchers: () => invokeResult<{ ok: true }>('diagnostics:restart-watchers'),
     listLogs: () => invokeResult<DiagnosticsLogsRes>('diagnostics:logs:list'),
     logTail: (req: DiagnosticsLogTailReq) =>
       invokeResult<DiagnosticsLogTailRes>('diagnostics:logs:tail', req),

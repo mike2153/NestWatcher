@@ -253,3 +253,63 @@ export async function shutdownWatchers(): Promise<void> {
     }
   });
 }
+
+export async function restartWatchers(): Promise<{ ok: boolean; error?: string }> {
+  try {
+    logger.info('watchers: manual restart requested');
+
+    // Gracefully shutdown current worker if running
+    const current = worker;
+    if (current) {
+      worker = null;
+
+      await new Promise<void>((resolve) => {
+        let finished = false;
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          resolve();
+        };
+
+        const timeout = setTimeout(() => {
+          logger.warn('watchers: restart shutdown timeout, forcing termination');
+          current.terminate().then(finish, finish);
+        }, 3_000);
+
+        current.once('exit', () => {
+          clearTimeout(timeout);
+          finish();
+        });
+
+        try {
+          const message: MainToWatcherMessage = { type: 'shutdown', reason: 'manual-restart' };
+          current.postMessage(message);
+        } catch (err) {
+          logger.warn({ err }, 'watchers: error during restart shutdown');
+          clearTimeout(timeout);
+          current.terminate().then(finish, finish);
+        }
+      });
+    }
+
+    // Clear restart timer if any
+    if (restartTimer) {
+      clearTimeout(restartTimer);
+      restartTimer = null;
+    }
+
+    // Small delay to ensure clean shutdown
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Spawn new worker
+    spawnWorker();
+
+    logger.info('watchers: manual restart completed');
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    logger.error({ err }, 'watchers: manual restart failed');
+    recordWorkerError('watchers-restart', err);
+    return { ok: false, error: message };
+  }
+}

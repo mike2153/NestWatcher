@@ -40,7 +40,8 @@ export const SettingsSchema = z.object({
     processedJobsRoot: z.string().default(''),
     autoPacCsvDir: z.string().default(''),
     grundnerFolderPath: z.string().default(''),
-  }).default({ processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '' }),
+    archiveRoot: z.string().default(''),
+  }).default({ processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '' }),
   test: z.object({
     testDataFolderPath: z.string().default(''),
     useTestDataMode: z.boolean().default(false),
@@ -48,7 +49,11 @@ export const SettingsSchema = z.object({
   }).default({ testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' }),
   grundner: z.object({
     reservedAdjustmentMode: z.enum(['delta', 'absolute']).default('delta')
-  }).default({ reservedAdjustmentMode: 'delta' })
+  }).default({ reservedAdjustmentMode: 'delta' }),
+  jobs: z.object({
+    completedJobsTimeframe: z.enum(['1day', '3days', '7days', '1month', 'all']).default('7days'),
+    statusFilter: z.array(z.enum(['pending', 'processing', 'complete'])).default(['pending', 'processing', 'complete'])
+  }).default({ completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] })
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -79,7 +84,8 @@ export const JobsListFilter = z.object({
   thickness: z.string().optional(),
   status: z.enum(['all', 'cut', 'uncut']).optional(),
   statusIn: z.array(JobStatus).optional(),
-  machineId: z.number().int().optional()
+  machineId: z.number().int().optional(),
+  completedTimeframe: z.enum(['1day', '3days', '7days', '1month', 'all']).optional()
 });
 
 export const JobsListReq = z.object({

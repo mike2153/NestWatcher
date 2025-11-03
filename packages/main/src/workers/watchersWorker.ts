@@ -21,6 +21,7 @@ import { normalizeTelemetryPayload } from './telemetryParser';
 import type { WatcherWorkerToMainMessage, MainToWatcherMessage } from './watchersMessages';
 import { ingestProcessedJobsRoot } from '../services/ingest';
 import { appendProductionListDel } from '../services/nestpick';
+import { archiveCompletedJob } from '../services/archive';
 
 const { access, copyFile, readFile, readdir, rename, stat, unlink, open } = fsp;
 
@@ -1001,16 +1002,34 @@ async function handleAutoPacCsv(path: string) {
 
       if (lifecycle.ok && to === 'CNC_FINISH') {
         await forwardToNestpick(base, job, machineForJob, machines);
-        const fallbackNc = base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
-        emitAppMessage(
-          'cnc.completion',
-          {
-            ncFile: displayNcName(job.ncfile, fallbackNc),
-            folder: job.folder ?? '',
-            machineName: machineForJob.name ?? (machineId != null ? `Machine ${machineId}` : 'Unknown machine')
-          },
-          'autopac'
-        );
+        // Only emit CNC completion message if machine doesn't have Nestpick capability
+        if (!machineForJob.nestpickEnabled) {
+          const fallbackNc = base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
+          emitAppMessage(
+            'cnc.completion',
+            {
+              ncFile: displayNcName(job.ncfile, fallbackNc),
+              folder: job.folder ?? '',
+              machineName: machineForJob.name ?? (machineId != null ? `Machine ${machineId}` : 'Unknown machine')
+            },
+            'autopac'
+          );
+
+          // Archive completed job files for non-Nestpick machines
+          logger.info({ jobKey: job.key, status: 'CNC_FINISH', folder: job.folder }, 'watcher: archiving completed job');
+          const arch = await archiveCompletedJob({
+            jobKey: job.key,
+            jobFolder: job.folder,
+            ncfile: job.ncfile,
+            status: 'CNC_FINISH',
+            sourceFiles: []
+          });
+          if (!arch.ok) {
+            logger.warn({ jobKey: job.key, error: arch.error }, 'watcher: archive failed');
+          } else {
+            logger.info({ jobKey: job.key, archiveDir: arch.archivedPath }, 'watcher: archive complete');
+          }
+        }
       }
       if (lifecycle.ok) {
         processedAny = true;
@@ -1072,9 +1091,43 @@ async function handleNestpickProcessed(machine: Machine, path: string) {
       if (lifecycle.ok) {
         await appendJobEvent(job.key, 'nestpick:complete', { file: path }, machine.machineId);
         processedAny = true;
+
+        // Archive completed job files
+        logger.info({ jobKey: job.key, status: 'NESTPICK_COMPLETE', folder: job.folder }, 'watcher: archiving completed job');
+        const arch = await archiveCompletedJob({
+          jobKey: job.key,
+          jobFolder: job.folder,
+          ncfile: job.ncfile,
+          status: 'NESTPICK_COMPLETE',
+          sourceFiles: [] // Files will be identified from the job folder
+        });
+        if (!arch.ok) {
+          logger.warn({ jobKey: job.key, error: arch.error }, 'watcher: archive failed');
+        } else {
+          logger.info({ jobKey: job.key, archiveDir: arch.archivedPath }, 'watcher: archive complete');
+        }
+
+        // Emit Nestpick completion message for machines with Nestpick capability
+        if (machine.nestpickEnabled) {
+          const fallbackNc = base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
+          emitAppMessage(
+            'nestpick.completion',
+            {
+              ncFile: displayNcName(job.ncfile, fallbackNc),
+              folder: job.folder ?? '',
+              machineName: machine.name ?? (machine.machineId != null ? `Machine ${machine.machineId}` : 'Unknown machine')
+            },
+            'nestpick-processed'
+          );
+        }
       }
     }
-    await moveToArchive(path, join(machine.nestpickFolder, 'archive'));
+    // Check if file still exists before trying to move it (may have been moved by another process)
+    if (await fileExists(path)) {
+      await moveToArchive(path, join(machine.nestpickFolder, 'archive'));
+    } else {
+      logger.warn({ file: path }, 'watcher: processed file already moved/deleted, skipping archive');
+    }
     recordWatcherEvent(nestpickProcessedWatcherName(machine), {
       label: nestpickProcessedWatcherLabel(machine),
       message: `Processed ${basename(path)}`
@@ -1155,6 +1208,36 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
         if (!lifecycle.ok) {
           const previous = 'previousStatus' in lifecycle ? lifecycle.previousStatus : undefined;
           logger.warn({ jobKey: job.key, base, previousStatus: previous }, 'watcher: unstack lifecycle not progressed');
+        } else {
+          // Archive completed job files
+          logger.info({ jobKey: job.key, status: 'NESTPICK_COMPLETE', folder: job.folder }, 'watcher: archiving completed job');
+          const arch = await archiveCompletedJob({
+            jobKey: job.key,
+            jobFolder: job.folder,
+            ncfile: job.ncfile,
+            status: 'NESTPICK_COMPLETE',
+            sourceFiles: []
+          });
+          if (!arch.ok) {
+            logger.warn({ jobKey: job.key, error: arch.error }, 'watcher: archive failed');
+          } else {
+            logger.info({ jobKey: job.key, archiveDir: arch.archivedPath }, 'watcher: archive complete');
+          }
+
+          // Emit Nestpick completion message for machines with Nestpick capability
+          if (machine.nestpickEnabled) {
+            const fallbackNc = base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
+            emitAppMessage(
+              'nestpick.completion',
+              {
+                ncFile: displayNcName(job.ncfile, fallbackNc),
+                folder: job.folder ?? '',
+                machineName: machine.name ?? (machine.machineId != null ? `Machine ${machine.machineId}` : 'Unknown machine'),
+                pallet: sourcePlaceValue
+              },
+              'nestpick-unstack'
+            );
+          }
         }
         processedAny = true;
       } else {
@@ -1162,8 +1245,13 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
       }
     }
     const archiveDir = join(machine.nestpickFolder, 'archive');
-    await moveToArchive(path, archiveDir);
-    logger.info({ file: path, archiveDir, processedAny }, 'watcher: unstack archived');
+    // Check if file still exists before trying to move it (may have been moved by another process)
+    if (await fileExists(path)) {
+      await moveToArchive(path, archiveDir);
+      logger.info({ file: path, archiveDir, processedAny }, 'watcher: unstack archived');
+    } else {
+      logger.warn({ file: path, archiveDir }, 'watcher: unstack file already moved/deleted, skipping archive');
+    }
 
     if (unmatched.length) {
       postMessageToMain({

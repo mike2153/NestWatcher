@@ -9,7 +9,17 @@ import type {
 } from '../../../shared/src';
 import { cn } from '../utils/cn';
 import { Card, CardContent } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { GlobalTable } from '@/components/table/GlobalTable';
+import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
+import type { ColumnDef } from '@tanstack/react-table';
+
+// Percent widths for the dashboard jobs table
+const DASH_COLS_PCT = {
+  key: 34,
+  machine: 26,
+  material: 20,
+  status: 20,
+} as const;
 
 const ACTIVE_STATUSES: NonNullable<JobsListReq['filter']['statusIn']> = [
   'STAGED',
@@ -120,6 +130,69 @@ export function DashboardPage() {
     }
   }
 
+  const columns = useMemo<ColumnDef<JobRow>[]>(() => [
+    { accessorKey: 'key', header: 'Key', meta: { widthPercent: DASH_COLS_PCT.key, minWidthPx: 200 } },
+    {
+      id: 'machine',
+      header: 'Machine',
+      meta: { widthPercent: DASH_COLS_PCT.machine, minWidthPx: 160 },
+      cell: ({ row }) => (
+        row.original.machineId != null ? (
+          (() => {
+            const id = row.original.machineId!;
+            const name = machineNameById.get(id) ?? id;
+            const issues: MachineHealthEntry[] = [
+              ...(machineIssuesById.get(id) ?? []),
+              ...(machineIssuesById.get('global') ?? [])
+            ]
+              .slice()
+              .sort((a, b) => {
+                const sev = (s: MachineHealthEntry['severity']) => (s === 'critical' ? 2 : s === 'warning' ? 1 : 0);
+                const d = sev(b.severity) - sev(a.severity);
+                if (d) return d;
+                return b.lastUpdatedAt.localeCompare(a.lastUpdatedAt);
+              });
+            return (
+              <div className="flex items-center gap-2">
+                <span>{String(name)}</span>
+                {issues.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1">
+                    {issues.slice(0, 2).map((issue) => (
+                      <span
+                        key={issue.id}
+                        className={cn(
+                          'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-white',
+                          issue.severity === 'critical'
+                            ? 'bg-red-600'
+                            : issue.severity === 'warning'
+                            ? 'bg-amber-600'
+                            : 'bg-slate-500'
+                        )}
+                        title={`${healthLabel(issue.code)} — ${issue.message}`}
+                      >
+                        <span className={cn('h-1.5 w-1.5 rounded-full', severityDotClass(issue.severity))} />
+                        <span>{healthLabel(issue.code)}</span>
+                      </span>
+                    ))}
+                    {issues.length > 2 && (
+                      <span className="text-[10px] text-muted-foreground">+{issues.length - 2} more</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        )
+      )
+    },
+    { accessorKey: 'material', header: 'Material', meta: { widthPercent: DASH_COLS_PCT.material, minWidthPx: 140 }, cell: ({ getValue }) => getValue<string | null>() ?? '-' },
+    { accessorKey: 'status', header: 'Status', meta: { widthPercent: DASH_COLS_PCT.status, minWidthPx: 120 }, cell: ({ getValue }) => getValue<string | null>() ?? '-' }
+  ], [machineIssuesById, machineNameById]);
+
+  const table = useReactTable({ data: jobs, columns, getCoreRowModel: getCoreRowModel(), enableColumnResizing: false });
+
   return (
     <div className="space-y-4 w-full">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -136,77 +209,8 @@ export function DashboardPage() {
             <div className="text-sm text-muted-foreground">No active jobs found.</div>
           ) : (
             <Card className="overflow-hidden">
-              <CardContent className="px-6 py-2">
-                <Table aria-label="Active jobs pending processing">
-                  <caption className="sr-only">Table showing active jobs with their key, machine, material, and status</caption>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead scope="col">Key</TableHead>
-                      <TableHead scope="col">Machine</TableHead>
-                      <TableHead scope="col">Material</TableHead>
-                      <TableHead scope="col">Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {jobs.map((job) => (
-                      <TableRow key={job.key}>
-                        <TableCell className="py-1 pr-2">{job.key}</TableCell>
-                        <TableCell className="py-1 pr-2">
-                        {job.machineId != null ? (
-                          (() => {
-                            const id = job.machineId!;
-                            const name = machineNameById.get(id) ?? id;
-                            const issues: MachineHealthEntry[] = [
-                              ...(machineIssuesById.get(id) ?? []),
-                              ...(machineIssuesById.get('global') ?? [])
-                            ]
-                              .slice()
-                              .sort((a, b) => {
-                                const sev = (s: MachineHealthEntry['severity']) => (s === 'critical' ? 2 : s === 'warning' ? 1 : 0);
-                                const d = sev(b.severity) - sev(a.severity);
-                                if (d) return d;
-                                return b.lastUpdatedAt.localeCompare(a.lastUpdatedAt);
-                              });
-                            return (
-                              <div className="flex items-center gap-2">
-                                <span>{String(name)}</span>
-                                {issues.length > 0 && (
-                                  <div className="flex flex-wrap items-center gap-1">
-                                    {issues.slice(0, 2).map((issue) => (
-                                      <span
-                                        key={issue.id}
-                                        className={cn(
-                                          'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-white',
-                                          issue.severity === 'critical'
-                                            ? 'bg-red-600'
-                                            : issue.severity === 'warning'
-                                            ? 'bg-amber-600'
-                                            : 'bg-slate-500'
-                                        )}
-                                        title={`${healthLabel(issue.code)} GÇö ${issue.message}`}
-                                      >
-                                        <span className={cn('h-1.5 w-1.5 rounded-full', severityDotClass(issue.severity))} />
-                                        <span>{healthLabel(issue.code)}</span>
-                                      </span>
-                                    ))}
-                                    {issues.length > 2 && (
-                                      <span className="text-[10px] text-muted-foreground">+{issues.length - 2} more</span>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()
-                        ) : (
-                          '-'
-                        )}
-                        </TableCell>
-                        <TableCell className="py-1 pr-2">{job.material ?? '-'}</TableCell>
-                        <TableCell className="py-1">{job.status}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              <CardContent className="px-4 py-2">
+                <GlobalTable table={table} density="compact" maxHeight="360px" />
               </CardContent>
             </Card>
           )}

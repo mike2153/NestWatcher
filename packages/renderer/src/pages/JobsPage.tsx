@@ -4,8 +4,9 @@ import {
   getCoreRowModel,
   getSortedRowModel,
   useReactTable,
+  getExpandedRowModel,
 } from '@tanstack/react-table';
-import type { ColumnDef, ColumnSizingState, RowSelectionState, SortingState } from '@tanstack/react-table';
+import type { ColumnDef, ColumnSizingState, RowSelectionState, SortingState, ExpandedState } from '@tanstack/react-table';
 import type {
   DiagnosticsSnapshot,
   JobEvent,
@@ -17,6 +18,7 @@ import type {
   MachineHealthEntry,
   MachineHealthCode
 } from '../../../shared/src';
+import type { Settings } from '../../../shared/src';
 import { JOB_STATUS_VALUES } from '../../../shared/src';
 import { cn } from '../utils/cn';
 import { GlobalTable } from '@/components/table/GlobalTable';
@@ -32,11 +34,20 @@ import {
   ContextMenuSubContent
 } from '@/components/ui/context-menu';
 import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription
+} from '@/components/ui/sheet';
+import {
   Filter,
   FilterX,
-  Eye,
-  EyeOff,
-  RefreshCw
+  RefreshCw,
+  ChevronRight,
+  ChevronDown,
+  ChevronsDown,
+  ChevronsRight
 } from 'lucide-react';
 
 const COLUMN_SIZING_KEY = 'jobs:columnSizing';
@@ -45,18 +56,52 @@ const AUTO_REFRESH_INTERVAL_KEY = 'jobs:autoRefreshInterval';
 const DEFAULT_LIMIT = 200;
 const HISTORY_LIMIT = 200;
 
+// Type for grouped table rows
+type TableRow = JobRow | FolderGroupRow;
+
+function isFolderGroupRow(row: TableRow): row is FolderGroupRow {
+  return (row as FolderGroupRow)._type === 'folder-group';
+}
+
+function isJobRow(row: TableRow): row is JobRow {
+  return !isFolderGroupRow(row);
+}
+type FolderGroupRow = {
+  _type: 'folder-group';
+  folder: string;
+  subRows: JobRow[];
+};
+
+// Configure target percent widths for Jobs table columns. Values do not need to sum to 100;
+// they will be normalized at render time. Adjust here to tweak layout globally.
+const JOBS_COLUMN_WIDTHS_PCT: Record<string, number> = {
+  folder: 14,
+  ncfile: 12,
+  material: 8,
+  parts: 5,
+  size: 10,
+  dateadded: 12,
+  preReserved: 6,
+  locked: 6,
+  status: 11,
+  processingSeconds: 10,
+  machineId: 8,
+};
+
+type StatusGroup = 'pending' | 'processing' | 'complete';
+
 type FiltersState = {
-  statusQuick: NonNullable<JobsListReq['filter']['status']>;
-  statuses: JobStatus[];
+  statusGroups: StatusGroup[];
   materials: string[];
   machineId?: number;
+  completedTimeframe: '1day' | '3days' | '7days' | '1month' | 'all';
 };
 
 const defaultFilters: FiltersState = {
-  statusQuick: 'all',
-  statuses: [],
+  statusGroups: ['pending', 'processing', 'complete'],
   materials: [],
-  machineId: undefined
+  machineId: undefined,
+  completedTimeframe: '7days'
 };
 
 function formatTimestamp(value: string) {
@@ -71,6 +116,64 @@ function formatTimestamp(value: string) {
   const ampm = h >= 12 ? 'pm' : 'am';
   h = h % 12; if (h === 0) h = 12;
   return `${day} ${mon} ${year} ${h}:${m}${ampm}`;
+}
+
+function formatEventName(eventType: string): string {
+  // Convert event type to user-friendly format
+  // Examples: "autopac:cnc_finish" -> "AutoPAC CNC Finish"
+  //           "nestpick:forwarded" -> "Nestpick Forwarded"
+  //           "lifecycle:staged" -> "Lifecycle Staged"
+
+  const parts = eventType.split(':');
+  const formatted = parts.map(part => {
+    // Split by underscore and capitalize each word
+    return part
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
+  }).join(': ');
+
+  return formatted;
+}
+
+function formatPayload(payload: unknown): React.ReactNode {
+  if (payload == null) return null;
+  if (typeof payload !== 'object') return String(payload);
+
+  const obj = payload as Record<string, unknown>;
+  const entries = Object.entries(obj);
+
+  if (entries.length === 0) return null;
+
+  // Format as key-value pairs
+  return (
+    <div className="space-y-1">
+      {entries.map(([key, value]) => {
+        // Format key to be more readable
+        const formattedKey = key
+          .replace(/([A-Z])/g, ' $1')
+          .replace(/^./, str => str.toUpperCase())
+          .trim();
+
+        // Format value based on type
+        let formattedValue: string;
+        if (value == null) {
+          formattedValue = '-';
+        } else if (typeof value === 'object') {
+          formattedValue = JSON.stringify(value);
+        } else {
+          formattedValue = String(value);
+        }
+
+        return (
+          <div key={key} className="text-xs">
+            <span className="text-muted-foreground">{formattedKey}:</span>{' '}
+            <span className="font-medium">{formattedValue}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function formatStatusLabel(value: string) {
@@ -137,6 +240,7 @@ export function JobsPage() {
   const [search, setSearch] = useState('');
   const [sorting, setSorting] = useState<SortingState>([{ id: 'dateadded', desc: true }]);
   const [filters, setFilters] = useState<FiltersState>({ ...defaultFilters });
+  const [settings, setSettings] = useState<Settings | null>(null);
   const [filterOptions, setFilterOptions] = useState<JobsFiltersRes['options']>({ materials: [], statuses: JOB_STATUS_VALUES });
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [columnSizing, _setColumnSizing] = useState<ColumnSizingState>(loadColumnSizing);
@@ -157,7 +261,9 @@ export function JobsPage() {
   const [historyEvents, setHistoryEvents] = useState<JobEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  const [historyOpen, setHistoryOpen] = useState(true);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [historyJobKey, setHistoryJobKey] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<ExpandedState>({});
   const isRefreshingRef = useRef(false);
 
   useEffect(() => {
@@ -195,6 +301,26 @@ export function JobsPage() {
   }, []);
 
   useEffect(() => {
+    (async () => {
+      try {
+        const res = await window.api.settings.get();
+        if (res.ok) {
+          setSettings(res.value);
+          // Initialize filters from settings
+          if (res.value.jobs?.statusFilter) {
+            setFilters(prev => ({
+              ...prev,
+              statusGroups: res.value.jobs.statusFilter
+            }));
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load settings', err);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     window.api.diagnostics
       .get()
@@ -227,6 +353,24 @@ export function JobsPage() {
     })();
   }, []);
 
+  const statusGroupsToStatuses = useCallback((groups: StatusGroup[]): JobStatus[] => {
+    const statuses: JobStatus[] = [];
+
+    if (groups.includes('pending')) {
+      statuses.push('PENDING');
+    }
+
+    if (groups.includes('processing')) {
+      statuses.push('STAGED', 'LOAD_FINISH', 'LABEL_FINISH', 'FORWARDED_TO_NESTPICK');
+    }
+
+    if (groups.includes('complete')) {
+      statuses.push('CNC_FINISH', 'NESTPICK_COMPLETE');
+    }
+
+    return statuses;
+  }, []);
+
   const refresh = useCallback(async (override?: { filters?: FiltersState; search?: string; sorting?: SortingState }) => {
     if (isRefreshingRef.current) return;
     isRefreshingRef.current = true;
@@ -237,12 +381,16 @@ export function JobsPage() {
       const filterState = override?.filters ?? filters;
       const searchValue = override?.search ?? search;
       const filter: JobsListReq['filter'] = {
-        status: filterState.statusQuick,
-        machineId: filterState.machineId
+        machineId: filterState.machineId,
+        completedTimeframe: filterState.completedTimeframe
       };
-      if (filterState.statuses.length) {
-        filter.statusIn = filterState.statuses as JobsListReq['filter']['statusIn'];
+
+      // Convert status groups to actual statuses
+      const statuses = statusGroupsToStatuses(filterState.statusGroups);
+      if (statuses.length > 0 && statuses.length < JOB_STATUS_VALUES.length) {
+        filter.statusIn = statuses as JobsListReq['filter']['statusIn'];
       }
+
       if (filterState.materials.length) {
         filter.materialIn = [...filterState.materials];
       }
@@ -267,7 +415,7 @@ export function JobsPage() {
       setLoading(false);
       isRefreshingRef.current = false;
     }
-  }, [filters, search, sorting]);
+  }, [filters, search, sorting, statusGroupsToStatuses]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -281,17 +429,48 @@ export function JobsPage() {
     return () => window.clearInterval(id);
   }, [autoRefreshEnabled, autoRefreshInterval, refresh]);
 
+  // Group jobs by folder
+  const displayData = useMemo<TableRow[]>(() => {
+    const grouped = new Map<string, JobRow[]>();
+
+    for (const job of data) {
+      const folderKey = job.folder || '__no_folder__';
+      const list = grouped.get(folderKey) || [];
+      list.push(job);
+      grouped.set(folderKey, list);
+    }
+
+    const result: TableRow[] = [];
+    for (const [folderKey, jobs] of grouped.entries()) {
+      const folderGroup: FolderGroupRow = {
+        _type: 'folder-group',
+        folder: folderKey === '__no_folder__' ? '' : folderKey,
+        subRows: jobs
+      };
+      result.push(folderGroup);
+    }
+
+    return result;
+  }, [data]);
+
   useEffect(() => {
     setRowSelection((prev) => {
       if (!Object.keys(prev).length) return prev;
-      const available = new Set(data.map((row) => row.key));
+      const available = new Set<string>();
+      for (const row of displayData) {
+        if ('_type' in row && row._type === 'folder-group') {
+          for (const job of row.subRows) {
+            available.add(job.key);
+          }
+        }
+      }
       const next: RowSelectionState = {};
       for (const key of Object.keys(prev)) {
         if (available.has(key)) next[key] = true;
       }
       return next;
     });
-  }, [data]);
+  }, [displayData]);
 
   // No custom overlay state to sync
 
@@ -352,45 +531,77 @@ export function JobsPage() {
     return parts.length ? parts[parts.length - 1] : value;
   }, []);
 
-  const columns = useMemo<ColumnDef<JobRow>[]>(() => [
+  const columns = useMemo<ColumnDef<TableRow>[]>(() => [
     {
       accessorKey: 'folder',
       header: 'Folder',
-      meta: { widthClass: 'w-[180px]' },
-      cell: ({ getValue }) => {
+      meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.folder, minWidthPx: 140 },
+      cell: ({ row, getValue }) => {
+        const rowData = row.original;
+        if ('_type' in rowData && rowData._type === 'folder-group') {
+          return (
+            <div className="flex items-center gap-2 font-medium">
+              <button
+                onClick={(e) => { e.stopPropagation(); row.toggleExpanded(); }}
+                className="inline-flex items-center"
+              >
+                {row.getIsExpanded() ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </button>
+              {formatFolderLabel(rowData.folder)}
+            </div>
+          );
+        }
         const value = getValue<string | null>();
-        return formatFolderLabel(value);
+        const isSubRow = row.depth > 0;
+        return (
+          <div className={isSubRow ? 'pl-8' : ''}>
+            {formatFolderLabel(value)}
+          </div>
+        );
       }
     },
     {
       accessorKey: 'ncfile',
       header: 'NC File',
-      meta: { widthClass: 'w-[180px]' }
+      meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.ncfile, minWidthPx: 140 },
+      cell: ({ row, getValue }) => {
+        if ('_type' in row.original && row.original._type === 'folder-group') return '';
+        return getValue();
+      }
     },
     {
       accessorKey: 'material',
       header: 'Material',
-      meta: { widthClass: 'w-[120px]' }
+      meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.material, minWidthPx: 100 },
+      cell: ({ row, getValue }) => {
+        if ('_type' in row.original && row.original._type === 'folder-group') return '';
+        return getValue();
+      }
     },
     {
       accessorKey: 'parts',
       header: 'Parts',
-      meta: { widthClass: 'w-[80px]' }
+      meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.parts, minWidthPx: 60 },
+      cell: ({ row, getValue }) => {
+        if ('_type' in row.original && row.original._type === 'folder-group') return '';
+        return getValue();
+      }
     },
     {
       id: 'size',
       header: 'Dimensions (LxWxT)',
-      accessorFn: (row) => formatJobDimensions(row),
+      accessorFn: (row) => (isFolderGroupRow(row) ? '' : formatJobDimensions(row)),
       cell: (info) => info.getValue<string>(),
       sortingFn: 'alphanumeric',
-      meta: { widthClass: 'w-[160px]' }
+      meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.size, minWidthPx: 120 }
     },
-    
+
     {
       accessorKey: 'dateadded',
       header: 'Date Added',
-      meta: { widthClass: 'w-[180px]' },
-      cell: ({ getValue }) => {
+      meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.dateadded, minWidthPx: 150 },
+      cell: ({ row, getValue }) => {
+        if ('_type' in row.original && row.original._type === 'folder-group') return '';
         const value = getValue<string | null>();
         if (!value) return '';
         return formatTimestamp(value);
@@ -399,20 +610,27 @@ export function JobsPage() {
     {
       accessorKey: 'preReserved',
       header: 'Pre-Reserved',
-      meta: { widthClass: 'w-[80px]' },
-      cell: ({ getValue }) => (getValue<boolean>() ? 'Yes' : 'No')
+      meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.preReserved, minWidthPx: 70 },
+      cell: ({ row, getValue }) => {
+        if ('_type' in row.original && row.original._type === 'folder-group') return '';
+        return getValue<boolean>() ? 'Yes' : 'No';
+      }
     },
     {
       accessorKey: 'locked',
       header: 'Locked',
-      meta: { widthClass: 'w-[80px]' },
-      cell: ({ getValue }) => (getValue<boolean>() ? 'Yes' : 'No')
+      meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.locked, minWidthPx: 70 },
+      cell: ({ row, getValue }) => {
+        if ('_type' in row.original && row.original._type === 'folder-group') return '';
+        return getValue<boolean>() ? 'Yes' : 'No';
+      }
     },
     {
       accessorKey: 'status',
       header: 'Status',
-      meta: { widthClass: 'w-[120px]' },
-      cell: ({ getValue }) => {
+      meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.status, minWidthPx: 110 },
+      cell: ({ row, getValue }) => {
+        if ('_type' in row.original && row.original._type === 'folder-group') return '';
         const raw = getValue<JobStatus | null>();
         if (!raw) return <span className="text-muted-foreground">-</span>;
         return (
@@ -425,9 +643,10 @@ export function JobsPage() {
     {
       accessorKey: 'processingSeconds',
       header: 'Processing Time',
-      meta: { widthClass: 'w-[120px]' },
+      meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.processingSeconds, minWidthPx: 110 },
       enableSorting: false,
-      cell: ({ getValue }) => {
+      cell: ({ row, getValue }) => {
+        if ('_type' in row.original && row.original._type === 'folder-group') return '';
         const seconds = getValue<number | null | undefined>();
         if (seconds == null || !Number.isFinite(seconds)) return '';
         const total = Math.max(0, Math.floor(seconds));
@@ -443,9 +662,10 @@ export function JobsPage() {
     {
       accessorKey: 'machineId',
       header: 'Machine',
-      meta: { widthClass: 'w-[160px]' },
+      meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.machineId, minWidthPx: 130 },
       enableSorting: false,
-      cell: ({ getValue }) => {
+      cell: ({ row, getValue }) => {
+        if ('_type' in row.original && row.original._type === 'folder-group') return '';
         const id = getValue<number | null>();
         if (id == null) return '';
         const name = machineNameById.get(id) ?? String(id);
@@ -494,33 +714,44 @@ export function JobsPage() {
   ], [formatFolderLabel, machineNameById, machineIssuesById]);
 
   const table = useReactTable({
-    data,
+    data: displayData,
     columns,
     state: {
       sorting,
-      rowSelection
+      rowSelection,
+      expanded
     },
-    getRowId: (row) => row.key,
+    getRowId: (row) => (isFolderGroupRow(row) ? `folder:${row.folder}` : row.key),
+    getSubRows: (row) => (isFolderGroupRow(row) ? row.subRows : undefined),
     onSortingChange: setSorting,
     onRowSelectionChange: setRowSelection,
+    onExpandedChange: setExpanded,
     // use percentage widths; disable column resizing
-    enableRowSelection: true,
+    enableRowSelection: (row) => isJobRow(row.original),
+    enableSubRowSelection: false,
     enableColumnResizing: false,
     enableMultiSort: false,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel()
+    getSortedRowModel: getSortedRowModel(),
+    getExpandedRowModel: getExpandedRowModel()
   });
 
   const selectedRows = table.getSelectedRowModel().rows;
-  const selectedKeys = selectedRows.map((row) => row.original.key);
-  const anyPreReserved = selectedRows.some((row) => row.original.preReserved);
-  const anyNotPreReserved = selectedRows.some((row) => !row.original.preReserved);
-  const anyLocked = selectedRows.some((row) => row.original.locked);
-  const anyUnlocked = selectedRows.some((row) => !row.original.locked);
+  const selectedKeys = selectedRows
+    .map((row) => row.original)
+    .filter(isJobRow)
+    .map((r) => r.key);
+  const selectedJobs = selectedRows
+    .map((row) => row.original)
+    .filter(isJobRow);
+  const anyPreReserved = selectedJobs.some((job) => job.preReserved);
+  const anyNotPreReserved = selectedJobs.some((job) => !job.preReserved);
+  const anyLocked = selectedJobs.some((job) => job.locked);
+  const anyUnlocked = selectedJobs.some((job) => !job.locked);
   const allPendingForSelection =
-    selectedRows.length > 0 && selectedRows.every((row) => row.original.status === 'PENDING');
-  const historyKey = selectedKeys[0] ?? null;
+    selectedJobs.length > 0 && selectedJobs.every((job) => job.status === 'PENDING');
   const canBulkReserve = anyNotPreReserved && allPendingForSelection;
+  const isSingleSelection = selectedKeys.length === 1;
 
 
   const performReserve = useCallback(
@@ -663,22 +894,40 @@ export function JobsPage() {
   }, []);
 
   useEffect(() => {
-    if (!historyKey) {
-      setHistoryEvents([]);
-      setHistoryError(null);
+    if (!historyJobKey || !historyModalOpen) {
       return;
     }
-    if (!historyOpen) return;
-    loadHistory(historyKey);
-  }, [historyKey, historyOpen, loadHistory]);
-
-  useEffect(() => {
-    if (historyKey) setHistoryOpen(true);
-  }, [historyKey]);
+    loadHistory(historyJobKey);
+  }, [historyJobKey, historyModalOpen, loadHistory]);
 
   const refreshHistory = useCallback(() => {
-    if (historyKey) loadHistory(historyKey);
-  }, [historyKey, loadHistory]);
+    if (historyJobKey) loadHistory(historyJobKey);
+  }, [historyJobKey, loadHistory]);
+
+  const openHistoryModal = useCallback((key: string) => {
+    setHistoryJobKey(key);
+    setHistoryModalOpen(true);
+  }, []);
+
+  const updateStatusFilter = useCallback(async (newGroups: StatusGroup[]) => {
+    setFilters(prev => ({ ...prev, statusGroups: newGroups }));
+
+    // Save to settings (persist full object)
+    if (settings) {
+      try {
+        const res = await window.api.settings.save({
+          ...settings,
+          jobs: {
+            ...settings.jobs,
+            statusFilter: newGroups
+          }
+        });
+        if (res.ok) setSettings(res.value);
+      } catch (err) {
+        console.error('Failed to save status filter to settings', err);
+      }
+    }
+  }, [settings]);
 
   const handleRowContextMenu = useCallback((event: MouseEvent<HTMLTableRowElement>, rowKey: string) => {
     // If nothing is selected, select the row being right-clicked
@@ -689,7 +938,7 @@ export function JobsPage() {
 
   // Context menu open/close handled by ContextMenu component
 
-  const statusOptions = filterOptions?.statuses?.length ? filterOptions.statuses : JOB_STATUS_VALUES;
+  // const statusOptions = filterOptions?.statuses?.length ? filterOptions.statuses : JOB_STATUS_VALUES; // unused
   const materialOptions = filterOptions?.materials || [];
 
   return (
@@ -700,7 +949,9 @@ export function JobsPage() {
           {listError && (
             <div className="border border-red-300 bg-red-50 text-red-700 text-sm px-3 py-1.5 rounded">{listError}</div>
           )}
-          <p className="text-sm text-muted-foreground">{loading ? 'Refreshing…' : `${data.length} rows`}</p>
+          <p className="text-sm text-muted-foreground">
+            {loading ? 'Refreshing…' : `${data.length} job${data.length === 1 ? '' : 's'} in ${displayData.length} folder${displayData.length === 1 ? '' : 's'}`}
+          </p>
         </div>
       </div>
 
@@ -711,35 +962,33 @@ export function JobsPage() {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search all fields" className="border rounded px-2 py-1 w-48"
+            placeholder="Search all fields"
+            className="border rounded px-2 py-1 min-w-[12rem]"
           />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-xs font-medium">Quick Status</span>
-          <select
-            value={filters.statusQuick}
-            onChange={(e) => setFilters((prev) => ({ ...prev, statusQuick: e.target.value as FiltersState['statusQuick'] }))}
-            className="border rounded px-2 py-1 w-48"
-          >
-            <option value="all">All</option>
-            <option value="cut">Cut</option>
-            <option value="uncut">Uncut</option>
-          </select>
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-xs font-medium">Status</span>
           <select
-            value={filters.statuses[0] ?? ''}
+            value={
+              filters.statusGroups.length === 3 ? 'all' :
+              filters.statusGroups.length === 1 ? filters.statusGroups[0] :
+              // If a mixed selection somehow exists, treat as 'all' for display
+              'all'
+            }
             onChange={(e) => {
-              const v = e.target.value as '' | JobStatus;
-              setFilters((prev) => ({ ...prev, statuses: v ? [v] : [] }));
+              const v = e.target.value as 'all' | StatusGroup;
+              if (v === 'all') {
+                updateStatusFilter(['pending', 'processing', 'complete']);
+              } else {
+                updateStatusFilter([v]);
+              }
             }}
             className="border rounded px-2 py-1 w-48"
           >
-            <option value="">Any</option>
-            {statusOptions.map((status) => (
-              <option key={status} value={status}>{formatStatusLabel(status)}</option>
-            ))}
+            <option value="all">All</option>
+            <option value="pending">Pending</option>
+            <option value="processing">Processing</option>
+            <option value="complete">Complete</option>
           </select>
         </label>
         <label className="flex flex-col gap-1 text-sm">
@@ -771,12 +1020,27 @@ export function JobsPage() {
             ))}
           </select>
         </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-xs font-medium">Completed Jobs</span>
+          <select
+            value={filters.completedTimeframe}
+            onChange={(e) => setFilters((prev) => ({ ...prev, completedTimeframe: e.target.value as FiltersState['completedTimeframe'] }))}
+            className="border rounded px-2 py-1 w-48"
+          >
+            <option value="1day">Last 24 Hours</option>
+            <option value="3days">Last 3 Days</option>
+            <option value="7days">Last 7 Days</option>
+            <option value="1month">Last Month</option>
+            <option value="all">All Time</option>
+          </select>
+        </label>
         <div className="flex gap-2">
           <Button
             variant="default"
             size="sm"
             onClick={() => refresh()}
             disabled={loading}
+            className="text-white"
           >
             <Filter />
             Apply
@@ -784,17 +1048,52 @@ export function JobsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
+            onClick={async () => {
               const reset = { ...defaultFilters };
               setSearch('');
               setFilters(reset);
               setRowSelection({});
+
+              // Save reset status filter to settings
+              if (settings) {
+                try {
+                  const res = await window.api.settings.save({
+                    ...settings,
+                    jobs: {
+                      ...settings.jobs,
+                      statusFilter: reset.statusGroups
+                    }
+                  });
+                  if (res.ok) setSettings(res.value);
+                } catch (err) {
+                  console.error('Failed to save reset filter to settings', err);
+                }
+              }
+
               refresh({ filters: reset, search: '' });
             }}
             disabled={loading}
           >
             <FilterX />
             Reset
+          </Button>
+          <Button
+            variant={table.getIsAllRowsExpanded() ? "default" : "outline"}
+            size="sm"
+            onClick={() => table.toggleAllRowsExpanded()}
+            title={table.getIsAllRowsExpanded() ? "Collapse all folder groups" : "Expand all folder groups"}
+          >
+            {table.getIsAllRowsExpanded() ? (
+              <>
+                <ChevronsRight className="h-4 w-4" />
+                Collapse All
+              </>
+            ) : (
+              <>
+                <ChevronsDown className="h-4 w-4" />
+                Expand All
+              </>
+            )}
           </Button>
         </div>
         <div className="ml-auto flex gap-2 items-end" />
@@ -807,8 +1106,30 @@ export function JobsPage() {
           <div>
             <GlobalTable
               table={table}
-              onRowContextMenu={(row, event) => handleRowContextMenu(event, row.original.key)}
+              onRowContextMenu={(row, event) => {
+                const original = row.original;
+                if (!isJobRow(original)) return;
+                handleRowContextMenu(event, original.key);
+              }}
               preventContextMenuDefault={false}
+              getRowClassName={(row) => {
+                const original = row.original;
+                if ('_type' in original && original._type === 'folder-group') {
+                  return 'bg-muted/30 font-semibold cursor-pointer';
+                }
+                // Sub-row styling
+                if (row.depth > 0) {
+                  return 'bg-muted/10';
+                }
+                return undefined;
+              }}
+              onRowClick={(row) => {
+                const original = row.original;
+                if ('_type' in original && original._type === 'folder-group') {
+                  row.toggleExpanded();
+                }
+              }}
+              toggleRowSelectionOnClick={true}
             />
           </div>
         </ContextMenuTrigger>
@@ -833,6 +1154,11 @@ export function JobsPage() {
             disabled={actionBusy || !anyLocked}
           >Unlock</ContextMenuItem>
           <ContextMenuSeparator />
+          <ContextMenuItem
+            onSelect={() => isSingleSelection && openHistoryModal(selectedKeys[0])}
+            disabled={!isSingleSelection}
+          >View History</ContextMenuItem>
+          <ContextMenuSeparator />
           <ContextMenuSub>
             <ContextMenuSubTrigger inset>Select Machine</ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-44">
@@ -846,66 +1172,59 @@ export function JobsPage() {
         </ContextMenuContent>
       </ContextMenu>
 
-      {historyKey && historyOpen && (
-        <div className="rounded border bg-background shadow-lg p-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-semibold">History ? {historyKey}</h2>
-              <p className="text-xs text-muted-foreground">
-                {historyLoading ? 'Loading?' : historyError ? historyError : `${historyEvents?.length || 0} event(s)`}
+      <Sheet open={historyModalOpen} onOpenChange={setHistoryModalOpen}>
+        <SheetContent side="right" className="w-[600px] sm:w-[700px] overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Job History</SheetTitle>
+            <SheetDescription>
+              {historyJobKey && `History for ${historyJobKey}`}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                {historyLoading ? 'Loading...' : historyError ? historyError : `${historyEvents?.length || 0} event(s)`}
               </p>
-            </div>
-            <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={refreshHistory} disabled={historyLoading}>
-                <RefreshCw />
+                <RefreshCw className="h-4 w-4" />
                 Refresh
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setHistoryOpen(false)}>
-                <EyeOff />
-                Hide
-              </Button>
+            </div>
+            <div className="border border-[var(--table-border)] rounded bg-table overflow-auto max-h-[calc(100vh-200px)]">
+              <table className="w-full text-sm text-[var(--table-text)] table-text">
+                <thead className="bg-[var(--table-header-bg)] text-[var(--table-text)] sticky top-0 z-10">
+                  <tr className="border-b-0">
+                    <th className="text-left px-3 py-2 font-medium w-[160px]">Time</th>
+                    <th className="text-left px-3 py-2 font-medium w-[200px]">Event</th>
+                    <th className="text-left px-3 py-2 font-medium w-[120px]">Machine</th>
+                    <th className="text-left px-3 py-2 font-medium">Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historyEvents
+                    .filter(event => !event.eventType.startsWith('status:'))
+                    .map((event) => (
+                      <tr key={event.id} className="border-b border-[var(--table-row-border)]">
+                        <td className="px-3 py-2 whitespace-nowrap align-top">{formatTimestamp(event.createdAt)}</td>
+                        <td className="px-3 py-2 align-top">{formatEventName(event.eventType)}</td>
+                        <td className="px-3 py-2 align-top">{event.machineId != null ? machineNameById.get(event.machineId) ?? event.machineId : ''}</td>
+                        <td className="px-3 py-2 align-top">
+                          {formatPayload(event.payload)}
+                        </td>
+                      </tr>
+                    ))
+                  }
+                  {!(historyEvents.filter(e => !e.eventType.startsWith('status:')).length) && !historyLoading && !historyError && (
+                    <tr>
+                      <td colSpan={4} className="px-3 py-3 text-center text-muted-foreground">No history events.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
-          <div className="max-h-60 overflow-auto border border-[var(--table-border)] rounded bg-table">
-            <table className="w-full text-xs text-[var(--table-text)] table-text">
-              <thead className="bg-[var(--table-header-bg)] text-[var(--table-text)] sticky top-0 z-10">
-                <tr className="border-b-0">
-                  <th className="text-left px-2 py-1 font-medium">Time</th>
-                  <th className="text-left px-2 py-1 font-medium">Event</th>
-                  <th className="text-left px-2 py-1 font-medium">Machine</th>
-                  <th className="text-left px-2 py-1 font-medium">Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                {historyEvents.map((event) => (
-                  <tr key={event.id} className="border-b border-[var(--table-row-border)]">
-                    <td className="px-2 py-1 whitespace-nowrap">{formatTimestamp(event.createdAt)}</td>
-                    <td className="px-2 py-1 font-mono text-[11px]">{event.eventType}</td>
-                    <td className="px-2 py-1">{event.machineId != null ? machineNameById.get(event.machineId) ?? event.machineId : ''}</td>
-                    <td className="px-2 py-1">
-                      <pre className="whitespace-pre-wrap text-[11px]">{event.payload != null ? JSON.stringify(event.payload, null, 2) : ''}</pre>
-                    </td>
-                  </tr>
-                ))}
-                {!(historyEvents?.length) && !historyLoading && !historyError && (
-                  <tr>
-                    <td colSpan={4} className="px-2 py-3 text-center text-muted-foreground">No history events.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {historyKey && !historyOpen && (
-        <div className="text-xs text-muted-foreground">
-          History hidden ? <Button variant="link" size="sm" onClick={() => setHistoryOpen(true)}>
-            <Eye />
-            show for {historyKey}
-          </Button>
-        </div>
-      )}
+        </SheetContent>
+      </Sheet>
 
       {/* Context menu handled above */}
     </div>

@@ -31,11 +31,11 @@ type PathsState = Settings['paths'];
 type TestState = Settings['test'];
 type GrundnerState = Settings['grundner'];
 
-const DEFAULT_PATHS: PathsState = { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '' };
+const DEFAULT_PATHS: PathsState = { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '' };
 const DEFAULT_TEST: TestState = { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' };
 const DEFAULT_GRUNDNER: GrundnerState = { reservedAdjustmentMode: 'delta' };
 
-type PathFieldKey = 'processedJobsRoot' | 'autoPacCsvDir' | 'grundnerFolderPath' | 'testDataFolderPath';
+type PathFieldKey = 'processedJobsRoot' | 'autoPacCsvDir' | 'grundnerFolderPath' | 'archiveRoot' | 'testDataFolderPath';
 type PathValidationState = { status: 'empty' | 'checking' | 'valid' | 'invalid'; message: string };
 type MachinePathKey = 'machineApJobfolder' | 'machineNestpickFolder';
 
@@ -51,6 +51,7 @@ function createInitialPathStatus(): Record<PathFieldKey, PathValidationState> {
     processedJobsRoot: { status: 'empty', message: 'Not set' },
     autoPacCsvDir: { status: 'empty', message: 'Not set' },
     grundnerFolderPath: { status: 'empty', message: 'Not set' },
+    archiveRoot: { status: 'empty', message: 'Not set' },
     testDataFolderPath: { status: 'empty', message: 'Not set' }
   };
 }
@@ -280,6 +281,7 @@ export function SettingsPage() {
       { key: 'processedJobsRoot', value: paths.processedJobsRoot ?? '', required: true },
       { key: 'autoPacCsvDir', value: paths.autoPacCsvDir ?? '', required: false },
       { key: 'grundnerFolderPath', value: paths.grundnerFolderPath ?? '', required: false },
+      { key: 'archiveRoot', value: paths.archiveRoot ?? '', required: false },
       { key: 'testDataFolderPath', value: testState.testDataFolderPath ?? '', required: false }
     ];
     setPathStatus((prev) => {
@@ -329,7 +331,7 @@ export function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [paths.processedJobsRoot, paths.autoPacCsvDir, paths.grundnerFolderPath, testState.testDataFolderPath]);
+  }, [paths.processedJobsRoot, paths.autoPacCsvDir, paths.grundnerFolderPath, paths.archiveRoot, testState.testDataFolderPath]);
 
   useEffect(() => {
     if (!editingMachine) {
@@ -419,7 +421,8 @@ export function SettingsPage() {
       db: values as DbSettings,
       paths,
       test: testState,
-      grundner: grundnerState
+      grundner: grundnerState,
+      jobs: { completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] }
     };
     const saved = extractResult<Settings>(await window.api.settings.save(next));
     if (!saved.ok) {
@@ -774,6 +777,26 @@ export function SettingsPage() {
             </div>
             <span className={`text-xs ${PATH_STATUS_COLORS[pathStatus.grundnerFolderPath.status]}`}>
               {pathStatus.grundnerFolderPath.message}
+            </span>
+          </label>
+          <label className="form-label">
+            <span>Archive Root</span>
+            <div className="flex gap-2 items-start">
+              <input
+                className={`form-input w-full ${statusBorderClass(pathStatus.archiveRoot)}`}
+                value={paths.archiveRoot}
+                onChange={(e) => setPaths({ ...paths, archiveRoot: e.target.value })}
+              />
+              <button
+                type="button"
+                className="border rounded px-2"
+                onClick={() => browseFolder((value) => setPaths((prev) => ({ ...prev, archiveRoot: value })), paths.archiveRoot)}
+              >
+                Browse
+              </button>
+            </div>
+            <span className={`text-xs ${PATH_STATUS_COLORS[pathStatus.archiveRoot.status]}`}>
+              {pathStatus.archiveRoot.message}
             </span>
           </label>
         </div>

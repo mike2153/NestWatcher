@@ -6,6 +6,20 @@ import {
 } from '@tanstack/react-table';
 import type { ColumnDef, SortingState } from '@tanstack/react-table';
 import { GlobalTable } from '@/components/table/GlobalTable';
+
+// Percent widths for Grundner table columns
+const GRUNDNER_COL_PCT = {
+  typeData: 8,
+  customerId: 16,
+  lengthMm: 8,
+  widthMm: 8,
+  thicknessMm: 8,
+  preReserved: 10,
+  stock: 10,
+  reservedStock: 10,
+  stockAvailable: 10,
+  lastUpdated: 12,
+} as const;
 import type { GrundnerListReq, GrundnerRow } from '../../../shared/src';
 function formatTimestamp(value: string) {
   const d = new Date(value);
@@ -192,78 +206,71 @@ export function GrundnerPage() {
     lastAutoRefreshAtRef.current = now;
     void load();
   }, [pendingAutoRefresh, editing, loading, load]);
+  // Percentage-based column widths; normalized automatically by GlobalTable
+
   const columns = useMemo<ColumnDef<GrundnerRow>[]>(() => [
     {
       id: 'typeData',
       accessorKey: 'typeData',
       header: 'Type',
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      size: 60,
-      meta: { widthClass: 'w-[100px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.typeData, minWidthPx: 80 }
     },
     {
       id: 'customerId',
       accessorKey: 'customerId',
       header: 'Customer ID',
       cell: (ctx) => ctx.getValue<string | null>() ?? '',
-      size: 260,
-      meta: { widthClass: 'w-[220px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.customerId, minWidthPx: 160 }
     },
     {
       id: 'lengthMm',
       accessorKey: 'lengthMm',
       header: 'Length',
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      size: 60,
-      meta: { widthClass: 'w-[60px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.lengthMm, minWidthPx: 60 }
     },
     {
       id: 'widthMm',
       accessorKey: 'widthMm',
       header: 'Width',
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      size: 110,
-      meta: { widthClass: 'w-[110px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.widthMm, minWidthPx: 80 }
     },
     {
       id: 'thicknessMm',
       accessorKey: 'thicknessMm',
       header: 'Thickness',
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      size: 110,
-      meta: { widthClass: 'w-[110px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.thicknessMm, minWidthPx: 80 }
     },
     {
       id: 'preReserved',
       accessorKey: 'preReserved',
       header: 'Pre-Reserved',
-      size: 120,
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      meta: { widthClass: 'w-[120px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.preReserved, minWidthPx: 100 }
     },
     {
       id: 'stock',
       accessorKey: 'stock',
       header: 'Stock',
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      size: 90,
-      meta: { widthClass: 'w-[90px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.stock, minWidthPx: 80 }
     },
     {
       id: 'reservedStock',
       accessorKey: 'reservedStock',
       header: 'Locked',
-      size: 120,
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      meta: { widthClass: 'w-[120px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.reservedStock, minWidthPx: 100 }
     },
     {
       id: 'stockAvailable',
       accessorKey: 'stockAvailable',
       header: 'Available',
-      size: 120,
       cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      meta: { widthClass: 'w-[120px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.stockAvailable, minWidthPx: 100 }
     },
     {
       id: 'lastUpdated',
@@ -273,8 +280,7 @@ export function GrundnerPage() {
         const v = ctx.getValue<string | null>();
         return v ? formatTimestamp(v) : '';
       },
-      size: 180,
-      meta: { widthClass: 'w-[180px]' }
+      meta: { widthPercent: GRUNDNER_COL_PCT.lastUpdated, minWidthPx: 140 }
     },
   ], []);
 
@@ -285,7 +291,7 @@ export function GrundnerPage() {
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    defaultColumn: { size: 120 }
+    enableColumnResizing: false
   });
 
   return (
