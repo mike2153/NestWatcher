@@ -24,6 +24,8 @@ function ContextMenuTriggerBase({ asChild = false, children }: { asChild?: boole
   if (!ctx) return <>{children}</>;
 
   const onContextMenu = (e: React.MouseEvent) => {
+    // Allow children to cancel opening by calling e.preventDefault()
+    if (e.defaultPrevented) return;
     // Prevent native menu so our menu stays open
     e.preventDefault();
     ctx.setPosition({ x: e.clientX, y: e.clientY });
