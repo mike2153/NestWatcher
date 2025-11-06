@@ -30,10 +30,12 @@ type FormValues = z.infer<typeof schema>;
 type PathsState = Settings['paths'];
 type TestState = Settings['test'];
 type GrundnerState = Settings['grundner'];
+type OrderingState = Settings['ordering'];
 
 const DEFAULT_PATHS: PathsState = { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '' };
 const DEFAULT_TEST: TestState = { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' };
 const DEFAULT_GRUNDNER: GrundnerState = { reservedAdjustmentMode: 'delta' };
+const DEFAULT_ORDERING: OrderingState = { includeReserved: false };
 
 type PathFieldKey = 'processedJobsRoot' | 'autoPacCsvDir' | 'grundnerFolderPath' | 'archiveRoot' | 'testDataFolderPath';
 type PathValidationState = { status: 'empty' | 'checking' | 'valid' | 'invalid'; message: string };
@@ -151,6 +153,7 @@ export function SettingsPage() {
   const [paths, setPaths] = useState<PathsState>(DEFAULT_PATHS);
   const [testState, setTestState] = useState<TestState>(DEFAULT_TEST);
   const [grundnerState, setGrundnerState] = useState<GrundnerState>(DEFAULT_GRUNDNER);
+  const [orderingState, setOrderingState] = useState<OrderingState>(DEFAULT_ORDERING);
   const [dbStatus, setDbStatus] = useState<DbStatus | null>(null);
   const [pathStatus, setPathStatus] = useState<Record<PathFieldKey, PathValidationState>>(() => createInitialPathStatus());
   const [machinePathStatus, setMachinePathStatus] = useState<Record<MachinePathKey, PathValidationState>>(() => createInitialMachinePathStatus());
@@ -253,6 +256,7 @@ export function SettingsPage() {
     setPaths(withDefaults(DEFAULT_PATHS, settings.paths));
     setTestState(withDefaults(DEFAULT_TEST, settings.test));
     setGrundnerState(withDefaults(DEFAULT_GRUNDNER, settings.grundner));
+    setOrderingState(withDefaults(DEFAULT_ORDERING, settings.ordering));
     await loadMachines();
   }, [loadMachines, reset]);
 
@@ -422,6 +426,7 @@ export function SettingsPage() {
       paths,
       test: testState,
       grundner: grundnerState,
+      ordering: orderingState,
       jobs: { completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] }
     };
     const saved = extractResult<Settings>(await window.api.settings.save(next));
@@ -853,6 +858,19 @@ export function SettingsPage() {
               <option value="absolute">absolute</option>
             </select>
           </label>
+          <div className="flex flex-col gap-1">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={orderingState.includeReserved}
+                onChange={(e) => setOrderingState({ includeReserved: e.target.checked })}
+              />
+              Include reserved stock in Ordering table
+            </label>
+            <p className="ml-6 text-xs text-muted-foreground">
+              When enabled, reserved and locked amounts are deducted from available stock.
+            </p>
+          </div>
         </div>
       </div>
 

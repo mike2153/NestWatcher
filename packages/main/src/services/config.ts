@@ -29,6 +29,7 @@ const DEFAULT_SETTINGS: Settings = {
   paths: { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '' },
   test: { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' },
   grundner: { reservedAdjustmentMode: 'delta' },
+  ordering: { includeReserved: false },
   jobs: { completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] }
 };
 
@@ -43,6 +44,7 @@ function cloneDefaults(): Settings {
     paths: { ...DEFAULT_SETTINGS.paths },
     test: { ...DEFAULT_SETTINGS.test },
     grundner: { ...DEFAULT_SETTINGS.grundner },
+    ordering: { ...DEFAULT_SETTINGS.ordering },
     jobs: { ...DEFAULT_SETTINGS.jobs }
   };
 }
@@ -58,6 +60,7 @@ function normalizeSettings(input: MaybeSettings): Settings {
     paths: { ...DEFAULT_SETTINGS.paths, ...(base.paths ?? {}) },
     test: { ...DEFAULT_SETTINGS.test, ...(base.test ?? {}) },
     grundner: { ...DEFAULT_SETTINGS.grundner, ...(base.grundner ?? {}) },
+    ordering: { ...DEFAULT_SETTINGS.ordering, ...(base.ordering ?? {}) },
     jobs: { ...DEFAULT_SETTINGS.jobs, ...(base.jobs ?? {}) }
   };
 }
@@ -70,6 +73,7 @@ function mergeSettingsInternal(base: Settings, update: MaybeSettings): Settings 
     paths: { ...base.paths, ...(partial.paths ?? {}) },
     test: { ...base.test, ...(partial.test ?? {}) },
     grundner: { ...base.grundner, ...(partial.grundner ?? {}) },
+    ordering: { ...base.ordering, ...(partial.ordering ?? {}) },
     jobs: { ...base.jobs, ...(partial.jobs ?? {}) }
   });
 }

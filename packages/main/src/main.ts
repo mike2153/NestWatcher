@@ -17,6 +17,7 @@ import { registerUiIpc } from './ipc/ui';
 import { registerGrundnerIpc } from './ipc/grundner';
 import { registerAllocatedMaterialIpc } from './ipc/allocatedMaterial';
 import { registerMessagesIpc } from './ipc/messages';
+import { registerOrderingIpc } from './ipc/ordering';
 import { initWatchers, shutdownWatchers } from './services/watchers';
 import { startDbWatchdog, stopDbWatchdog } from './services/dbWatchdog';
 import { logger } from './logger';
@@ -96,6 +97,7 @@ app.whenReady().then(async () => {
   registerGrundnerIpc();
   registerAllocatedMaterialIpc();
   registerMessagesIpc();
+  registerOrderingIpc();
 
   try {
     await initializeDiagnostics();

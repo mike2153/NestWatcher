@@ -5,7 +5,7 @@
 -- Dumped from database version 17.5
 -- Dumped by pg_dump version 17.5
 
--- Started on 2025-10-31 14:44:15
+-- Started on 2025-11-06 16:10:38
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -30,7 +30,7 @@ CREATE SCHEMA public;
 ALTER SCHEMA public OWNER TO pg_database_owner;
 
 --
--- TOC entry 5073 (class 0 OID 0)
+-- TOC entry 5082 (class 0 OID 0)
 -- Dependencies: 6
 -- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: pg_database_owner
 --
@@ -39,7 +39,7 @@ COMMENT ON SCHEMA public IS 'standard public schema';
 
 
 --
--- TOC entry 949 (class 1247 OID 25645)
+-- TOC entry 950 (class 1247 OID 25645)
 -- Name: job_status; Type: TYPE; Schema: public; Owner: postgres
 --
 
@@ -57,7 +57,7 @@ CREATE TYPE public.job_status AS ENUM (
 ALTER TYPE public.job_status OWNER TO postgres;
 
 --
--- TOC entry 946 (class 1247 OID 25198)
+-- TOC entry 947 (class 1247 OID 25198)
 -- Name: job_status_new; Type: TYPE; Schema: public; Owner: postgres
 --
 
@@ -75,7 +75,7 @@ CREATE TYPE public.job_status_new AS ENUM (
 ALTER TYPE public.job_status_new OWNER TO postgres;
 
 --
--- TOC entry 310 (class 1255 OID 33181)
+-- TOC entry 311 (class 1255 OID 33181)
 -- Name: jobs_set_load_finish_at(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -96,7 +96,7 @@ CREATE FUNCTION public.jobs_set_load_finish_at() RETURNS trigger
 ALTER FUNCTION public.jobs_set_load_finish_at() OWNER TO postgres;
 
 --
--- TOC entry 311 (class 1255 OID 33263)
+-- TOC entry 312 (class 1255 OID 33263)
 -- Name: notify_channel(); Type: FUNCTION; Schema: public; Owner: woodtron_user
 --
 
@@ -121,7 +121,7 @@ $$;
 ALTER FUNCTION public.notify_channel() OWNER TO woodtron_user;
 
 --
--- TOC entry 309 (class 1255 OID 24901)
+-- TOC entry 310 (class 1255 OID 24901)
 -- Name: set_updated_at(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -202,7 +202,7 @@ END) STORED,
 ALTER TABLE public.jobs OWNER TO postgres;
 
 --
--- TOC entry 5074 (class 0 OID 0)
+-- TOC entry 5083 (class 0 OID 0)
 -- Dependencies: 224
 -- Name: TABLE jobs; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -288,7 +288,7 @@ CREATE SEQUENCE public.grundner_id_seq
 ALTER SEQUENCE public.grundner_id_seq OWNER TO woodtron_user;
 
 --
--- TOC entry 5075 (class 0 OID 0)
+-- TOC entry 5084 (class 0 OID 0)
 -- Dependencies: 220
 -- Name: grundner_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: woodtron_user
 --
@@ -314,7 +314,7 @@ CREATE TABLE public.job_events (
 ALTER TABLE public.job_events OWNER TO postgres;
 
 --
--- TOC entry 5076 (class 0 OID 0)
+-- TOC entry 5085 (class 0 OID 0)
 -- Dependencies: 226
 -- Name: TABLE job_events; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -338,7 +338,7 @@ CREATE SEQUENCE public.job_events_event_id_seq
 ALTER SEQUENCE public.job_events_event_id_seq OWNER TO postgres;
 
 --
--- TOC entry 5077 (class 0 OID 0)
+-- TOC entry 5086 (class 0 OID 0)
 -- Dependencies: 225
 -- Name: job_events_event_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
@@ -461,7 +461,7 @@ CREATE TABLE public.machines (
 ALTER TABLE public.machines OWNER TO postgres;
 
 --
--- TOC entry 5078 (class 0 OID 0)
+-- TOC entry 5087 (class 0 OID 0)
 -- Dependencies: 223
 -- Name: TABLE machines; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -470,7 +470,7 @@ COMMENT ON TABLE public.machines IS 'Per-CNC config: PC/CNC IPs, AutoPac/Nestpic
 
 
 --
--- TOC entry 5079 (class 0 OID 0)
+-- TOC entry 5088 (class 0 OID 0)
 -- Dependencies: 223
 -- Name: COLUMN machines.ap_jobfolder; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -479,7 +479,7 @@ COMMENT ON COLUMN public.machines.ap_jobfolder IS 'Ready-To-Run / AutoPac intake
 
 
 --
--- TOC entry 5080 (class 0 OID 0)
+-- TOC entry 5089 (class 0 OID 0)
 -- Dependencies: 223
 -- Name: COLUMN machines.nestpick_folder; Type: COMMENT; Schema: public; Owner: postgres
 --
@@ -504,7 +504,7 @@ CREATE SEQUENCE public.machines_machine_id_seq
 ALTER SEQUENCE public.machines_machine_id_seq OWNER TO postgres;
 
 --
--- TOC entry 5081 (class 0 OID 0)
+-- TOC entry 5090 (class 0 OID 0)
 -- Dependencies: 222
 -- Name: machines_machine_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
@@ -513,7 +513,24 @@ ALTER SEQUENCE public.machines_machine_id_seq OWNED BY public.machines.machine_i
 
 
 --
--- TOC entry 4870 (class 2604 OID 24596)
+-- TOC entry 231 (class 1259 OID 33303)
+-- Name: ordering_status; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ordering_status (
+    grundner_id integer NOT NULL,
+    ordered boolean DEFAULT false NOT NULL,
+    ordered_by text,
+    ordered_at timestamp with time zone,
+    comments character varying(20),
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.ordering_status OWNER TO postgres;
+
+--
+-- TOC entry 4874 (class 2604 OID 24596)
 -- Name: grundner id; Type: DEFAULT; Schema: public; Owner: woodtron_user
 --
 
@@ -521,7 +538,7 @@ ALTER TABLE ONLY public.grundner ALTER COLUMN id SET DEFAULT nextval('public.gru
 
 
 --
--- TOC entry 4884 (class 2604 OID 24944)
+-- TOC entry 4888 (class 2604 OID 24944)
 -- Name: job_events event_id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -529,7 +546,7 @@ ALTER TABLE ONLY public.job_events ALTER COLUMN event_id SET DEFAULT nextval('pu
 
 
 --
--- TOC entry 4873 (class 2604 OID 24906)
+-- TOC entry 4877 (class 2604 OID 24906)
 -- Name: machines machine_id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -537,7 +554,7 @@ ALTER TABLE ONLY public.machines ALTER COLUMN machine_id SET DEFAULT nextval('pu
 
 
 --
--- TOC entry 4891 (class 2606 OID 16410)
+-- TOC entry 4897 (class 2606 OID 16410)
 -- Name: cncstats cncstats_pkey; Type: CONSTRAINT; Schema: public; Owner: woodtron_user
 --
 
@@ -546,7 +563,7 @@ ALTER TABLE ONLY public.cncstats
 
 
 --
--- TOC entry 4893 (class 2606 OID 24598)
+-- TOC entry 4899 (class 2606 OID 24598)
 -- Name: grundner grundner_pkey; Type: CONSTRAINT; Schema: public; Owner: woodtron_user
 --
 
@@ -555,7 +572,7 @@ ALTER TABLE ONLY public.grundner
 
 
 --
--- TOC entry 4895 (class 2606 OID 24600)
+-- TOC entry 4901 (class 2606 OID 24600)
 -- Name: grundner grundner_type_data_customer_id_key; Type: CONSTRAINT; Schema: public; Owner: woodtron_user
 --
 
@@ -564,7 +581,7 @@ ALTER TABLE ONLY public.grundner
 
 
 --
--- TOC entry 4909 (class 2606 OID 24949)
+-- TOC entry 4915 (class 2606 OID 24949)
 -- Name: job_events job_events_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -573,7 +590,7 @@ ALTER TABLE ONLY public.job_events
 
 
 --
--- TOC entry 4903 (class 2606 OID 24928)
+-- TOC entry 4909 (class 2606 OID 24928)
 -- Name: jobs jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -582,7 +599,7 @@ ALTER TABLE ONLY public.jobs
 
 
 --
--- TOC entry 4900 (class 2606 OID 24914)
+-- TOC entry 4906 (class 2606 OID 24914)
 -- Name: machines machines_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -591,7 +608,16 @@ ALTER TABLE ONLY public.machines
 
 
 --
--- TOC entry 4904 (class 1259 OID 33183)
+-- TOC entry 4918 (class 2606 OID 33311)
+-- Name: ordering_status ordering_status_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ordering_status
+    ADD CONSTRAINT ordering_status_pkey PRIMARY KEY (grundner_id);
+
+
+--
+-- TOC entry 4910 (class 1259 OID 33183)
 -- Name: idx_job_events_key_type_time; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -599,7 +625,7 @@ CREATE INDEX idx_job_events_key_type_time ON public.job_events USING btree (key,
 
 
 --
--- TOC entry 4905 (class 1259 OID 24962)
+-- TOC entry 4911 (class 1259 OID 24962)
 -- Name: job_events_created_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -607,7 +633,7 @@ CREATE INDEX job_events_created_idx ON public.job_events USING btree (created_at
 
 
 --
--- TOC entry 4906 (class 1259 OID 24960)
+-- TOC entry 4912 (class 1259 OID 24960)
 -- Name: job_events_key_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -615,7 +641,7 @@ CREATE INDEX job_events_key_idx ON public.job_events USING btree (key);
 
 
 --
--- TOC entry 4907 (class 1259 OID 24961)
+-- TOC entry 4913 (class 1259 OID 24961)
 -- Name: job_events_machine_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -623,7 +649,7 @@ CREATE INDEX job_events_machine_idx ON public.job_events USING btree (machine_id
 
 
 --
--- TOC entry 4910 (class 1259 OID 24963)
+-- TOC entry 4916 (class 1259 OID 24963)
 -- Name: job_events_type_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -631,7 +657,7 @@ CREATE INDEX job_events_type_idx ON public.job_events USING btree (event_type);
 
 
 --
--- TOC entry 4901 (class 1259 OID 24939)
+-- TOC entry 4907 (class 1259 OID 24939)
 -- Name: jobs_dates_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -639,7 +665,7 @@ CREATE INDEX jobs_dates_idx ON public.jobs USING btree (dateadded, staged_at, cu
 
 
 --
--- TOC entry 4896 (class 1259 OID 24918)
+-- TOC entry 4902 (class 1259 OID 24918)
 -- Name: machines_cnc_ip_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -647,7 +673,7 @@ CREATE INDEX machines_cnc_ip_idx ON public.machines USING btree (cnc_ip);
 
 
 --
--- TOC entry 4897 (class 1259 OID 24916)
+-- TOC entry 4903 (class 1259 OID 24916)
 -- Name: machines_name_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -655,7 +681,7 @@ CREATE INDEX machines_name_idx ON public.machines USING btree (name);
 
 
 --
--- TOC entry 4898 (class 1259 OID 24917)
+-- TOC entry 4904 (class 1259 OID 24917)
 -- Name: machines_pc_ip_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -663,7 +689,7 @@ CREATE INDEX machines_pc_ip_idx ON public.machines USING btree (pc_ip);
 
 
 --
--- TOC entry 4916 (class 2620 OID 33296)
+-- TOC entry 4925 (class 2620 OID 33296)
 -- Name: jobs trg_allocated_material_jobs; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -671,7 +697,7 @@ CREATE TRIGGER trg_allocated_material_jobs AFTER INSERT OR DELETE OR UPDATE OF p
 
 
 --
--- TOC entry 4914 (class 2620 OID 33295)
+-- TOC entry 4923 (class 2620 OID 33295)
 -- Name: grundner trg_grundner_changed; Type: TRIGGER; Schema: public; Owner: woodtron_user
 --
 
@@ -679,7 +705,7 @@ CREATE TRIGGER trg_grundner_changed AFTER INSERT OR DELETE OR UPDATE ON public.g
 
 
 --
--- TOC entry 4918 (class 2620 OID 33182)
+-- TOC entry 4927 (class 2620 OID 33182)
 -- Name: job_events trg_jobs_load_finish; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -687,7 +713,7 @@ CREATE TRIGGER trg_jobs_load_finish AFTER INSERT ON public.job_events FOR EACH R
 
 
 --
--- TOC entry 4917 (class 2620 OID 24977)
+-- TOC entry 4926 (class 2620 OID 24977)
 -- Name: jobs trg_jobs_updated; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -695,7 +721,7 @@ CREATE TRIGGER trg_jobs_updated BEFORE UPDATE ON public.jobs FOR EACH ROW EXECUT
 
 
 --
--- TOC entry 4915 (class 2620 OID 24976)
+-- TOC entry 4924 (class 2620 OID 24976)
 -- Name: machines trg_machines_updated; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -703,7 +729,7 @@ CREATE TRIGGER trg_machines_updated BEFORE UPDATE ON public.machines FOR EACH RO
 
 
 --
--- TOC entry 4912 (class 2606 OID 24950)
+-- TOC entry 4920 (class 2606 OID 24950)
 -- Name: job_events job_events_key_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -712,7 +738,7 @@ ALTER TABLE ONLY public.job_events
 
 
 --
--- TOC entry 4913 (class 2606 OID 24955)
+-- TOC entry 4921 (class 2606 OID 24955)
 -- Name: job_events job_events_machine_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -721,7 +747,7 @@ ALTER TABLE ONLY public.job_events
 
 
 --
--- TOC entry 4911 (class 2606 OID 24929)
+-- TOC entry 4919 (class 2606 OID 24929)
 -- Name: jobs jobs_machine_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -729,7 +755,16 @@ ALTER TABLE ONLY public.jobs
     ADD CONSTRAINT jobs_machine_id_fkey FOREIGN KEY (machine_id) REFERENCES public.machines(machine_id) ON DELETE SET NULL;
 
 
--- Completed on 2025-10-31 14:44:15
+--
+-- TOC entry 4922 (class 2606 OID 33312)
+-- Name: ordering_status ordering_status_grundner_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ordering_status
+    ADD CONSTRAINT ordering_status_grundner_id_fkey FOREIGN KEY (grundner_id) REFERENCES public.grundner(id) ON DELETE CASCADE;
+
+
+-- Completed on 2025-11-06 16:10:39
 
 --
 -- PostgreSQL database dump complete

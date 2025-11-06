@@ -112,6 +112,51 @@ function emitAppMessage(event: string, params?: Record<string, unknown>, source?
   });
 }
 
+type LifecycleMessageJob = {
+  folder: string | null;
+  ncfile: string | null;
+};
+
+function emitLifecycleStageMessage(
+  status: 'LOAD_FINISH' | 'LABEL_FINISH' | 'CNC_FINISH' | 'NESTPICK_COMPLETE',
+  job: LifecycleMessageJob,
+  fallbackBase: string,
+  machine: Machine | null | undefined,
+  source: string,
+  extras?: Record<string, unknown>
+) {
+  let key: string | null = null;
+  switch (status) {
+    case 'LOAD_FINISH':
+      key = 'status.load_finish';
+      break;
+    case 'LABEL_FINISH':
+      key = 'status.label_finish';
+      break;
+    case 'CNC_FINISH':
+      key = 'status.cnc_finish';
+      break;
+    case 'NESTPICK_COMPLETE':
+      key = 'status.nestpick_complete';
+      break;
+    default:
+      key = null;
+  }
+  if (!key) return;
+  const normalizedBase = fallbackBase.toLowerCase().endsWith('.nc') ? fallbackBase : `${fallbackBase}.nc`;
+  const machineName =
+    machine?.name ?? (machine?.machineId != null ? `Machine ${machine.machineId}` : 'Unknown machine');
+  const payload: Record<string, unknown> = {
+    ncFile: displayNcName(job.ncfile, normalizedBase),
+    folder: job.folder ?? '',
+    machineName
+  };
+  if (extras && Object.keys(extras).length) {
+    Object.assign(payload, extras);
+  }
+  emitAppMessage(key, payload, source);
+}
+
 function trackWatcher(watcher: FSWatcher) {
   fsWatchers.add(watcher);
   watcher.on('close', () => fsWatchers.delete(watcher));
@@ -1000,6 +1045,10 @@ async function handleAutoPacCsv(path: string) {
       });
       await appendJobEvent(job.key, `autopac:${to.toLowerCase()}`, { file: path, base }, machineId);
 
+      if (lifecycle.ok && machineForJob.nestpickEnabled && to) {
+        emitLifecycleStageMessage(to, job, base, machineForJob, 'autopac');
+      }
+
       if (lifecycle.ok && to === 'CNC_FINISH') {
         await forwardToNestpick(base, job, machineForJob, machines);
         // Only emit CNC completion message if machine doesn't have Nestpick capability
@@ -1107,18 +1156,8 @@ async function handleNestpickProcessed(machine: Machine, path: string) {
           logger.info({ jobKey: job.key, archiveDir: arch.archivedPath }, 'watcher: archive complete');
         }
 
-        // Emit Nestpick completion message for machines with Nestpick capability
         if (machine.nestpickEnabled) {
-          const fallbackNc = base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
-          emitAppMessage(
-            'nestpick.completion',
-            {
-              ncFile: displayNcName(job.ncfile, fallbackNc),
-              folder: job.folder ?? '',
-              machineName: machine.name ?? (machine.machineId != null ? `Machine ${machine.machineId}` : 'Unknown machine')
-            },
-            'nestpick-processed'
-          );
+          emitLifecycleStageMessage('NESTPICK_COMPLETE', job, base, machine, 'nestpick-processed');
         }
       }
     }
@@ -1224,19 +1263,10 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
             logger.info({ jobKey: job.key, archiveDir: arch.archivedPath }, 'watcher: archive complete');
           }
 
-          // Emit Nestpick completion message for machines with Nestpick capability
           if (machine.nestpickEnabled) {
-            const fallbackNc = base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
-            emitAppMessage(
-              'nestpick.completion',
-              {
-                ncFile: displayNcName(job.ncfile, fallbackNc),
-                folder: job.folder ?? '',
-                machineName: machine.name ?? (machine.machineId != null ? `Machine ${machine.machineId}` : 'Unknown machine'),
-                pallet: sourcePlaceValue
-              },
-              'nestpick-unstack'
-            );
+            const extras: Record<string, unknown> = {};
+            if (sourcePlaceValue) extras.pallet = sourcePlaceValue;
+            emitLifecycleStageMessage('NESTPICK_COMPLETE', job, base, machine, 'nestpick-unstack', extras);
           }
         }
         processedAny = true;

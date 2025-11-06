@@ -118,7 +118,8 @@ export async function archiveCompletedJob(options: ArchiveJobOptions): Promise<{
   archivedPath?: string;
   error?: string
 }> {
-  let { jobKey, jobFolder, status, sourceFiles = [] } = options;
+  const { jobKey, jobFolder, status } = options;
+  let sourceFiles = options.sourceFiles ?? [];
 
   // Only archive completed jobs
   if (status !== 'NESTPICK_COMPLETE' && status !== 'CNC_FINISH') {

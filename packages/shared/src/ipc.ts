@@ -50,6 +50,9 @@ export const SettingsSchema = z.object({
   grundner: z.object({
     reservedAdjustmentMode: z.enum(['delta', 'absolute']).default('delta')
   }).default({ reservedAdjustmentMode: 'delta' }),
+  ordering: z.object({
+    includeReserved: z.boolean().default(false)
+  }).default({ includeReserved: false }),
   jobs: z.object({
     completedJobsTimeframe: z.enum(['1day', '3days', '7days', '1month', 'all']).default('7days'),
     statusFilter: z.array(z.enum(['pending', 'processing', 'complete'])).default(['pending', 'processing', 'complete'])
@@ -411,6 +414,45 @@ export type AllocatedMaterialRow = z.infer<typeof AllocatedMaterialRow>;
 
 export const AllocatedMaterialListRes = z.object({ items: z.array(AllocatedMaterialRow) });
 export type AllocatedMaterialListRes = z.infer<typeof AllocatedMaterialListRes>;
+
+export const OrderingRow = z.object({
+  id: z.number().int().nullable(),
+  typeData: z.number().int().nullable(),
+  customerId: z.string().nullable(),
+  materialKey: z.string(),
+  materialLabel: z.string(),
+  required: z.number().int().nonnegative(),
+  lockedCount: z.number().int().nonnegative(),
+  stock: z.number().int().nullable(),
+  stockAvailable: z.number().int().nullable(),
+  reservedStock: z.number().int().nullable(),
+  effectiveAvailable: z.number().int().nonnegative(),
+  orderAmount: z.number().int().nonnegative(),
+  ordered: z.boolean(),
+  orderedBy: z.string().nullable(),
+  orderedAt: z.string().nullable(),
+  comments: z.string().nullable()
+});
+export type OrderingRow = z.infer<typeof OrderingRow>;
+
+export const OrderingListRes = z.object({
+  items: z.array(OrderingRow),
+  includeReserved: z.boolean(),
+  generatedAt: z.string()
+});
+export type OrderingListRes = z.infer<typeof OrderingListRes>;
+
+export const OrderingUpdateReq = z.object({
+  id: z.number().int(),
+  ordered: z.boolean().optional(),
+  comments: z.string().max(20).optional().nullable()
+});
+export type OrderingUpdateReq = z.infer<typeof OrderingUpdateReq>;
+
+export const OrderingExportRes = z.object({
+  savedPath: z.string().nullable()
+});
+export type OrderingExportRes = z.infer<typeof OrderingExportRes>;
 
 
 

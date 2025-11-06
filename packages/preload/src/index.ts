@@ -43,7 +43,11 @@ import type {
   TelemetrySummaryReq,
   TelemetrySummaryRes,
   AlarmsHistoryReq,
-  MessagesListRes
+  MessagesListRes,
+  OrderingListRes,
+  OrderingUpdateReq,
+  OrderingExportRes,
+  OrderingRow
 } from '../../shared/src';
 import { type ResultEnvelope } from '../../shared/src/result';
 
@@ -150,6 +154,12 @@ const api = {
         invokeResult<null>('allocatedMaterial:unsubscribe').catch(() => {});
       };
     }
+  },
+  ordering: {
+    list: () => invokeResult<OrderingListRes>('ordering:list'),
+    update: (input: OrderingUpdateReq) => invokeResult<OrderingRow>('ordering:update', input),
+    exportCsv: () => invokeResult<OrderingExportRes>('ordering:exportCsv'),
+    exportPdf: () => invokeResult<OrderingExportRes>('ordering:exportPdf')
   },
   messages: {
     list: () => invokeResult<MessagesListRes>('messages:list'),

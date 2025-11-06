@@ -151,8 +151,8 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
     presentKeys.add(key);
     const { material, size, thickness } = parseNc(nc);
     const parts = countParts(dir, baseNoExt);
-    const sql = `INSERT INTO public.jobs(key, folder, ncfile, material, parts, size, thickness, dateadded, updated_at)
-                   VALUES($1,$2,$3,$4,$5,$6,$7, now(), now())
+    const sql = `INSERT INTO public.jobs(key, folder, ncfile, material, parts, size, thickness, dateadded, updated_at, pre_reserved)
+                   VALUES($1,$2,$3,$4,$5,$6,$7, now(), now(), true)
                    ON CONFLICT (key) DO UPDATE SET
                      folder=EXCLUDED.folder,
                      ncfile=EXCLUDED.ncfile,
@@ -197,6 +197,31 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
       // Keep counters stable; treat failures as neither inserted nor updated
     }
   }
+
+  // Sync Grundner pre_reserved counts for all materials that had new jobs inserted
+  if (inserted > 0) {
+    const materialsToSync = new Set<string>();
+    for (const job of addedJobs) {
+      const nc = files.find(f => f.includes(job.ncFile));
+      if (nc) {
+        const { material } = parseNc(nc);
+        if (material && material.trim()) {
+          materialsToSync.add(material.trim());
+        }
+      }
+    }
+    if (materialsToSync.size > 0) {
+      try {
+        const { resyncGrundnerPreReservedForMaterial } = await import('../repo/jobsRepo');
+        for (const material of materialsToSync) {
+          await resyncGrundnerPreReservedForMaterial(material);
+        }
+      } catch (err) {
+        logger.warn({ err }, 'Failed to resync Grundner reserved counts after insertion');
+      }
+    }
+  }
+
   // Prune jobs that no longer exist on disk and are still PENDING
   // Once a job has moved beyond PENDING (pushed to production), keep it as historical record
   let pruned = 0;

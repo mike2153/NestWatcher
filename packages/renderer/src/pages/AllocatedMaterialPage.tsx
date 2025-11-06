@@ -1,58 +1,99 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getCoreRowModel,
+  getExpandedRowModel,
   getSortedRowModel,
   useReactTable
 } from '@tanstack/react-table';
-import type { ColumnDef, SortingState } from '@tanstack/react-table';
+import type { ColumnDef, SortingState, ExpandedState } from '@tanstack/react-table';
 import { GlobalTable } from '@/components/table/GlobalTable';
-import type { AllocatedMaterialRow, JobRow, JobsListReq, Machine } from '../../../shared/src';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, ContextMenuSeparator, ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent } from '@/components/ui/context-menu';
-import type { RowSelectionState } from '@tanstack/react-table';
+import type { AllocatedMaterialRow, Machine } from '../../../shared/src';
+import { ChevronRight, ChevronDown } from 'lucide-react';
 
 const numberFormatter = new Intl.NumberFormat(undefined, { useGrouping: false });
 
-// Percent widths normalized in GlobalTable
+// Hierarchical row types: Material → Folder → NC File
+type MaterialGroupRow = {
+  _type: 'material';
+  material: string;
+  typeData: number | null;
+  customerId: string | null;
+  preReservedCount: number;
+  lockedCount: number;
+  stock: number | null;
+  stockAvailable: number | null;
+  subRows: FolderGroupRow[];
+};
+
+type FolderGroupRow = {
+  _type: 'folder';
+  folder: string;
+  material: string;
+  preReservedCount: number;
+  lockedCount: number;
+  subRows: NCFileRow[];
+};
+
+type NCFileRow = {
+  _type: 'ncfile';
+  jobKey: string;
+  ncfile: string;
+  folder: string;
+  material: string;
+  preReserved: boolean;
+  locked: boolean;
+  allocatedAt: string | null;
+};
+
+type TableRow = MaterialGroupRow | FolderGroupRow | NCFileRow;
+
+function isMaterialGroupRow(row: TableRow): row is MaterialGroupRow {
+  return row._type === 'material';
+}
+
+function isFolderGroupRow(row: TableRow): row is FolderGroupRow {
+  return row._type === 'folder';
+}
+
+function isNCFileRow(row: TableRow): row is NCFileRow {
+  return row._type === 'ncfile';
+}
+
 const ALLOCATED_COL_PCT = {
-  typeData: 7,
-  customerId: 14,
-  folder: 18,
-  ncfile: 16,
-  dimensions: 14,
-  status: 9,
-  stock: 7,
-  available: 7,
-  allocatedAt: 8,
+  material: 25,
+  status: 12,
+  stock: 12,
+  stockAvailable: 15,
+  allocatedAt: 20,
 } as const;
 
 function formatNumber(value: number | null | undefined): string {
-  if (value == null) return 'N/A';
+  if (value == null) return '';
   return numberFormatter.format(value);
 }
 
 function formatTimestamp(value: string | null | undefined): string {
-  if (!value) return 'N/A';
+  if (!value) return '';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString();
-}
-
-function formatDimensions(row: AllocatedMaterialRow): string {
-  const parts = [
-    row.lengthMm != null ? numberFormatter.format(row.lengthMm) : null,
-    row.widthMm != null ? numberFormatter.format(row.widthMm) : null,
-    row.thicknessMm != null ? numberFormatter.format(row.thicknessMm) : null
-  ].filter((part): part is string => part != null);
-  return parts.length ? parts.join(' x ') : 'N/A';
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const day = d.getDate();
+  const mon = months[d.getMonth()];
+  const year = d.getFullYear();
+  let h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'pm' : 'am';
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${day} ${mon} ${year} ${h}:${m}${ampm}`;
 }
 
 export function AllocatedMaterialPage() {
   const [rows, setRows] = useState<AllocatedMaterialRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [sorting, setSorting] = useState<SortingState>([{ id: 'status', desc: true }]);
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'material', desc: false }]);
+  const [expanded, setExpanded] = useState<ExpandedState>({});
   const lastRefreshRef = useRef(0);
-  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-  const [machines, setMachines] = useState<Machine[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -85,200 +126,229 @@ export function AllocatedMaterialPage() {
     return unsubscribe;
   }, [load]);
 
-  useEffect(() => {
-    (async () => {
-      const res = await window.api.machines.list();
-      if (res.ok) setMachines(res.value.items);
-    })();
-  }, []);
+  // Build hierarchical data structure: Material → Folder → NC File
+  const hierarchicalData = useMemo<MaterialGroupRow[]>(() => {
+    // Group by material
+    const materialMap = new Map<string, {
+      typeData: number | null;
+      customerId: string | null;
+      stock: number | null;
+      stockAvailable: number | null;
+      folders: Map<string, AllocatedMaterialRow[]>;
+    }>();
 
-  const columns = useMemo<ColumnDef<AllocatedMaterialRow>[]>(() => [
-    // 1) Type
+    for (const row of rows) {
+      const materialKey = row.material?.trim() || '__UNKNOWN__';
+      if (!materialMap.has(materialKey)) {
+        materialMap.set(materialKey, {
+          typeData: row.typeData,
+          customerId: row.customerId,
+          stock: row.stock,
+          stockAvailable: row.stockAvailable,
+          folders: new Map()
+        });
+      }
+
+      const materialData = materialMap.get(materialKey)!;
+      const folderKey = row.folder?.trim() || '__UNKNOWN__';
+
+      if (!materialData.folders.has(folderKey)) {
+        materialData.folders.set(folderKey, []);
+      }
+      materialData.folders.get(folderKey)!.push(row);
+    }
+
+    // Convert to hierarchical structure
+    const result: MaterialGroupRow[] = [];
+
+    for (const [material, materialData] of materialMap.entries()) {
+      const folderGroups: FolderGroupRow[] = [];
+      let materialPreReservedCount = 0;
+      let materialLockedCount = 0;
+
+      for (const [folder, folderRows] of materialData.folders.entries()) {
+        const ncFiles: NCFileRow[] = folderRows.map(r => ({
+          _type: 'ncfile' as const,
+          jobKey: r.jobKey,
+          ncfile: r.ncfile || 'N/A',
+          folder: r.folder || 'N/A',
+          material: r.material || 'N/A',
+          preReserved: r.jobPreReserved,
+          locked: r.jobLocked,
+          allocatedAt: r.allocatedAt
+        }));
+
+        const folderPreReservedCount = ncFiles.filter(f => f.preReserved).length;
+        const folderLockedCount = ncFiles.filter(f => f.locked).length;
+
+        materialPreReservedCount += folderPreReservedCount;
+        materialLockedCount += folderLockedCount;
+
+        folderGroups.push({
+          _type: 'folder' as const,
+          folder,
+          material,
+          preReservedCount: folderPreReservedCount,
+          lockedCount: folderLockedCount,
+          subRows: ncFiles
+        });
+      }
+
+      result.push({
+        _type: 'material' as const,
+        material,
+        typeData: materialData.typeData,
+        customerId: materialData.customerId,
+        preReservedCount: materialPreReservedCount,
+        lockedCount: materialLockedCount,
+        stock: materialData.stock,
+        stockAvailable: materialData.stockAvailable,
+        subRows: folderGroups
+      });
+    }
+
+    return result;
+  }, [rows]);
+
+  const columns = useMemo<ColumnDef<TableRow>[]>(() => [
     {
-      id: 'typeData',
-      header: 'Type',
-      accessorKey: 'typeData',
-      cell: (info) => {
-        const value = info.getValue<number | null>();
-        return value != null ? String(value) : 'N/A';
+      id: 'material',
+      header: 'Material / Folder / NC File',
+      cell: ({ row }) => {
+        const original = row.original;
+        const depth = row.depth;
+        const indent = depth * 24;
+
+        if (isMaterialGroupRow(original)) {
+          const label = original.typeData != null
+            ? `${original.typeData}${original.customerId ? ` (${original.customerId})` : ''}`
+            : original.customerId || 'Unknown';
+
+          return (
+            <div style={{ paddingLeft: `${indent}px` }} className="flex items-center gap-2">
+              {row.getCanExpand() ? (
+                <button
+                  onClick={row.getToggleExpandedHandler()}
+                  className="cursor-pointer"
+                >
+                  {row.getIsExpanded() ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                </button>
+              ) : null}
+              <span className="font-semibold">{label}</span>
+            </div>
+          );
+        }
+
+        if (isFolderGroupRow(original)) {
+          return (
+            <div style={{ paddingLeft: `${indent}px` }} className="flex items-center gap-2">
+              {row.getCanExpand() ? (
+                <button
+                  onClick={row.getToggleExpandedHandler()}
+                  className="cursor-pointer"
+                >
+                  {row.getIsExpanded() ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                </button>
+              ) : null}
+              <span className="font-medium">{original.folder}</span>
+            </div>
+          );
+        }
+
+        if (isNCFileRow(original)) {
+          return (
+            <div style={{ paddingLeft: `${indent}px` }} className="flex items-center gap-2">
+              <span className="ml-6">{original.ncfile}</span>
+            </div>
+          );
+        }
+
+        return '';
       },
-      sortingFn: 'basic',
-      meta: { widthPercent: ALLOCATED_COL_PCT.typeData, minWidthPx: 70 }
+      meta: { widthPercent: ALLOCATED_COL_PCT.material, minWidthPx: 250 }
     },
-    // 2) Customer ID
-    {
-      id: 'customerId',
-      header: 'Customer ID',
-      accessorKey: 'customerId',
-      cell: (info) => info.getValue<string | null>() ?? 'N/A',
-      sortingFn: 'alphanumeric',
-      meta: { widthPercent: ALLOCATED_COL_PCT.customerId, minWidthPx: 140 }
-    },
-    // 3) Folder
-    {
-      id: 'folder',
-      header: 'Folder',
-      accessorKey: 'folder',
-      cell: (info) => info.getValue<string | null>() ?? 'N/A',
-      sortingFn: 'alphanumeric',
-      meta: { widthPercent: ALLOCATED_COL_PCT.folder, minWidthPx: 180 }
-    },
-    // 4) NC File
-    {
-      id: 'ncfile',
-      header: 'NC File',
-      accessorKey: 'ncfile',
-      cell: (info) => info.getValue<string | null>() ?? 'N/A',
-      sortingFn: 'alphanumeric',
-      meta: { widthPercent: ALLOCATED_COL_PCT.ncfile, minWidthPx: 160 }
-    },
-    // 5) Dimensions
-    {
-      id: 'dimensions',
-      header: 'Dimensions (LxWxT)',
-      accessorFn: (row) => formatDimensions(row),
-      cell: (info) => info.getValue<string>(),
-      sortingFn: 'alphanumeric',
-      meta: { widthPercent: ALLOCATED_COL_PCT.dimensions, minWidthPx: 140 }
-    },
-    // 6) Status
     {
       id: 'status',
       header: 'Status',
-      accessorFn: (row) => (row.jobLocked ? 2 : 1),
-      cell: ({ row }) => (row.original.jobLocked ? 'Locked' : 'Pre-Reserved'),
-      sortingFn: 'basic',
-      meta: { widthPercent: ALLOCATED_COL_PCT.status, minWidthPx: 110 }
+      cell: ({ row }) => {
+        const original = row.original;
+        if (isNCFileRow(original)) {
+          return original.locked ? 'Locked' : 'Pre-Reserved';
+        }
+        return '';
+      },
+      meta: { widthPercent: ALLOCATED_COL_PCT.status, minWidthPx: 120 }
     },
-    // 7) Stock
     {
       id: 'stock',
       header: 'Stock',
-      accessorKey: 'stock',
-      cell: (info) => formatNumber(info.getValue<number | null>()),
-      sortingFn: 'basic',
+      cell: ({ row }) => {
+        const original = row.original;
+        if (isMaterialGroupRow(original)) {
+          return formatNumber(original.stock);
+        }
+        return '';
+      },
       meta: { widthPercent: ALLOCATED_COL_PCT.stock, minWidthPx: 80 }
     },
-    // 8) Available
     {
       id: 'stockAvailable',
-      header: 'Available',
-      accessorKey: 'stockAvailable',
-      cell: (info) => formatNumber(info.getValue<number | null>()),
-      sortingFn: 'basic',
-      meta: { widthPercent: ALLOCATED_COL_PCT.available, minWidthPx: 80 }
+      header: 'Stock Available',
+      cell: ({ row }) => {
+        const original = row.original;
+        if (isMaterialGroupRow(original)) {
+          const total = (original.preReservedCount + original.lockedCount) || 0;
+          const stock = original.stock ?? 0;
+          const available = stock - total;
+
+          return (
+            <span className={available < 0 ? 'text-red-600 font-semibold' : ''}>
+              {formatNumber(available)}
+            </span>
+          );
+        }
+        return '';
+      },
+      meta: { widthPercent: ALLOCATED_COL_PCT.stockAvailable, minWidthPx: 120 }
     },
-    // 9) Allocated Date
     {
       id: 'allocatedAt',
       header: 'Allocated Date',
-      accessorKey: 'allocatedAt',
-      cell: (info) => formatTimestamp(info.getValue<string | null>()),
-      sortingFn: 'datetime',
-      meta: { widthPercent: ALLOCATED_COL_PCT.allocatedAt, minWidthPx: 140 }
+      cell: ({ row }) => {
+        const original = row.original;
+        if (isNCFileRow(original)) {
+          return formatTimestamp(original.allocatedAt);
+        }
+        return '';
+      },
+      meta: { widthPercent: ALLOCATED_COL_PCT.allocatedAt, minWidthPx: 180 }
     }
   ], []);
 
   const table = useReactTable({
-    data: rows,
+    data: hierarchicalData,
     columns,
-    state: { sorting, rowSelection },
+    state: { sorting, expanded },
     onSortingChange: setSorting,
-    onRowSelectionChange: setRowSelection,
+    onExpandedChange: setExpanded,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    enableRowSelection: true,
+    getExpandedRowModel: getExpandedRowModel(),
+    getSubRows: (row) => {
+      if (isMaterialGroupRow(row)) return row.subRows;
+      if (isFolderGroupRow(row)) return row.subRows;
+      return undefined;
+    },
+    enableRowSelection: false,
     enableColumnResizing: false
   });
 
-  const selected = table.getSelectedRowModel().rows.map(r => r.original);
-  const selectedKeys = selected.map(r => r.jobKey);
-  const anyPreReserved = selected.some(r => r.jobPreReserved);
-  const anyLocked = selected.some(r => r.jobLocked);
-
-  const ensureRowSelectedOnContext = useCallback((rowKey: string) => {
-    setRowSelection((prev) => {
-      if (Object.keys(prev).length) return prev;
-      const next: RowSelectionState = {};
-      // find index of row with jobKey
-      const idx = rows.findIndex(r => r.jobKey === rowKey);
-      if (idx >= 0) {
-        // table row ids are positional (default getRowId is index)
-        next[String(idx)] = true;
-      }
-      return next;
-    });
-  }, [rows]);
-
-  const performUnreserve = useCallback(async (keys: string[]) => {
-    if (!keys.length) return;
-    try {
-      const failures: string[] = [];
-      for (const key of keys) {
-        const res = await window.api.jobs.unreserve(key);
-        if (!res.ok) failures.push(`${key}: ${res.error.message}`);
-      }
-      if (failures.length) alert(`Failed to unreserve ${failures.length} job(s): ${failures.join(', ')}`);
-    } finally {
-      setRowSelection({});
-      void load();
-    }
-  }, [load]);
-
-  const performUnlock = useCallback(async (keys: string[]) => {
-    if (!keys.length) return;
-    try {
-      const res = await window.api.jobs.unlockBatch(keys);
-      if (!res.ok) alert(`Failed to unlock job(s): ${res.error.message}`);
-    } finally {
-      setRowSelection({});
-      void load();
-    }
-  }, [load]);
-
-  async function fetchJobByKey(key: string): Promise<JobRow | null> {
-    const res = await window.api.jobs.list({ search: key, limit: 1, sortBy: 'dateadded', sortDir: 'desc', filter: {} as JobsListReq['filter'] });
-    if (!res.ok) return null;
-    return res.value.items[0] ?? null;
-  }
-
-  const performWorklist = useCallback(async (keys: string[], machineId: number) => {
-    if (!keys.length) return;
-    let stagedCount = 0;
-    const failures: string[] = [];
-
-    for (const key of keys) {
-      let rerun = false;
-      try {
-        const job = await fetchJobByKey(key);
-        if (job) {
-          const notPending = job.status !== 'PENDING';
-          const differentMachineWhileStaged = job.status === 'STAGED' && job.machineId != null && job.machineId !== machineId;
-          rerun = notPending || differentMachineWhileStaged;
-        }
-      } catch {
-        // ignore; will try normal path
-      }
-
-      if (rerun) {
-        const res = await window.api.jobs.rerunAndStage(key, machineId);
-        if (!res.ok || !res.value.ok) failures.push(`${key}: ${res.ok ? res.value.error : res.error.message}`);
-        else stagedCount += 1;
-      } else {
-        const res = await window.api.jobs.addToWorklist(key, machineId);
-        if (!res.ok || !res.value.ok) failures.push(`${key}: ${res.ok ? res.value.error : res.error.message}`);
-        else stagedCount += 1;
-      }
-    }
-
-    if (stagedCount) alert(`Staged ${stagedCount} job(s).`);
-    if (failures.length) alert(`Failed to stage ${failures.length} job(s):\n\n${failures.join('\n')}`);
-    setRowSelection({});
-  }, []);
-
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-muted-foreground">
+          Showing {rows.length} allocated job{rows.length !== 1 ? 's' : ''} (PENDING status only)
+        </div>
         <button
           type="button"
           className="border rounded px-3 py-1 text-sm"
@@ -289,43 +359,15 @@ export function AllocatedMaterialPage() {
         </button>
       </div>
 
-      {rows.length === 0 ? (
+      {hierarchicalData.length === 0 ? (
         <div className="rounded-lg border border-[var(--table-border)] bg-table px-6 py-10 text-center text-muted-foreground">
           {loading ? 'Loading allocated material...' : 'No allocated material found.'}
         </div>
       ) : (
-        <ContextMenu>
-          <ContextMenuTrigger asChild>
-            <div>
-              <GlobalTable
-                table={table}
-                className="bg-table"
-                onRowContextMenu={(row, event) => {
-                  if (event) ensureRowSelectedOnContext(row.original.jobKey);
-                }}
-                preventContextMenuDefault={false}
-              />
-            </div>
-          </ContextMenuTrigger>
-          <ContextMenuContent className="w-56">
-            <ContextMenuItem inset disabled className="cursor-default opacity-100">
-              {selectedKeys.length === 1 ? '1 job selected' : `${selectedKeys.length} jobs selected`}
-            </ContextMenuItem>
-            <ContextMenuSub>
-              <ContextMenuSubTrigger inset>Send to Machine</ContextMenuSubTrigger>
-              <ContextMenuSubContent className="w-44">
-                {machines.map((m) => (
-                  <ContextMenuItem key={m.machineId} onSelect={() => performWorklist(selectedKeys, m.machineId)}>
-                    {m.name}
-                  </ContextMenuItem>
-                ))}
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-            <ContextMenuSeparator />
-            <ContextMenuItem onSelect={() => performUnreserve(selectedKeys)} disabled={!anyPreReserved}>Unreserve</ContextMenuItem>
-            <ContextMenuItem onSelect={() => performUnlock(selectedKeys)} disabled={!anyLocked}>Unlock</ContextMenuItem>
-          </ContextMenuContent>
-        </ContextMenu>
+        <GlobalTable
+          table={table}
+          className="bg-table"
+        />
       )}
     </div>
   );

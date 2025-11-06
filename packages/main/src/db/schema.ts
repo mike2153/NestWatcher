@@ -87,6 +87,15 @@ export const grundner = pgTable('grundner', {
   preReserved: integer('pre_reserved').default(0)
 });
 
+export const orderingStatus = pgTable('ordering_status', {
+  grundnerId: integer('grundner_id').primaryKey().references(() => grundner.id, { onDelete: 'cascade' }),
+  ordered: boolean('ordered').default(false).notNull(),
+  orderedBy: text('ordered_by'),
+  orderedAt: timestamp('ordered_at', { withTimezone: true }),
+  comments: varchar('comments', { length: 20 }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+});
+
 export const allocatedMaterialView = pgView('allocated_material_view', {
   grundnerId: integer('grundner_id'),
   typeData: integer('type_data'),
@@ -114,6 +123,7 @@ export const schema = {
   machines,
   jobEvents,
   grundner,
+  orderingStatus,
   allocatedMaterialView,
   jobStatusEnum
 };

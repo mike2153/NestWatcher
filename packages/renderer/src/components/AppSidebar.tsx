@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Router, History, Settings, Layers, BellRing, Gauge, ListCheck, AlignVerticalJustifyEnd, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, Router, History, Settings, Layers, BellRing, Gauge, ListCheck, AlignVerticalJustifyEnd, MessageSquare, ShoppingCart } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -18,6 +18,7 @@ const nav = [
   { to: '/history', label: 'History', icon: History },
   { to: '/grundner', label: 'Grundner', icon: AlignVerticalJustifyEnd },
   { to: '/allocated-material', label: 'Allocated', icon: Layers },
+  { to: '/ordering', label: 'Ordering', icon: ShoppingCart },
   { to: '/telemetry', label: 'Telemetry', icon: Gauge },
   { to: '/messages', label: 'Messages', icon: MessageSquare },
   { to: '/cnc-alarms', label: 'CNC Alarms', icon: BellRing },

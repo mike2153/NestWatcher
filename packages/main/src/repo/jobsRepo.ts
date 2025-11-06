@@ -328,16 +328,20 @@ export async function lockJob(key: string) {
         .update(jobs)
         .set({
           isLocked: true,
+          preReserved: false,
           updatedAt: sql<Date>`now()` as unknown as Date,
           allocatedAt: sql<Date>`CASE WHEN ${jobs.preReserved} = false AND ${jobs.isLocked} = false THEN now() ELSE ${jobs.allocatedAt} END` as unknown as Date
         })
         // Only allow manual locking when not already locked and status is PENDING
         .where(and(eq(jobs.key, key), eq(jobs.isLocked, false), eq(jobs.status, 'PENDING')))
-        .returning({ key: jobs.key });
+        .returning({ key: jobs.key, material: jobs.material });
 
       if (!updated.length) {
         return false;
       }
+
+      // Sync Grundner pre_reserved count after clearing pre_reserved flag
+      await syncGrundnerPreReservedCount(tx, updated[0].material ?? null);
 
       return true;
     })
@@ -354,15 +358,19 @@ export async function lockJobAfterGrundnerConfirmation(key: string) {
         .update(jobs)
         .set({
           isLocked: true,
+          preReserved: false,
           updatedAt: sql<Date>`now()` as unknown as Date,
           allocatedAt: sql<Date>`CASE WHEN ${jobs.preReserved} = false AND ${jobs.isLocked} = false THEN now() ELSE ${jobs.allocatedAt} END` as unknown as Date
         })
         .where(and(eq(jobs.key, key), eq(jobs.isLocked, false)))
-        .returning({ key: jobs.key });
+        .returning({ key: jobs.key, material: jobs.material });
 
       if (!updated.length) {
         return false;
       }
+
+      // Sync Grundner pre_reserved count after clearing pre_reserved flag
+      await syncGrundnerPreReservedCount(tx, updated[0].material ?? null);
 
       return true;
     })

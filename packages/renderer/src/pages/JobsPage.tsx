@@ -82,7 +82,6 @@ const JOBS_COLUMN_WIDTHS_PCT: Record<string, number> = {
   parts: 5,
   size: 10,
   dateadded: 12,
-  preReserved: 6,
   locked: 6,
   status: 11,
   processingSeconds: 10,
@@ -620,15 +619,6 @@ export function JobsPage() {
       }
     },
     {
-      accessorKey: 'preReserved',
-      header: 'Pre-Reserved',
-      meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.preReserved, minWidthPx: 70 },
-      cell: ({ row, getValue }) => {
-        if ('_type' in row.original && row.original._type === 'folder-group') return '';
-        return getValue<boolean>() ? 'Yes' : 'No';
-      }
-    },
-    {
       accessorKey: 'locked',
       header: 'Locked',
       meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.locked, minWidthPx: 70 },
@@ -766,70 +756,22 @@ export function JobsPage() {
     console.log('selectedKeys:', selectedKeys);
     console.log('selectedJobs count:', selectedJobs.length);
 
-    const anyPreReserved = selectedJobs.some((job) => job.preReserved);
-    const anyNotPreReserved = selectedJobs.some((job) => !job.preReserved);
     const anyLocked = selectedJobs.some((job) => job.locked);
     const anyUnlocked = selectedJobs.some((job) => !job.locked);
-    const allPendingForSelection =
-      selectedJobs.length > 0 && selectedJobs.every((job) => job.status === 'PENDING');
-    const canBulkReserve = anyNotPreReserved && allPendingForSelection;
     const isSingleSelection = selectedKeys.length === 1;
 
-    console.log('Computed values:', { anyPreReserved, anyNotPreReserved, anyLocked, anyUnlocked, canBulkReserve });
+    console.log('Computed values:', { anyLocked, anyUnlocked });
 
     return {
       selectedKeys,
       selectedJobs,
-      anyPreReserved,
-      anyNotPreReserved,
       anyLocked,
       anyUnlocked,
-      allPendingForSelection,
-      canBulkReserve,
       isSingleSelection
     };
   }, [table, rowSelection]);
 
-  const { selectedKeys, selectedJobs, anyPreReserved, anyLocked, anyUnlocked, canBulkReserve, isSingleSelection } = selectedRowsData;
-
-
-  const performReserve = useCallback(
-    async (targetKeys: string[], mode: 'reserve' | 'unreserve') => {
-      if (!targetKeys.length) return;
-      if (mode === 'reserve') {
-        const blocked = targetKeys.filter((key) => {
-          const job = jobByKey.get(key);
-          if (!job) return true;
-          return job.status !== 'PENDING';
-        });
-        if (blocked.length) {
-          alert(
-            'Only jobs in PENDING status can be reserved. Please deselect jobs that are not pending before reserving.'
-          );
-          return;
-        }
-      }
-      setActionBusy(true);
-      try {
-        const failures: string[] = [];
-        for (const key of targetKeys) {
-          const res = mode === 'reserve' ? await window.api.jobs.reserve(key) : await window.api.jobs.unreserve(key);
-          if (!res.ok) {
-            console.error(`Failed to ${mode} job`, key, res.error);
-            failures.push(`${key}: ${res.error.message}`);
-          }
-        }
-        if (failures.length) {
-          alert(`Failed to ${mode} ${failures.length} job(s): ${failures.join(', ')}`);
-        }
-        await refresh();
-        setRowSelection({});
-      } finally {
-        setActionBusy(false);
-      }
-    },
-    [jobByKey, refresh]
-  );
+  const { selectedKeys, anyLocked, anyUnlocked, isSingleSelection } = selectedRowsData;
 
   const performLock = useCallback(
     async (targetKeys: string[], mode: 'lock' | 'unlock') => {
@@ -1186,14 +1128,6 @@ export function JobsPage() {
           <ContextMenuItem inset disabled className="cursor-default opacity-100">
             {selectedKeys.length === 1 ? '1 job selected' : `${selectedKeys.length} jobs selected`}
           </ContextMenuItem>
-          <ContextMenuItem
-            onSelect={() => performReserve(selectedKeys, 'reserve')}
-            disabled={actionBusy || !canBulkReserve}
-          >Pre-Reserve</ContextMenuItem>
-          <ContextMenuItem
-            onSelect={() => performReserve(selectedKeys, 'unreserve')}
-            disabled={actionBusy || !anyPreReserved}
-          >Unreserve</ContextMenuItem>
           <ContextMenuItem
             onSelect={() => performLock(selectedKeys, 'lock')}
             disabled={actionBusy || !anyUnlocked}

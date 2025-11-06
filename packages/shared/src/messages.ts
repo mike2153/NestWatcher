@@ -12,9 +12,9 @@ export type MessageDefinition = {
 const definitions: Record<string, MessageDefinition> = {
   'job.detected': {
     key: 'job.detected',
-    title: 'Job Added',
-    body: 'Detected {{ncFile}} in jobs folder {{folder}}; job added to database.',
-    tone: 'success'
+    title: 'Pending',
+    body: '{{ncFile}} from {{folder}} is now pending and ready for allocation.',
+    tone: 'info'
   },
   'job.updated': {
     key: 'job.updated',
@@ -92,6 +92,30 @@ const definitions: Record<string, MessageDefinition> = {
     key: 'status.staged_cut',
     title: 'Job Completed',
     body: '{{ncFile}} from {{folder}} marked CUT after completion on {{machineName}}.',
+    tone: 'success'
+  },
+  'status.load_finish': {
+    key: 'status.load_finish',
+    title: 'Load Finished',
+    body: '{{ncFile}} from {{folder}} finished loading on {{machineName}}.',
+    tone: 'info'
+  },
+  'status.label_finish': {
+    key: 'status.label_finish',
+    title: 'Label Finished',
+    body: '{{ncFile}} from {{folder}} finished labeling on {{machineName}}.',
+    tone: 'info'
+  },
+  'status.cnc_finish': {
+    key: 'status.cnc_finish',
+    title: 'CNC Finish',
+    body: '{{ncFile}} from {{folder}} completed CNC on {{machineName}}.',
+    tone: 'success'
+  },
+  'status.nestpick_complete': {
+    key: 'status.nestpick_complete',
+    title: 'Nestpick Complete',
+    body: 'Nestpick completed for {{ncFile}} on {{machineName}}.',
     tone: 'success'
   },
   'status.error': {
