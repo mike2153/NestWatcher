@@ -42,6 +42,7 @@ type JobLookupRow = {
   ncfile: string | null;
   machineId: number | null;
   status: JobStatus;
+  isLocked: boolean;
 };
 
 const ALLOWED_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
@@ -400,7 +401,8 @@ export async function findJobByNcBase(base: string): Promise<JobLookupRow | null
     folder: jobs.folder,
     ncfile: jobs.ncfile,
     machineId: jobs.machineId,
-    status: jobs.status
+    status: jobs.status,
+    isLocked: jobs.isLocked
   };
 
   const rows = await withDb((db) =>
@@ -424,7 +426,8 @@ export async function findJobByNcBase(base: string): Promise<JobLookupRow | null
     folder: row.folder,
     ncfile: row.ncfile,
     machineId: row.machineId ?? null,
-    status: row.status as JobStatus
+    status: row.status as JobStatus,
+    isLocked: !!row.isLocked
   };
 }
 
@@ -437,7 +440,8 @@ export async function findJobByNcBasePreferStatus(base: string, preferred: strin
     folder: jobs.folder,
     ncfile: jobs.ncfile,
     machineId: jobs.machineId,
-    status: jobs.status
+    status: jobs.status,
+    isLocked: jobs.isLocked
   };
 
   // First try: only jobs whose status is in preferred list
@@ -463,7 +467,8 @@ export async function findJobByNcBasePreferStatus(base: string, preferred: strin
         folder: row.folder,
         ncfile: row.ncfile,
         machineId: row.machineId ?? null,
-        status: row.status as JobStatus
+        status: row.status as JobStatus,
+        isLocked: !!row.isLocked
       };
     }
   }

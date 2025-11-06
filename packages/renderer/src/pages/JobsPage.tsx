@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
+import { flushSync } from 'react-dom';
 import {
   getCoreRowModel,
   getSortedRowModel,
@@ -145,10 +146,21 @@ function formatPayload(payload: unknown): React.ReactNode {
 
   if (entries.length === 0) return null;
 
+  // Track seen keys (case-insensitive and normalized) to avoid duplicates
+  const seenKeys = new Set<string>();
+  const uniqueEntries = entries.filter(([key]) => {
+    const normalizedKey = key.toLowerCase().replace(/[_\s-]/g, '');
+    if (seenKeys.has(normalizedKey)) {
+      return false;
+    }
+    seenKeys.add(normalizedKey);
+    return true;
+  });
+
   // Format as key-value pairs
   return (
     <div className="space-y-1">
-      {entries.map(([key, value]) => {
+      {uniqueEntries.map(([key, value]) => {
         // Format key to be more readable
         const formattedKey = key
           .replace(/([A-Z])/g, ' $1')
@@ -728,7 +740,7 @@ export function JobsPage() {
     onExpandedChange: setExpanded,
     // use percentage widths; disable column resizing
     enableRowSelection: (row) => isJobRow(row.original),
-    enableSubRowSelection: false,
+    enableSubRowSelection: true,
     enableColumnResizing: false,
     enableMultiSort: false,
     getCoreRowModel: getCoreRowModel(),
@@ -736,22 +748,49 @@ export function JobsPage() {
     getExpandedRowModel: getExpandedRowModel()
   });
 
-  const selectedRows = table.getSelectedRowModel().rows;
-  const selectedKeys = selectedRows
-    .map((row) => row.original)
-    .filter(isJobRow)
-    .map((r) => r.key);
-  const selectedJobs = selectedRows
-    .map((row) => row.original)
-    .filter(isJobRow);
-  const anyPreReserved = selectedJobs.some((job) => job.preReserved);
-  const anyNotPreReserved = selectedJobs.some((job) => !job.preReserved);
-  const anyLocked = selectedJobs.some((job) => job.locked);
-  const anyUnlocked = selectedJobs.some((job) => !job.locked);
-  const allPendingForSelection =
-    selectedJobs.length > 0 && selectedJobs.every((job) => job.status === 'PENDING');
-  const canBulkReserve = anyNotPreReserved && allPendingForSelection;
-  const isSingleSelection = selectedKeys.length === 1;
+  const selectedRowsData = useMemo(() => {
+    const selectedRows = table.getSelectedRowModel().flatRows;
+
+    console.log('=== Selection Debug ===');
+    console.log('rowSelection state:', rowSelection);
+    console.log('selectedRows from table:', selectedRows.length, selectedRows.map(r => ({ id: r.id, original: r.original })));
+
+    const selectedKeys = selectedRows
+      .map((row) => row.original)
+      .filter(isJobRow)
+      .map((r) => r.key);
+    const selectedJobs = selectedRows
+      .map((row) => row.original)
+      .filter(isJobRow);
+
+    console.log('selectedKeys:', selectedKeys);
+    console.log('selectedJobs count:', selectedJobs.length);
+
+    const anyPreReserved = selectedJobs.some((job) => job.preReserved);
+    const anyNotPreReserved = selectedJobs.some((job) => !job.preReserved);
+    const anyLocked = selectedJobs.some((job) => job.locked);
+    const anyUnlocked = selectedJobs.some((job) => !job.locked);
+    const allPendingForSelection =
+      selectedJobs.length > 0 && selectedJobs.every((job) => job.status === 'PENDING');
+    const canBulkReserve = anyNotPreReserved && allPendingForSelection;
+    const isSingleSelection = selectedKeys.length === 1;
+
+    console.log('Computed values:', { anyPreReserved, anyNotPreReserved, anyLocked, anyUnlocked, canBulkReserve });
+
+    return {
+      selectedKeys,
+      selectedJobs,
+      anyPreReserved,
+      anyNotPreReserved,
+      anyLocked,
+      anyUnlocked,
+      allPendingForSelection,
+      canBulkReserve,
+      isSingleSelection
+    };
+  }, [table, rowSelection]);
+
+  const { selectedKeys, selectedJobs, anyPreReserved, anyLocked, anyUnlocked, canBulkReserve, isSingleSelection } = selectedRowsData;
 
 
   const performReserve = useCallback(
@@ -930,10 +969,15 @@ export function JobsPage() {
   }, [settings]);
 
   const handleRowContextMenu = useCallback((event: MouseEvent<HTMLTableRowElement>, rowKey: string) => {
-    // If nothing is selected, select the row being right-clicked
-    if (!Object.keys(rowSelection).length) {
-      setRowSelection({ [rowKey]: true });
+    // If the right-clicked row is not part of the current selection,
+    // select only that row so context menu actions apply as expected.
+    if (!rowSelection[rowKey]) {
+      // Use flushSync to ensure the selection update happens before the context menu opens
+      flushSync(() => {
+        setRowSelection({ [rowKey]: true });
+      });
     }
+    // Don't prevent default - let ContextMenu component handle it
   }, [rowSelection]);
 
   // Context menu open/close handled by ContextMenu component
@@ -1108,8 +1152,13 @@ export function JobsPage() {
               table={table}
               onRowContextMenu={(row, event) => {
                 const original = row.original;
-                if (!isJobRow(original)) return;
-                handleRowContextMenu(event, original.key);
+                // Don't open context menu for folder group rows
+                if (!isJobRow(original)) {
+                  event.preventDefault();
+                  return;
+                }
+                console.log('Right-clicked row:', { rowId: row.id, originalKey: original.key });
+                handleRowContextMenu(event, row.id);
               }}
               preventContextMenuDefault={false}
               getRowClassName={(row) => {
@@ -1173,7 +1222,7 @@ export function JobsPage() {
       </ContextMenu>
 
       <Sheet open={historyModalOpen} onOpenChange={setHistoryModalOpen}>
-        <SheetContent side="right" className="w-[600px] sm:w-[700px] overflow-y-auto">
+        <SheetContent side="right" className="w-[800px] sm:w-[900px] max-w-[90vw] overflow-y-auto">
           <SheetHeader>
             <SheetTitle>Job History</SheetTitle>
             <SheetDescription>

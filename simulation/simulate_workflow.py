@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 # Support either psycopg2 (v2) or psycopg (v3)
-try:
+try:  
     import psycopg2 as _psycopg
 except Exception:
     try:

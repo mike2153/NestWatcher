@@ -9,4 +9,8 @@ export function registerAllocatedMaterialIpc() {
     const items = await listAllocatedMaterial();
     return ok<AllocatedMaterialListRes, AppError>({ items });
   });
+
+  registerResultHandler('allocatedMaterial:subscribe', async () => ok<null, AppError>(null));
+
+  registerResultHandler('allocatedMaterial:unsubscribe', async () => ok<null, AppError>(null));
 }

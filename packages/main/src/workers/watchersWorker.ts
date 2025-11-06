@@ -1193,7 +1193,7 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
         await appendJobEvent(
           job.key,
           'nestpick:unstack',
-          { sourcePlace: sourcePlaceValue, pallet: sourcePlaceValue, file: path },
+          { pallet: sourcePlaceValue, file: path },
           null
         );
         logger.info({ jobKey: job.key, base, sourcePlace: sourcePlaceValue, row: i + 1 }, 'watcher: unstack row processed');

@@ -2,13 +2,13 @@
 import { join, relative, dirname, extname, basename, resolve } from 'path';
 import chokidar, { type FSWatcher } from 'chokidar';
 import { ok, err } from 'neverthrow';
-import type { AppError, Machine, ReadyImportRes, ReadyFile, ReadyDeleteRes } from '../../../shared/src';
+import type { AppError, Machine, ReadyImportRes, ReadyFile, ReadyDeleteRes, JobStatus } from '../../../shared/src';
 import { ReadyImportReq, ReadyDeleteReq } from '../../../shared/src';
 import { listMachines } from '../repo/machinesRepo';
 import { appendProductionListDel } from '../services/nestpick';
 import { pushAppMessage } from '../services/messages';
 import { importReadyFile } from '../services/readyImport';
-import { findJobDetailsByNcBase } from '../repo/jobsRepo';
+import { findJobDetailsByNcBase, findJobByNcBase } from '../repo/jobsRepo';
 import { createAppError } from './errors';
 import { registerResultHandler } from './result';
 import { onContentsDestroyed } from './onDestroyed';
@@ -44,6 +44,16 @@ const DELETE_EXTENSIONS = new Set(['.bmp', '.jpg', '.jpeg', '.png', '.gif', '.pt
 function normalizeRelativePath(input: string) {
   return input.split('\\').join('/');
 }
+
+const STAGED_TO_MACHINE_STATUSES: readonly JobStatus[] = [
+  'STAGED',
+  'LOAD_FINISH',
+  'LABEL_FINISH',
+  'CNC_FINISH',
+  'FORWARDED_TO_NESTPICK',
+  'NESTPICK_COMPLETE'
+];
+const STAGED_STATUS_SET = new Set<JobStatus>(STAGED_TO_MACHINE_STATUSES);
 
 export function registerFilesIpc() {
   const isWindows = process.platform === 'win32';
@@ -559,10 +569,34 @@ export function registerFilesIpc() {
           return { ncFile, folder };
         });
       if (ncEntries.length) {
-        await appendProductionListDel(
-          machineId,
-          ncEntries.map((entry) => entry.ncFile)
-        );
+        const baseToNames = new Map<string, string[]>();
+        for (const entry of ncEntries) {
+          const baseKey = entry.ncFile.replace(/\.nc$/i, '').toLowerCase();
+          if (!baseKey) continue;
+          const list = baseToNames.get(baseKey) ?? [];
+          list.push(entry.ncFile);
+          baseToNames.set(baseKey, list);
+        }
+
+        const eligibleNcFiles: string[] = [];
+        for (const [baseKey, names] of baseToNames.entries()) {
+          const job = await findJobByNcBase(baseKey);
+          if (!job) continue;
+          const assignedToMachine = job.machineId != null || STAGED_STATUS_SET.has(job.status);
+          if (job.isLocked || assignedToMachine) {
+            eligibleNcFiles.push(...names);
+          }
+        }
+
+        if (eligibleNcFiles.length) {
+          await appendProductionListDel(machineId, eligibleNcFiles);
+        } else {
+          logger.info(
+            { machineId, ncCount: ncEntries.length },
+            'files:ready:delete: skipped production delete (no eligible jobs)'
+          );
+        }
+
         for (const entry of ncEntries) {
           pushAppMessage('job.ready.delete', { ncFile: entry.ncFile, folder: entry.folder }, { source: 'ready-delete' });
         }
