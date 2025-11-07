@@ -209,7 +209,7 @@ export function TelemetryPage() {
       {loading && <div className="text-sm text-muted-foreground">Loading...</div>}
       {!loading && data && data.items.length > 0 && visibleItems.length === 0 && (
         <div className="border border-amber-300 bg-amber-50 text-amber-700 text-sm px-3 py-2 rounded">
-          No machine mapping found for the selected filters. Ensure machine PC IP matches cncstats API IP.
+          No machine mapping found for the selected filters. Ensure the machine&apos;s CNC IP matches the cncstats API host reported by the collector.
         </div>
       )}
 

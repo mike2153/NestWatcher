@@ -3,7 +3,6 @@ import { createHash } from 'crypto';
 import { existsSync, mkdirSync } from 'fs';
 import { promises as fsp } from 'fs';
 import type { Dirent } from 'fs';
-import net from 'net';
 import { basename, extname, join, normalize, relative } from 'path';
 import type { PoolClient } from 'pg';
 import { parentPort } from 'worker_threads';
@@ -17,7 +16,6 @@ import { listMachines } from '../repo/machinesRepo';
 import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLifecycle, resyncGrundnerPreReservedForMaterial } from '../repo/jobsRepo';
 import { upsertCncStats } from '../repo/cncStatsRepo';
 import type { CncStatsUpsert } from '../repo/cncStatsRepo';
-import { normalizeTelemetryPayload } from './telemetryParser';
 import type { WatcherWorkerToMainMessage, MainToWatcherMessage } from './watchersMessages';
 import { ingestProcessedJobsRoot } from '../services/ingest';
 import { appendProductionListDel } from '../services/nestpick';
@@ -1353,168 +1351,6 @@ function stableProcess(
   };
 }
 
-class TelemetryClient {
-  private socket: net.Socket | null = null;
-  private buffer = '';
-  private reconnectTimer: NodeJS.Timeout | null = null;
-  private attempt = 0;
-  private stopped = false;
-  private lastSignature: string | null = null;
-  private readonly watcherName: string;
-  private readonly watcherLabel: string;
-
-  constructor(private readonly machine: Machine) {
-    this.watcherName = `watcher:telemetry:${machine.machineId}`;
-    this.watcherLabel = `Telemetry (${machineLabel(machine)})`;
-    registerWatcher(this.watcherName, this.watcherLabel);
-  }
-
-  start() {
-    this.connect();
-  }
-
-  stop() {
-    this.stopped = true;
-    this.clearReconnect();
-    if (this.socket) {
-      this.socket.removeAllListeners();
-      this.socket.destroy();
-      this.socket = null;
-    }
-  }
-
-  private clearReconnect() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-  }
-
-  private scheduleReconnect(reason: string) {
-    if (this.stopped) return;
-    this.clearReconnect();
-    const delay = Math.min(30_000, Math.pow(2, Math.min(this.attempt, 5)) * 1000);
-    recordWatcherEvent(this.watcherName, {
-      label: this.watcherLabel,
-      message: `${reason}; retrying in ${Math.round(delay / 1000)}s`,
-      context: { machineId: this.machine.machineId }
-    });
-    this.reconnectTimer = setTimeout(() => this.connect(), delay);
-    if (typeof this.reconnectTimer.unref === 'function') {
-      this.reconnectTimer.unref();
-    }
-  }
-
-  private connect() {
-    if (this.stopped) return;
-    const host = this.machine.pcIp?.trim();
-    const port = this.machine.pcPort ?? 0;
-    if (!host || !port) {
-      recordWatcherEvent(this.watcherName, {
-        label: this.watcherLabel,
-        message: 'Telemetry disabled (missing PC IP/port)',
-        context: { machineId: this.machine.machineId }
-      });
-      return;
-    }
-
-    this.attempt += 1;
-    this.clearReconnect();
-
-    this.socket = net.createConnection({ host, port }, () => {
-      this.attempt = 0;
-      this.buffer = '';
-      this.lastSignature = null;
-      watcherReady(this.watcherName, this.watcherLabel);
-      recordWatcherEvent(this.watcherName, {
-        label: this.watcherLabel,
-        message: 'Connected to telemetry stream',
-        context: { host, port, machineId: this.machine.machineId }
-      });
-    });
-
-    this.socket.setEncoding('utf8');
-    this.socket.on('data', (chunk) => this.handleData(chunk));
-    this.socket.on('error', (err) => {
-      recordWatcherError(this.watcherName, err, {
-        host,
-        port,
-        machineId: this.machine.machineId,
-        label: this.watcherLabel
-      });
-    });
-    this.socket.on('close', () => {
-      if (this.stopped) return;
-      this.socket?.removeAllListeners();
-      this.socket = null;
-      this.scheduleReconnect('Telemetry connection closed');
-    });
-  }
-
-  private handleData(chunk: string | Buffer) {
-    if (this.stopped) return;
-    this.buffer += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-    let index = this.buffer.indexOf('\n');
-    while (index !== -1) {
-      const raw = this.buffer.slice(0, index).trim();
-      this.buffer = this.buffer.slice(index + 1);
-      if (raw.length > 0) {
-        void this.processLine(raw);
-      }
-      index = this.buffer.indexOf('\n');
-    }
-    if (this.buffer.length > 64_000) {
-      this.buffer = '';
-    }
-  }
-
-  private async processLine(line: string) {
-    try {
-      const payload = JSON.parse(line);
-      const normalized = normalizeTelemetryPayload(this.machine, payload);
-      const signature = JSON.stringify(normalized);
-      if (signature === this.lastSignature) {
-        return;
-      }
-      this.lastSignature = signature;
-      await upsertCncStats(normalized);
-      const statusSummary = normalized.status ? `status=${normalized.status}` : 'status updated';
-      recordWatcherEvent(this.watcherName, {
-        label: this.watcherLabel,
-        message: `Telemetry update (${statusSummary})`,
-        context: { machineId: this.machine.machineId }
-      });
-    } catch (err) {
-      recordWatcherError(this.watcherName, err, {
-        machineId: this.machine.machineId,
-        label: this.watcherLabel,
-        sample: line.slice(0, 500)
-      });
-    }
-  }
-}
-
-const telemetryClients: TelemetryClient[] = [];
-
-async function startTelemetryClients() {
-  try {
-    const machines = await listMachines();
-    for (const machine of machines) {
-      const host = machine.pcIp?.trim();
-      const port = machine.pcPort ?? 0;
-      if (!host || !port) continue;
-      const client = new TelemetryClient(machine);
-      telemetryClients.push(client);
-      client.start();
-    }
-    if (telemetryClients.length === 0) {
-      logger.debug('watchersWorker: no telemetry endpoints configured');
-    }
-  } catch (err) {
-    recordWorkerError('telemetry:init', err);
-    logger.error({ err }, 'watchersWorker: failed to initialize telemetry clients');
-  }
-}
 
 async function shutdown(reason?: string) {
   if (shuttingDown) return;
@@ -1557,14 +1393,6 @@ async function shutdown(reason?: string) {
       fsWatchers.delete(watcher);
     }
   }
-  for (const client of telemetryClients) {
-    try {
-      client.stop();
-    } catch (err) {
-      logger.warn({ err }, 'watchersWorker: failed to stop telemetry client');
-    }
-  }
-  telemetryClients.length = 0;
 }
 
 let testDataProcessedCount = 0;
@@ -2616,11 +2444,6 @@ async function initWatchers() {
     setupTestDataWatcher(cfg.test.testDataFolderPath);
   }
   void setupNestpickWatchers();
-  if (cfg.test.useTestDataMode) {
-    logger.info('Telemetry disabled: running in test data mode');
-  } else {
-    void startTelemetryClients();
-  }
   startJobsIngestPolling();
   startStageSanityPoller();
   startSourceSanityPoller();

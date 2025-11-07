@@ -444,17 +444,12 @@ ALTER VIEW public.machine_jobs OWNER TO postgres;
 CREATE TABLE public.machines (
     machine_id integer NOT NULL,
     name text NOT NULL,
-    pc_ip inet,
     cnc_ip inet,
-    cnc_port integer,
     ap_jobfolder text NOT NULL,
     nestpick_folder text NOT NULL,
     nestpick_enabled boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    pc_port integer DEFAULT 5000 NOT NULL,
-    CONSTRAINT machines_cnc_port_check CHECK (((cnc_port >= 1) AND (cnc_port <= 65535))),
-    CONSTRAINT machines_pc_port_check CHECK (((pc_port >= 1) AND (pc_port <= 65535)))
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -466,7 +461,7 @@ ALTER TABLE public.machines OWNER TO postgres;
 -- Name: TABLE machines; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON TABLE public.machines IS 'Per-CNC config: PC/CNC IPs, AutoPac/Nestpick folders, flags';
+COMMENT ON TABLE public.machines IS 'Per-CNC config: network info, AutoPac/Nestpick folders, flags';
 
 
 --
@@ -682,11 +677,6 @@ CREATE INDEX machines_name_idx ON public.machines USING btree (name);
 
 --
 -- TOC entry 4904 (class 1259 OID 24917)
--- Name: machines_pc_ip_idx; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX machines_pc_ip_idx ON public.machines USING btree (pc_ip);
-
 
 --
 -- TOC entry 4925 (class 2620 OID 33296)
@@ -769,4 +759,3 @@ ALTER TABLE ONLY public.ordering_status
 --
 -- PostgreSQL database dump complete
 --
-

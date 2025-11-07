@@ -4,7 +4,7 @@ import type { TelemetryMachineSummary, TelemetrySummaryReq, TelemetrySeconds } f
 
 const API_HOST_EXPR = `split_part(split_part(regexp_replace(lower(btrim(cs.api_ip)), '^https?://', ''), '/', 1), ':', 1)`;
 const API_HOST_NORM_EXPR = `regexp_replace(${API_HOST_EXPR}, '\\s+', '', 'g')`;
-const MACHINE_HOST_EXPR = 'host(m.pc_ip)';
+const MACHINE_HOST_EXPR = 'host(m.cnc_ip)';
 const MACHINE_HOST_NORM_EXPR = `regexp_replace(lower(${MACHINE_HOST_EXPR}), '\\s+', '', 'g')`;
 
 type SeriesRow = {
@@ -63,7 +63,7 @@ export async function summarizeTelemetry(req: TelemetrySummaryReq): Promise<Tele
 
   // Note on JOIN:
   // We normalize both sides to lowercase, strip protocol from cs.api_ip, extract just the host,
-  // and remove whitespace so we can match against machines.pc_ip (stored as inet) regardless of formatting.
+  // and remove whitespace so we can match against machines.cnc_ip (stored as inet) regardless of formatting.
   const sql = `
     SELECT
       m.machine_id,
@@ -105,7 +105,7 @@ export async function summarizeTelemetry(req: TelemetrySummaryReq): Promise<Tele
         cs.api_ip,
         ${API_HOST_EXPR} AS api_ip_host,
         ${API_HOST_NORM_EXPR} AS api_ip_host_norm,
-        m.pc_ip::text AS pc_ip_raw,
+        m.cnc_ip::text AS cnc_ip_raw,
         ${MACHINE_HOST_EXPR} AS machine_host,
         ${MACHINE_HOST_NORM_EXPR} AS machine_host_norm,
         m.machine_id,
@@ -123,7 +123,7 @@ export async function summarizeTelemetry(req: TelemetrySummaryReq): Promise<Tele
           api_ip: x.api_ip,
           api_ip_host: x.api_ip_host,
           api_ip_host_norm: x.api_ip_host_norm,
-          pc_ip_raw: x.pc_ip_raw,
+          cnc_ip_raw: x.cnc_ip_raw,
           machine_host: x.machine_host,
           machine_host_norm: x.machine_host_norm,
           machine_id: x.machine_id,

@@ -445,8 +445,7 @@ export function SettingsPage() {
       name: 'New Machine',
       apJobfolder: '',
       nestpickFolder: '',
-      nestpickEnabled: true,
-      pcPort: 5000
+      nestpickEnabled: true
     });
     const created = extractResult<Machine>(createdRaw as unknown);
     if (!created.ok) {
@@ -466,13 +465,10 @@ export function SettingsPage() {
     const payload: SaveMachineReq = {
       machineId: editingMachine.machineId,
       name: editingMachine.name,
-      pcIp: editingMachine.pcIp ?? null,
       cncIp: editingMachine.cncIp ?? null,
-      cncPort: editingMachine.cncPort ?? null,
       apJobfolder: editingMachine.apJobfolder,
       nestpickFolder: editingMachine.nestpickFolder,
-      nestpickEnabled: editingMachine.nestpickEnabled,
-      pcPort: editingMachine.pcPort
+      nestpickEnabled: editingMachine.nestpickEnabled
     };
 
     const raw = await window.api.machines.save(payload);
@@ -606,31 +602,11 @@ export function SettingsPage() {
                 />
               </label>
               <label className="form-label">
-                <span>PC IP</span>
-                <input
-                  className="form-input"
-                  value={editingMachine.pcIp ?? ''}
-                  onChange={(e) => setEditingMachine((prev) => prev ? { ...prev, pcIp: e.target.value || null } : prev)}
-                />
-              </label>
-              <label className="form-label">
                 <span>CNC IP</span>
                 <input
                   className="form-input"
                   value={editingMachine.cncIp ?? ''}
                   onChange={(e) => setEditingMachine((prev) => prev ? { ...prev, cncIp: e.target.value || null } : prev)}
-                />
-              </label>
-              <label className="form-label">
-                <span>CNC Port</span>
-                <input
-                  className="form-input"
-                  type="number"
-                  value={editingMachine.cncPort ?? ''}
-                  onChange={(e) => setEditingMachine((prev) => prev ? {
-                    ...prev,
-                    cncPort: e.target.value === '' ? null : Number(e.target.value)
-                  } : prev)}
                 />
               </label>
               <div className="col-span-2">
@@ -687,23 +663,6 @@ export function SettingsPage() {
                   <option value="true">Yes</option>
                   <option value="false">No</option>
                 </select>
-              </label>
-              <label className="form-label">
-                <span>PC Port</span>
-                <input
-                  className="form-input"
-                  type="number"
-                  value={editingMachine.pcPort}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === '') {
-                      setEditingMachine((prev) => prev ? { ...prev, pcPort: prev.pcPort } : prev);
-                    } else {
-                      const numVal = Number(val);
-                      setEditingMachine((prev) => prev ? { ...prev, pcPort: isNaN(numVal) ? prev.pcPort : numVal } : prev);
-                    }
-                  }}
-                />
               </label>
             </div>
           ) : (

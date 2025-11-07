@@ -175,13 +175,10 @@ export type Result<T> = ResultEnvelope<T>;
 export const Machine = z.object({
   machineId: z.number().int(),
   name: z.string(),
-  pcIp: z.string().nullable().optional(),
   cncIp: z.string().nullable().optional(),
-  cncPort: z.number().int().nullable().optional(),
   apJobfolder: z.string(),
   nestpickFolder: z.string(),
-  nestpickEnabled: z.boolean(),
-  pcPort: z.number().int()
+  nestpickEnabled: z.boolean()
 });
 export type Machine = z.infer<typeof Machine>;
 

@@ -83,13 +83,10 @@ export function MachinesPage() {
     const req: SaveMachineReq = {
       machineId: editing.machineId,
       name: editing.name,
-      pcIp: editing.pcIp ?? undefined,
       cncIp: editing.cncIp ?? undefined,
-      cncPort: editing.cncPort ?? undefined,
       apJobfolder: editing.apJobfolder,
       nestpickFolder: editing.nestpickFolder,
-      nestpickEnabled: editing.nestpickEnabled,
-      pcPort: editing.pcPort
+      nestpickEnabled: editing.nestpickEnabled
     };
     const res = await window.api.machines.save(req);
     if (!res.ok) {
@@ -109,7 +106,6 @@ export function MachinesPage() {
               <TableHead className="px-2 py-2">ID</TableHead>
               <TableHead className="px-2 py-2">Name</TableHead>
               <TableHead className="px-2 py-2">Health</TableHead>
-              <TableHead className="px-2 py-2">PC IP</TableHead>
               <TableHead className="px-2 py-2">CNC IP</TableHead>
               <TableHead className="px-2 py-2">AP Job Folder</TableHead>
               <TableHead className="px-2 py-2">Nestpick Folder</TableHead>
@@ -162,7 +158,6 @@ export function MachinesPage() {
                       </div>
                     )}
                   </TableCell>
-                  <TableCell className="px-2 py-1">{m.pcIp ?? '—'}</TableCell>
                   <TableCell className="px-2 py-1">{m.cncIp ?? '—'}</TableCell>
                   <TableCell className="px-2 py-1">{m.apJobfolder}</TableCell>
                   <TableCell className="px-2 py-1">{m.nestpickFolder}</TableCell>
@@ -180,13 +175,10 @@ export function MachinesPage() {
           <div className="font-medium">Edit Machine {editing.machineId}</div>
           <div className="grid grid-cols-2 gap-2">
             <label className="text-sm">Name<input className="border rounded w-full px-2 py-1" value={editing.name} onChange={e=>setEditing({...editing, name: e.target.value})} /></label>
-            <label className="text-sm">PC IP<input className="border rounded w-full px-2 py-1" value={editing.pcIp ?? ''} onChange={e=>setEditing({...editing, pcIp: e.target.value})} /></label>
             <label className="text-sm">CNC IP<input className="border rounded w-full px-2 py-1" value={editing.cncIp ?? ''} onChange={e=>setEditing({...editing, cncIp: e.target.value})} /></label>
-            <label className="text-sm">CNC Port<input className="border rounded w-full px-2 py-1" type="number" value={editing.cncPort ?? 0} onChange={e=>setEditing({...editing, cncPort: Number(e.target.value)})} /></label>
             <label className="text-sm">AP Job Folder<div className="flex gap-2"><input className="border rounded w-full px-2 py-1" value={editing.apJobfolder} onChange={e=>setEditing({...editing, apJobfolder: e.target.value})} /><button className="border rounded px-2" onClick={async()=>{ const picked = await window.api.dialog.pickFolder(); if (picked.ok && picked.value) setEditing({...editing, apJobfolder: picked.value}); }}>Browse</button></div></label>
             <label className="text-sm">Nestpick Folder<div className="flex gap-2"><input className="border rounded w-full px-2 py-1" value={editing.nestpickFolder} onChange={e=>setEditing({...editing, nestpickFolder: e.target.value})} /><button className="border rounded px-2" onClick={async()=>{ const picked = await window.api.dialog.pickFolder(); if (picked.ok && picked.value) setEditing({...editing, nestpickFolder: picked.value}); }}>Browse</button></div></label>
             <label className="text-sm">Enabled<select className="border rounded w-full px-2 py-1" value={editing.nestpickEnabled ? 'true':'false'} onChange={e=>setEditing({...editing, nestpickEnabled: e.target.value==='true'})}><option value="true">Yes</option><option value="false">No</option></select></label>
-            <label className="text-sm">PC Port<input className="border rounded w-full px-2 py-1" type="number" value={editing.pcPort} onChange={e=>setEditing({...editing, pcPort: Number(e.target.value)})} /></label>
           </div>
           <div className="flex gap-2">
             <button className="border rounded px-3 py-1" onClick={onSave}>Save</button>

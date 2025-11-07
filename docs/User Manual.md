@@ -351,10 +351,8 @@ Open the Settings page to manage folders and machine details. Database settings 
 
 - Name
   - Display name in the UI.
-- PC IP / PC Port
-  - Used for telemetry/diagnostics and health checks in the Router and Dashboard views.
-- CNC IP / CNC Port
-  - Optional fields for CNC connectivity/diagnostics if your setup uses them.
+- CNC IP
+  - Optional field that links telemetry rows to a machine. Set it to the host reported by the cncstats collector for accurate mapping.
 - AP Job Folder
   - Ready-To-Run location for staged files.
 - Nestpick Folder
@@ -392,7 +390,7 @@ Open the Settings page to manage folders and machine details. Database settings 
 
 - Live summarized RUN/READY/ALARM/B-STOP/OTHER time breakdowns by machine over a date range.
 - Filter the date range and select specific machines.
-- Note: For mapping to work, a machine’s PC IP should match the cncstats API IP.
+- Note: For mapping to work, a machine’s CNC IP should match the cncstats API host recorded in `public.cncstats`.
 
 ### CNC Alarms
 
@@ -418,7 +416,7 @@ Open the Settings page to manage folders and machine details. Database settings 
 ### Settings
 
 - Configure Processed Jobs Root, AutoPAC CSV Directory, Grundner Folder.
-- Manage machines (name, folder paths, IP/ports, Nestpick toggle). Path fields are validated inline and show status.
+- Manage machines (name, folder paths, optional CNC IP, Nestpick toggle). Path fields are validated inline and show status.
 - Test options include Test Data Folder, Use test data mode, Sheet ID Mode, and Grundner Reserved Mode (delta/absolute).
 - Database settings show connectivity status and latency (informational for operators).
 
@@ -440,7 +438,7 @@ Open the Settings page to manage folders and machine details. Database settings 
   - Make sure Nestpick Enabled is “Yes” for that machine
   - Ensure a staged CSV exists under the AP Job Folder to forward
 - Telemetry page empty:
-  - Ensure machines have PC IP and PC Port set and reachable.
+  - Ensure each machine’s CNC IP matches the host string stored in `public.cncstats.api_ip`.
   - For test scenarios, enable “Use test data mode” and point to a folder with valid JSON/CSV telemetry samples.
 
 ---

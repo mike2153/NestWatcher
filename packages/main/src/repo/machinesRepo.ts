@@ -6,13 +6,10 @@ import { withDb } from '../services/db';
 const MACHINE_FIELDS = {
   machineId: machines.machineId,
   name: machines.name,
-  pcIp: machines.pcIp,
   cncIp: machines.cncIp,
-  cncPort: machines.cncPort,
   apJobfolder: machines.apJobfolder,
   nestpickFolder: machines.nestpickFolder,
-  nestpickEnabled: machines.nestpickEnabled,
-  pcPort: machines.pcPort
+  nestpickEnabled: machines.nestpickEnabled
 };
 
 type MachineRow = Pick<typeof machines.$inferSelect, keyof typeof MACHINE_FIELDS>;
@@ -21,13 +18,10 @@ function toMachine(row: MachineRow): Machine {
   return {
     machineId: row.machineId,
     name: row.name,
-    pcIp: row.pcIp ?? null,
     cncIp: row.cncIp ?? null,
-    cncPort: row.cncPort ?? null,
     apJobfolder: row.apJobfolder,
     nestpickFolder: row.nestpickFolder,
-    nestpickEnabled: row.nestpickEnabled,
-    pcPort: row.pcPort
+    nestpickEnabled: row.nestpickEnabled
   };
 }
 
@@ -47,13 +41,10 @@ export async function saveMachine(input: SaveMachineReq) {
         .update(machines)
         .set({
           name: input.name ?? 'New Machine',
-          pcIp: input.pcIp ?? null,
           cncIp: input.cncIp ?? null,
-          cncPort: input.cncPort ?? null,
           apJobfolder: input.apJobfolder ?? '',
           nestpickFolder: input.nestpickFolder ?? '',
           nestpickEnabled: input.nestpickEnabled ?? true,
-          pcPort: input.pcPort ?? 5000,
           updatedAt: sql`now()`
         })
         .where(eq(machines.machineId, machineId))
@@ -72,13 +63,10 @@ export async function saveMachine(input: SaveMachineReq) {
       .insert(machines)
       .values({
         name: input.name ?? 'New Machine',
-        pcIp: input.pcIp ?? null,
         cncIp: input.cncIp ?? null,
-        cncPort: input.cncPort ?? null,
         apJobfolder: input.apJobfolder ?? '',
         nestpickFolder: input.nestpickFolder ?? '',
-        nestpickEnabled: input.nestpickEnabled ?? true,
-        pcPort: input.pcPort ?? 5000
+        nestpickEnabled: input.nestpickEnabled ?? true
       })
       .returning(MACHINE_FIELDS)
   );

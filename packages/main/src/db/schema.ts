@@ -26,15 +26,12 @@ export const jobStatusEnum = pgEnum('job_status', [
 export const machines = pgTable('machines', {
   machineId: serial('machine_id').primaryKey(),
   name: text('name').notNull(),
-  pcIp: inet('pc_ip'),
   cncIp: inet('cnc_ip'),
-  cncPort: integer('cnc_port'),
   apJobfolder: text('ap_jobfolder').notNull(),
   nestpickFolder: text('nestpick_folder').notNull(),
   nestpickEnabled: boolean('nestpick_enabled').default(true).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  pcPort: integer('pc_port').default(5000).notNull()
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });
 
 export const jobs = pgTable('jobs', {

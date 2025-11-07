@@ -7,7 +7,7 @@ import {
 } from '@tanstack/react-table';
 import type { ColumnDef, SortingState, ExpandedState } from '@tanstack/react-table';
 import { GlobalTable } from '@/components/table/GlobalTable';
-import type { AllocatedMaterialRow, Machine } from '../../../shared/src';
+import type { AllocatedMaterialRow } from '../../../shared/src';
 import { ChevronRight, ChevronDown } from 'lucide-react';
 
 const numberFormatter = new Intl.NumberFormat(undefined, { useGrouping: false });
