@@ -622,7 +622,8 @@ function buildTestDataUpsert(entry: unknown, fileName: string): CncStatsUpsert |
 
   const upsert: CncStatsUpsert = {
     key,
-    apiIp,
+    pcIp: apiIp,
+    machineName: toStringOrNull(pickCaseInsensitive(record, ['machine', 'machineName', 'machinename'])) ?? machineTokenFromFileName(fileName),
     currentProgram: pickString(
       [machineStatus, record],
       ['CurrentProgram', 'currentProgram', 'Program', 'program', 'MainProgram']
@@ -650,7 +651,7 @@ function buildTestDataUpsert(entry: unknown, fileName: string): CncStatsUpsert |
     {
       file: fileName,
       key: upsert.key,
-      apiIp: upsert.apiIp ?? undefined,
+      pcIp: upsert.pcIp ?? undefined,
       mode: upsert.mode ?? undefined,
       status: upsert.status ?? undefined,
       currentProgram: upsert.currentProgram ?? undefined

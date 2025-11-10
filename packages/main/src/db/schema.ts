@@ -26,7 +26,7 @@ export const jobStatusEnum = pgEnum('job_status', [
 export const machines = pgTable('machines', {
   machineId: serial('machine_id').primaryKey(),
   name: text('name').notNull(),
-  cncIp: inet('cnc_ip'),
+  pcIp: inet('pc_ip'),
   apJobfolder: text('ap_jobfolder').notNull(),
   nestpickFolder: text('nestpick_folder').notNull(),
   nestpickEnabled: boolean('nestpick_enabled').default(true).notNull(),

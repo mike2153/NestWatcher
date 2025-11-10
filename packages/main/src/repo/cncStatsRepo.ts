@@ -3,7 +3,8 @@ import type { PoolClient } from 'pg';
 
 export interface CncStatsUpsert {
   key: string;
-  apiIp: string | null;
+  pcIp: string | null;
+  machineName: string | null;
   currentProgram: string | null;
   mode: string | null;
   status: string | null;
@@ -34,11 +35,12 @@ export async function upsertCncStats(row: CncStatsUpsert, client?: PoolClient): 
   }
   const sql = `
     INSERT INTO public.cncstats(
-      key, api_ip, currentprogram, mode, status, alarm, emg, powerontime, cuttingtime,
+      key, pc_ip, machine_name, currentprogram, mode, status, alarm, emg, powerontime, cuttingtime,
       alarmhistory, vacuumtime, drillheadtime, spindletime, conveyortime, greasetime
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
     ON CONFLICT (key) DO UPDATE SET
-      api_ip = EXCLUDED.api_ip,
+      pc_ip = EXCLUDED.pc_ip,
+      machine_name = EXCLUDED.machine_name,
       currentprogram = EXCLUDED.currentprogram,
       mode = EXCLUDED.mode,
       status = EXCLUDED.status,
@@ -55,7 +57,8 @@ export async function upsertCncStats(row: CncStatsUpsert, client?: PoolClient): 
   `;
   const params = [
     key,
-    sanitize(row.apiIp, 100),
+    sanitize(row.pcIp, 100),
+    sanitize(row.machineName, 100),
     sanitize(row.currentProgram, 50),
     sanitize(row.mode, 50),
     sanitize(row.status, 50),

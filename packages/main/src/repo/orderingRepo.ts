@@ -226,7 +226,7 @@ export async function computeOrderingRows(): Promise<OrderingComputation> {
       baseKey === UNKNOWN_KEY
         ? 'Unknown'
         : lookupColumn === 'customer_id'
-          ? customerId ?? entry.material || 'Unknown'
+          ? customerId ?? (entry.material || 'Unknown')
           : typeData != null
             ? String(typeData)
             : entry.material || 'Unknown';

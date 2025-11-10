@@ -2,9 +2,9 @@ import { withClient } from '../services/db';
 import { logger } from '../logger';
 import type { TelemetryMachineSummary, TelemetrySummaryReq, TelemetrySeconds } from '../../../shared/src';
 
-const API_HOST_EXPR = `split_part(split_part(regexp_replace(lower(btrim(cs.api_ip)), '^https?://', ''), '/', 1), ':', 1)`;
-const API_HOST_NORM_EXPR = `regexp_replace(${API_HOST_EXPR}, '\\s+', '', 'g')`;
-const MACHINE_HOST_EXPR = 'host(m.cnc_ip)';
+const STATS_HOST_EXPR = `split_part(split_part(regexp_replace(lower(btrim(cs.pc_ip)), '^https?://', ''), '/', 1), ':', 1)`;
+const STATS_HOST_NORM_EXPR = `regexp_replace(${STATS_HOST_EXPR}, '\\s+', '', 'g')`;
+const MACHINE_HOST_EXPR = 'host(m.pc_ip)';
 const MACHINE_HOST_NORM_EXPR = `regexp_replace(lower(${MACHINE_HOST_EXPR}), '\\s+', '', 'g')`;
 
 type SeriesRow = {
@@ -12,9 +12,9 @@ type SeriesRow = {
   machine_name: string | null;
   ts: string; // ISO timestamp from SQL
   status: string | null;
-  api_ip_raw: string | null;
-  api_ip_host: string | null;
-  api_ip_host_norm: string | null;
+  stats_ip_raw: string | null;
+  stats_ip_host: string | null;
+  stats_ip_host_norm: string | null;
 };
 
 function toIsoOrNull(value: unknown): string | null {
@@ -62,21 +62,22 @@ export async function summarizeTelemetry(req: TelemetrySummaryReq): Promise<Tele
   }
 
   // Note on JOIN:
-  // We normalize both sides to lowercase, strip protocol from cs.api_ip, extract just the host,
-  // and remove whitespace so we can match against machines.cnc_ip (stored as inet) regardless of formatting.
+  // We require BOTH name and host IP to match to avoid mismatches.
+  // Normalize both sides to lowercase/stripped host before comparing.
   const sql = `
     SELECT
       m.machine_id,
       m.name AS machine_name,
       to_timestamp(cs.key, 'YYYY.MM.DD HH24:MI:SS') AS ts,
       cs.status,
-      cs.api_ip,
-      ${API_HOST_EXPR} AS api_ip_host,
-      ${API_HOST_NORM_EXPR} AS api_ip_host_norm,
+      cs.pc_ip,
+      ${STATS_HOST_EXPR} AS stats_ip_host,
+      ${STATS_HOST_NORM_EXPR} AS stats_ip_host_norm,
       ${MACHINE_HOST_EXPR} AS machine_host
     FROM public.cncstats cs
     LEFT JOIN public.machines m
-      ON ${MACHINE_HOST_NORM_EXPR} = ${API_HOST_NORM_EXPR}
+      ON lower(btrim(m.name)) = lower(btrim(cs.machine_name))
+     AND ${MACHINE_HOST_NORM_EXPR} = ${STATS_HOST_NORM_EXPR}
     ${where}
     ORDER BY m.machine_id NULLS LAST, ts ASC
   `;
@@ -91,9 +92,9 @@ export async function summarizeTelemetry(req: TelemetrySummaryReq): Promise<Tele
         machine_name: row.machine_name ?? null,
         status: row.status ?? null,
         ts: toIsoOrNull(row.ts) ?? new Date(row.ts as unknown as string).toISOString(),
-        api_ip_raw: row.api_ip ?? null,
-        api_ip_host: row.api_ip_host ?? null,
-        api_ip_host_norm: row.api_ip_host_norm ?? null
+        stats_ip_raw: (row as any).pc_ip ?? null,
+        stats_ip_host: (row as any).stats_ip_host ?? null,
+        stats_ip_host_norm: (row as any).stats_ip_host_norm ?? null
       }));
     })
   );
@@ -102,17 +103,18 @@ export async function summarizeTelemetry(req: TelemetrySummaryReq): Promise<Tele
   try {
     const sampleSql = `
       SELECT
-        cs.api_ip,
-        ${API_HOST_EXPR} AS api_ip_host,
-        ${API_HOST_NORM_EXPR} AS api_ip_host_norm,
-        m.cnc_ip::text AS cnc_ip_raw,
+        cs.pc_ip,
+        ${STATS_HOST_EXPR} AS stats_ip_host,
+        ${STATS_HOST_NORM_EXPR} AS stats_ip_host_norm,
+        m.pc_ip::text AS pc_ip_raw,
         ${MACHINE_HOST_EXPR} AS machine_host,
         ${MACHINE_HOST_NORM_EXPR} AS machine_host_norm,
         m.machine_id,
         m.name
       FROM public.cncstats cs
       LEFT JOIN public.machines m
-        ON ${MACHINE_HOST_NORM_EXPR} = ${API_HOST_NORM_EXPR}
+        ON lower(btrim(m.name)) = lower(btrim(cs.machine_name))
+       AND ${MACHINE_HOST_NORM_EXPR} = ${STATS_HOST_NORM_EXPR}
       ${where}
       ORDER BY m.machine_id NULLS LAST, cs.key ASC
       LIMIT 50
@@ -120,10 +122,10 @@ export async function summarizeTelemetry(req: TelemetrySummaryReq): Promise<Tele
     await withClient((client) =>
       client.query(sampleSql, params).then((r) => {
         const sample = r.rows.map((x) => ({
-          api_ip: x.api_ip,
-          api_ip_host: x.api_ip_host,
-          api_ip_host_norm: x.api_ip_host_norm,
-          cnc_ip_raw: x.cnc_ip_raw,
+          pc_ip: (x as any).pc_ip,
+          stats_ip_host: (x as any).stats_ip_host,
+          stats_ip_host_norm: (x as any).stats_ip_host_norm,
+          pc_ip_raw: (x as any).pc_ip_raw,
           machine_host: x.machine_host,
           machine_host_norm: x.machine_host_norm,
           machine_id: x.machine_id,
@@ -143,7 +145,7 @@ export async function summarizeTelemetry(req: TelemetrySummaryReq): Promise<Tele
   for (const r of rows) {
     if (r.machine_id == null) {
       unmatchedExists = true;
-      const hostKey = r.api_ip_host_norm ?? r.api_ip_host ?? r.api_ip_raw ?? '(unknown)';
+      const hostKey = r.stats_ip_host_norm ?? r.stats_ip_host ?? r.stats_ip_raw ?? '(unknown)';
       unmatchedHosts.set(hostKey, (unmatchedHosts.get(hostKey) ?? 0) + 1);
       continue; // skip unmatched for grouping
     }

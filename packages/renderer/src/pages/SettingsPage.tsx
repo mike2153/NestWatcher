@@ -465,7 +465,7 @@ export function SettingsPage() {
     const payload: SaveMachineReq = {
       machineId: editingMachine.machineId,
       name: editingMachine.name,
-      cncIp: editingMachine.cncIp ?? null,
+      pcIp: (editingMachine as any).pcIp ?? (editingMachine as any).cncIp ?? null,
       apJobfolder: editingMachine.apJobfolder,
       nestpickFolder: editingMachine.nestpickFolder,
       nestpickEnabled: editingMachine.nestpickEnabled
@@ -602,11 +602,11 @@ export function SettingsPage() {
                 />
               </label>
               <label className="form-label">
-                <span>CNC IP</span>
+                <span>PC IP</span>
                 <input
                   className="form-input"
-                  value={editingMachine.cncIp ?? ''}
-                  onChange={(e) => setEditingMachine((prev) => prev ? { ...prev, cncIp: e.target.value || null } : prev)}
+                  value={(editingMachine as any).pcIp ?? (editingMachine as any).cncIp ?? ''}
+                  onChange={(e) => setEditingMachine((prev) => prev ? { ...prev, pcIp: e.target.value || null } : prev)}
                 />
               </label>
               <div className="col-span-2">

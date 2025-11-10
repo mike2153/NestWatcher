@@ -252,7 +252,8 @@ ALTER VIEW public.allocated_material_view OWNER TO woodtron_user;
 
 CREATE TABLE public.cncstats (
     key character varying(100) NOT NULL,
-    api_ip character varying(100),
+    pc_ip character varying(100),
+    machine_name text,
     currentprogram character varying(50),
     mode character varying(50),
     status character varying(50),
@@ -444,7 +445,7 @@ ALTER VIEW public.machine_jobs OWNER TO postgres;
 CREATE TABLE public.machines (
     machine_id integer NOT NULL,
     name text NOT NULL,
-    cnc_ip inet,
+    pc_ip inet,
     ap_jobfolder text NOT NULL,
     nestpick_folder text NOT NULL,
     nestpick_enabled boolean DEFAULT true NOT NULL,
@@ -664,7 +665,7 @@ CREATE INDEX jobs_dates_idx ON public.jobs USING btree (dateadded, staged_at, cu
 -- Name: machines_cnc_ip_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX machines_cnc_ip_idx ON public.machines USING btree (cnc_ip);
+CREATE INDEX machines_pc_ip_idx ON public.machines USING btree (pc_ip);
 
 
 --

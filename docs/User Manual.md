@@ -438,7 +438,7 @@ Open the Settings page to manage folders and machine details. Database settings 
   - Make sure Nestpick Enabled is “Yes” for that machine
   - Ensure a staged CSV exists under the AP Job Folder to forward
 - Telemetry page empty:
-  - Ensure each machine’s CNC IP matches the host string stored in `public.cncstats.api_ip`.
+  - Ensure each machine’s PC IP matches the host string stored in `public.cncstats.pc_ip` and that `machine_name` aligns with the machine Name in Settings.
   - For test scenarios, enable “Use test data mode” and point to a folder with valid JSON/CSV telemetry samples.
 
 ---

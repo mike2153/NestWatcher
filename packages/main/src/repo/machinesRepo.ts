@@ -6,7 +6,7 @@ import { withDb } from '../services/db';
 const MACHINE_FIELDS = {
   machineId: machines.machineId,
   name: machines.name,
-  cncIp: machines.cncIp,
+  pcIp: machines.pcIp,
   apJobfolder: machines.apJobfolder,
   nestpickFolder: machines.nestpickFolder,
   nestpickEnabled: machines.nestpickEnabled
@@ -18,7 +18,7 @@ function toMachine(row: MachineRow): Machine {
   return {
     machineId: row.machineId,
     name: row.name,
-    cncIp: row.cncIp ?? null,
+    pcIp: row.pcIp ?? null,
     apJobfolder: row.apJobfolder,
     nestpickFolder: row.nestpickFolder,
     nestpickEnabled: row.nestpickEnabled
@@ -41,7 +41,7 @@ export async function saveMachine(input: SaveMachineReq) {
         .update(machines)
         .set({
           name: input.name ?? 'New Machine',
-          cncIp: input.cncIp ?? null,
+          pcIp: (input as any).pcIp ?? (input as any).cncIp ?? null,
           apJobfolder: input.apJobfolder ?? '',
           nestpickFolder: input.nestpickFolder ?? '',
           nestpickEnabled: input.nestpickEnabled ?? true,
@@ -63,7 +63,7 @@ export async function saveMachine(input: SaveMachineReq) {
       .insert(machines)
       .values({
         name: input.name ?? 'New Machine',
-        cncIp: input.cncIp ?? null,
+        pcIp: (input as any).pcIp ?? (input as any).cncIp ?? null,
         apJobfolder: input.apJobfolder ?? '',
         nestpickFolder: input.nestpickFolder ?? '',
         nestpickEnabled: input.nestpickEnabled ?? true

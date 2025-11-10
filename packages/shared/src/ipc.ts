@@ -175,7 +175,7 @@ export type Result<T> = ResultEnvelope<T>;
 export const Machine = z.object({
   machineId: z.number().int(),
   name: z.string(),
-  cncIp: z.string().nullable().optional(),
+  pcIp: z.string().nullable().optional(),
   apJobfolder: z.string(),
   nestpickFolder: z.string(),
   nestpickEnabled: z.boolean()
