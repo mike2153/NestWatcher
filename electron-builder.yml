@@ -1,0 +1,27 @@
+appId: com.woodtron.app
+productName: WoodtronApp
+electronVersion: 31.0.0
+files:
+  - "packages/**/dist/**"
+  - "resources/**"
+win:
+  target: msi
+  artifactName: WoodtronApp-${version}.msi
+  icon: build/icon.ico
+msi:
+  perMachine: true
+mac:
+  target: dmg
+linux:
+  target: AppImage
+publish:
+  - provider: generic
+    url: https://example.com/updates
+
+# Make SQL files available outside the asar for external setup scripts
+extraResources:
+  - from: "."
+    to: "db"
+    filter:
+      - "SQL_*.sql"
+

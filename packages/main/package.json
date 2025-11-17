@@ -1,0 +1,26 @@
+{
+  "name": "@app/main",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "echo Run via root dev runner once set up",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "drizzle-orm": "^0.44.5",
+    "electron": "^31.0.0",
+    "neverthrow": "^7.1.0",
+    "pg": "^8.11.5",
+    "pino": "^9.3.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "@types/pg": "^8.11.6",
+    "typescript": "^5.4.5"
+  }
+}

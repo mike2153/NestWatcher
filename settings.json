@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "db": {
+    "host": "127.0.0.1",
+    "port": 5432,
+    "database": "woodtron",
+    "user": "woodtron_user",
+    "password": "woodtron",
+    "sslMode": "disable",
+    "statementTimeoutMs": 30000
+  },
+  "paths": {
+    "processedJobsRoot": "C:\\Users\\mike2\\Documents\\GitHub\\Test NC Files",
+    "autoPacCsvDir": "D:\\SoftwareTesting\\LabelStatus",
+    "grundnerFolderPath": "D:\\SoftwareTesting\\Nestpick"
+  },
+  "test": {
+    "testDataFolderPath": "D:\\SoftwareTesting\\Nestpick",
+    "useTestDataMode": false,
+    "sheetIdMode": "type_data"
+  },
+  "grundner": {
+    "reservedAdjustmentMode": "delta"
+  }
+}

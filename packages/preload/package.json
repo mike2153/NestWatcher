@@ -1,0 +1,20 @@
+{
+  "name": "@app/preload",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "electron": "^31.0.0",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "neverthrow": "^7.1.0",
+    "zod": "^3.23.8"
+  }
+}

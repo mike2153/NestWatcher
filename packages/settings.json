@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "db": {
+    "host": "db.internal",
+    "port": 5432,
+    "database": "woodtron",
+    "user": "woodtron_user",
+    "password": "secret",
+    "sslMode": "disable",
+    "statementTimeoutMs": 30000
+  },
+  "paths": {
+    "processedJobsRoot": "C:/jobs",
+    "autoPacCsvDir": "",
+    "grundnerFolderPath": ""
+  },
+  "test": {
+    "testDataFolderPath": "",
+    "useTestDataMode": false,
+    "sheetIdMode": "type_data"
+  },
+  "grundner": {
+    "reservedAdjustmentMode": "delta"
+  }
+}

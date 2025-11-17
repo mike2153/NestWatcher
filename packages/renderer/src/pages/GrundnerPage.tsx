@@ -1,0 +1,334 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  getCoreRowModel,
+  getSortedRowModel,
+  useReactTable
+} from '@tanstack/react-table';
+import type { ColumnDef, SortingState } from '@tanstack/react-table';
+import { GlobalTable } from '@/components/table/GlobalTable';
+
+// Percent widths for Grundner table columns
+const GRUNDNER_COL_PCT = {
+  typeData: 8,
+  customerId: 16,
+  lengthMm: 8,
+  widthMm: 8,
+  thicknessMm: 8,
+  preReserved: 10,
+  stock: 10,
+  reservedStock: 10,
+  stockAvailable: 10,
+  lastUpdated: 12,
+} as const;
+import type { GrundnerListReq, GrundnerRow } from '../../../shared/src';
+function formatTimestamp(value: string) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const day = d.getDate();
+  const mon = months[d.getMonth()];
+  const year = d.getFullYear();
+  let h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'pm' : 'am';
+  h = h % 12; if (h === 0) h = 12;
+  return `${day} ${mon} ${year} ${h}:${m}${ampm}`;
+}
+type Filters = {
+  search: string;
+  onlyAvailable: boolean;
+  onlyReserved: boolean;
+};
+
+type EditState = {
+  stockAvailable?: string;
+};
+
+export function GrundnerPage() {
+  const [rows, setRows] = useState<GrundnerRow[]>([]);
+  const [filters, setFilters] = useState<Filters>({ search: '', onlyAvailable: false, onlyReserved: false });
+  const [limit, setLimit] = useState(200);
+  const [editing, setEditing] = useState<Record<number, EditState>>({});
+  const [loading, setLoading] = useState(false);
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'typeData', desc: false }]);
+  const lastLoadedAtRef = useRef<number>(0);
+  const lastAutoRefreshAtRef = useRef<number>(0);
+  const [pendingAutoRefresh, setPendingAutoRefresh] = useState(false);
+
+  const totalStock = useMemo(() => rows.reduce((sum, row) => sum + (row.stock ?? 0), 0), [rows]);
+  const totalAvailable = useMemo(() => rows.reduce((sum, row) => sum + (row.stockAvailable ?? 0), 0), [rows]);
+  const totalReserved = useMemo(() => rows.reduce((sum, row) => sum + (row.reservedStock ?? 0), 0), [rows]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const req: GrundnerListReq = {
+      limit,
+      filter: {
+        search: filters.search || undefined,
+        onlyAvailable: filters.onlyAvailable || undefined,
+        onlyReserved: filters.onlyReserved || undefined
+      }
+    };
+    const res = await window.api.grundner.list(req);
+    if (!res.ok) {
+      alert(`Failed to load Grundner inventory: ${res.error.message}`);
+      setRows([]);
+      setLoading(false);
+      return;
+    }
+    setRows(res.value.items);
+    lastLoadedAtRef.current = Date.now();
+    setLoading(false);
+  }, [filters, limit]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const parseField = (value: string | undefined) => {
+    if (!value || value.trim() === '') return null;
+    const numeric = Number(value);
+    if (Number.isNaN(numeric)) throw new Error('Please enter a valid number');
+    return numeric;
+  };
+
+  const _updateRow = useCallback(async (row: GrundnerRow) => {
+    const edit = editing[row.id] ?? {};
+    const payload: { stockAvailable?: number | null } = {};
+    let dirty = false;
+
+    if (Object.prototype.hasOwnProperty.call(edit, 'stockAvailable')) {
+      payload.stockAvailable = parseField(edit.stockAvailable);
+      dirty = true;
+    }
+    // reservedStock is read-only and sourced from CSV; no edits here
+
+    if (!dirty) {
+      alert('No changes to apply.');
+      return;
+    }
+
+    const res = await window.api.grundner.update({ id: row.id, ...payload });
+    if (!res.ok) {
+      alert(`Failed to update row: ${res.error.message}`);
+      return;
+    }
+    if (!res.value.ok) {
+      alert('Failed to update row.');
+      return;
+    }
+    setEditing((prev) => {
+      const next = { ...prev };
+      delete next[row.id];
+      return next;
+    });
+    await load();
+  }, [editing, load]);
+
+  // Resync action handler is currently unused; remove to satisfy linter
+
+  const exportCsv = () => {
+    try {
+      const headers = [
+        'Type',
+        'Customer ID',
+        'Length',
+        'Width',
+        'Thickness',
+        'Pre-Reserved',
+        'Stock',
+        'Reserved',
+        'Available',
+        'Last Updated'
+      ];
+      const escape = (val: unknown) => {
+        if (val == null) return '';
+        const s = String(val);
+        if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+        return s;
+      };
+      const lines = rows.map((r) => [
+        r.typeData ?? '',
+        r.customerId ?? '',
+        r.lengthMm ?? '',
+        r.widthMm ?? '',
+        r.thicknessMm ?? '',
+        r.preReserved ?? '',
+        r.stock ?? '',
+        r.reservedStock ?? '',
+        r.stockAvailable ?? '',
+        r.lastUpdated ? formatTimestamp(r.lastUpdated) : ''
+      ].map(escape).join(','));
+      const csv = [headers.join(','), ...lines].join('\r\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const ts = new Date();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const fname = `grundner_export_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.csv`;
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fname;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed', err);
+      alert('Failed to export CSV.');
+    }
+  };
+
+  // Auto-refresh on backend notifications (throttled)
+  useEffect(() => {
+    const MIN_GAP_MS = 5_000;
+    const unsubscribe = window.api.grundner.subscribeRefresh(() => {
+      const now = Date.now();
+      if (now - lastAutoRefreshAtRef.current < MIN_GAP_MS) {
+        return;
+      }
+      if (loading || Object.keys(editing).length > 0) {
+        setPendingAutoRefresh(true);
+        return;
+      }
+      lastAutoRefreshAtRef.current = now;
+      void load();
+    });
+    return unsubscribe;
+  }, [editing, load, loading]);
+
+  // When edits finish and a refresh is pending, run it (throttled)
+  useEffect(() => {
+    if (!pendingAutoRefresh) return;
+    if (loading) return;
+    if (Object.keys(editing).length > 0) return;
+    const now = Date.now();
+    const MIN_GAP_MS = 5_000;
+    if (now - lastAutoRefreshAtRef.current < MIN_GAP_MS) return;
+    setPendingAutoRefresh(false);
+    lastAutoRefreshAtRef.current = now;
+    void load();
+  }, [pendingAutoRefresh, editing, loading, load]);
+  // Percentage-based column widths; normalized automatically by GlobalTable
+
+  const columns = useMemo<ColumnDef<GrundnerRow>[]>(() => [
+    {
+      id: 'typeData',
+      accessorKey: 'typeData',
+      header: 'Type',
+      cell: (ctx) => ctx.getValue<number | null>() ?? '',
+      meta: { widthPercent: GRUNDNER_COL_PCT.typeData, minWidthPx: 80 }
+    },
+    {
+      id: 'customerId',
+      accessorKey: 'customerId',
+      header: 'Customer ID',
+      cell: (ctx) => ctx.getValue<string | null>() ?? '',
+      meta: { widthPercent: GRUNDNER_COL_PCT.customerId, minWidthPx: 160 }
+    },
+    {
+      id: 'lengthMm',
+      accessorKey: 'lengthMm',
+      header: 'Length',
+      cell: (ctx) => ctx.getValue<number | null>() ?? '',
+      meta: { widthPercent: GRUNDNER_COL_PCT.lengthMm, minWidthPx: 60 }
+    },
+    {
+      id: 'widthMm',
+      accessorKey: 'widthMm',
+      header: 'Width',
+      cell: (ctx) => ctx.getValue<number | null>() ?? '',
+      meta: { widthPercent: GRUNDNER_COL_PCT.widthMm, minWidthPx: 80 }
+    },
+    {
+      id: 'thicknessMm',
+      accessorKey: 'thicknessMm',
+      header: 'Thickness',
+      cell: (ctx) => ctx.getValue<number | null>() ?? '',
+      meta: { widthPercent: GRUNDNER_COL_PCT.thicknessMm, minWidthPx: 80 }
+    },
+    {
+      id: 'preReserved',
+      accessorKey: 'preReserved',
+      header: 'Pre-Reserved',
+      cell: (ctx) => ctx.getValue<number | null>() ?? '',
+      meta: { widthPercent: GRUNDNER_COL_PCT.preReserved, minWidthPx: 100 }
+    },
+    {
+      id: 'stock',
+      accessorKey: 'stock',
+      header: 'Stock',
+      cell: (ctx) => ctx.getValue<number | null>() ?? '',
+      meta: { widthPercent: GRUNDNER_COL_PCT.stock, minWidthPx: 80 }
+    },
+    {
+      id: 'reservedStock',
+      accessorKey: 'reservedStock',
+      header: 'Locked',
+      cell: (ctx) => ctx.getValue<number | null>() ?? '',
+      meta: { widthPercent: GRUNDNER_COL_PCT.reservedStock, minWidthPx: 100 }
+    },
+    {
+      id: 'stockAvailable',
+      accessorKey: 'stockAvailable',
+      header: 'Available',
+      cell: (ctx) => ctx.getValue<number | null>() ?? '',
+      meta: { widthPercent: GRUNDNER_COL_PCT.stockAvailable, minWidthPx: 100 }
+    },
+    {
+      id: 'lastUpdated',
+      accessorKey: 'lastUpdated',
+      header: 'Last Updated',
+      cell: (ctx) => {
+        const v = ctx.getValue<string | null>();
+        return v ? formatTimestamp(v) : '';
+      },
+      meta: { widthPercent: GRUNDNER_COL_PCT.lastUpdated, minWidthPx: 140 }
+    },
+  ], []);
+
+  const table = useReactTable({
+    data: rows,
+    columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    enableColumnResizing: false
+  });
+
+  return (
+    <div className="space-y-2 w-full">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-wrap gap-3 items-end">
+          <label className="flex flex-col gap-1 text-sm">
+            <span>Search</span>
+            <input className="border rounded px-2 py-1" value={filters.search} onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))} placeholder="Type data or customer" />
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={filters.onlyAvailable} onChange={(e) => setFilters((prev) => ({ ...prev, onlyAvailable: e.target.checked }))} />
+            Only available
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={filters.onlyReserved} onChange={(e) => setFilters((prev) => ({ ...prev, onlyReserved: e.target.checked }))} />
+            Only reserved
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span>Limit</span>
+            <select className="border rounded px-2 py-1" value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
+              {[100, 200, 300, 500].map((value) => (
+                <option key={value} value={value}>{value}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <button className="border rounded px-3 py-1" onClick={exportCsv}>Export to CSV</button>
+          <p className="mt-2 text-sm text-muted-foreground">Stock {totalStock} • Available {totalAvailable} • Locked {totalReserved}</p>
+        </div>
+      </div>
+
+      <GlobalTable table={table} stickyHeader fillEmptyRows maxHeight="calc(100vh - 160px)" />
+    </div>
+  );
+}
+
+
+

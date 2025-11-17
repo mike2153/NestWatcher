@@ -1,0 +1,54 @@
+{
+    "name":  "woodtron-electron",
+    "version":  "0.1.0",
+    "author": "Michael Beasley",
+    "private":  true,
+    "main": "packages/main/dist/main.js",
+    "description":  "JobMan By Woodtron",
+    "license":  "UNLICENSED",
+    "packageManager":  "pnpm@9.0.0",
+    "engines":  {
+                    "node":  ">=20",
+                    "pnpm":  ">=9"
+                },
+    "workspaces":  [
+                       "packages/*"
+                   ],
+    "scripts":  {
+                    "dev":  "concurrently -k -n RENDERER,MAIN,PRELOAD,ELECTRON \"pnpm:dev:renderer\" \"pnpm:dev:main\" \"pnpm:dev:preload\" \"pnpm:dev:electron\"",
+                    "dev:renderer":  "pnpm -C packages/renderer dev",
+                    "dev:main":  "esbuild packages/main/src/main.ts packages/main/src/workers/watchersWorker.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --external:fsevents --outdir=packages/main/dist --sourcemap --watch",
+                    "dev:preload":  "esbuild packages/preload/src/index.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --outfile=packages/preload/dist/index.js --sourcemap --watch",
+                    "dev:electron":  "wait-on http-get://localhost:5180 packages/preload/dist/index.js packages/main/dist/main.js packages/main/dist/workers/watchersWorker.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5180 pnpm -C packages/main exec electron dist/main.js",
+                    "build":  "pnpm build:preload && pnpm build:main && pnpm -C packages/renderer build",
+                    "build:main":  "esbuild packages/main/src/main.ts packages/main/src/workers/watchersWorker.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --external:fsevents --outdir=packages/main/dist --sourcemap",
+                    "build:preload":  "esbuild packages/preload/src/index.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --outfile=packages/preload/dist/index.js --sourcemap",
+                    "lint":  "eslint \"packages/**/*.{ts,tsx}\"",
+                    "lint:fix":  "eslint --fix \"packages/**/*.{ts,tsx}\"",
+                    "typecheck":  "pnpm -r run typecheck",
+                    "format":  "pnpm dlx prettier --config prettier.config.cjs --ignore-path .prettierignore --write .",
+                    "format:check":  "pnpm dlx prettier --config prettier.config.cjs --ignore-path .prettierignore --check ."
+                },
+    "devDependencies":  {
+                            "@playwright/test":  "^1.48.2",
+                            "@types/node":  "^20.12.12",
+                            "@typescript-eslint/eslint-plugin":  "^7.16.0",
+                            "@typescript-eslint/parser":  "^7.16.0",
+                            "@vitest/coverage-v8":  "^2.1.1",
+                            "concurrently":  "^9.0.1",
+                            "cross-env":  "^7.0.3",
+                            "electron": "^31.0.0",
+                            "esbuild":  "^0.21.5",
+                            "eslint":  "^8.57.0",
+                            "eslint-plugin-react":  "^7.35.0",
+                            "eslint-plugin-react-hooks":  "^4.6.2",
+                            "pg-mem":  "^3.0.5",
+                            "typescript":  "^5.4.5",
+                            "vitest":  "^2.1.1",
+                            "wait-on":  "^7.2.0"
+                        },
+    "dependencies":  {
+                         "drizzle-orm":  "^0.44.5",
+                         "neverthrow":  "^7.1.0"
+                     }
+}
