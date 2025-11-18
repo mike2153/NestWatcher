@@ -9,10 +9,10 @@ import { triggerDbStatusCheck } from '../services/dbWatchdog';
 import { registerResultHandler } from './result';
 
 export function registerSettingsIpc() {
-  registerResultHandler('settings:get', async () => ok(loadConfig()));
+  registerResultHandler('settings:get', async () => ok(loadConfig()), { requiresAdmin: true });
 
   // Expose the resolved on-disk path of the settings file for display in UI
-  registerResultHandler('settings:path', async () => ok(getConfigPath()));
+  registerResultHandler('settings:path', async () => ok(getConfigPath()), { requiresAdmin: true });
 
   registerResultHandler('settings:save', async (_e, next) => {
     const update = (typeof next === 'object' && next !== null ? (next as Partial<Settings>) : {}) ?? {};
@@ -21,7 +21,7 @@ export function registerSettingsIpc() {
     await resetPool();
     triggerDbStatusCheck();
     return ok(resolved);
-  });
+  }, { requiresAdmin: true });
 
   registerResultHandler('settings:validatePath', async (_event, raw) => {
     const req = PathValidationReq.parse(raw);
@@ -48,7 +48,7 @@ export function registerSettingsIpc() {
       };
       return ok(result);
     }
-  });
+  }, { requiresAdmin: true });
 
   registerResultHandler('db:test', async (_e, dbSettings) => {
     const cfg = DbSettingsSchema.parse(dbSettings);
@@ -59,7 +59,7 @@ export function registerSettingsIpc() {
     };
     const res = await testConnection(effective);
     return ok(res);
-  });
+  }, { requiresAdmin: true });
 }
 
 

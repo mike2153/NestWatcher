@@ -6,6 +6,7 @@ import { OrderingUpdateReq } from '../../../shared/src';
 import { listOrdering, updateOrderingStatus } from '../repo/orderingRepo';
 import { createAppError } from './errors';
 import { registerResultHandler } from './result';
+import { requireSession } from '../services/authSessions';
 
 function buildTimestampedFilename(extension: 'csv' | 'pdf'): string {
   const now = new Date();
@@ -163,14 +164,15 @@ export function registerOrderingIpc() {
     return ok<OrderingListRes, AppError>(result);
   });
 
-  registerResultHandler('ordering:update', async (_event, raw) => {
+  registerResultHandler('ordering:update', async (event, raw) => {
+    const session = requireSession(event);
     const parsed = OrderingUpdateReq.safeParse(raw ?? {});
     if (!parsed.success) {
       return err(createAppError('ordering.invalidArguments', parsed.error.message));
     }
 
     try {
-      const row = await updateOrderingStatus(parsed.data.id, {
+      const row = await updateOrderingStatus(parsed.data.id, session.displayName, {
         ordered: parsed.data.ordered,
         comments: parsed.data.comments ?? null
       });

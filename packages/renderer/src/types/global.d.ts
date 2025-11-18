@@ -42,13 +42,25 @@ import type {
   OrderingListRes,
   OrderingUpdateReq,
   OrderingExportRes,
-  OrderingRow
+  OrderingRow,
+  AuthStateRes,
+  AuthSuccessRes,
+  AuthLoginReq,
+  AuthRegisterReq,
+  AuthResetPasswordReq
 } from '../../../shared/src';
 import type { TelemetrySummaryReq, TelemetrySummaryRes, AlarmsHistoryReq, AlarmsHistoryRes } from '../../../shared/src';
 
 declare global {
   interface Window {
     api: {
+      auth: {
+        me: () => Promise<Result<AuthStateRes, AppError>>;
+        login: (req: AuthLoginReq) => Promise<Result<AuthSuccessRes, AppError>>;
+        register: (req: AuthRegisterReq) => Promise<Result<AuthSuccessRes, AppError>>;
+        resetPassword: (req: AuthResetPasswordReq) => Promise<Result<AuthSuccessRes, AppError>>;
+        logout: () => Promise<Result<null, AppError>>;
+      };
       settings: {
         get: () => Promise<Result<Settings, AppError>>;
         getPath: () => Promise<Result<string, AppError>>;

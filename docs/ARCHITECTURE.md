@@ -30,7 +30,7 @@ Some features stream updates (DB status, Ready‑To‑Run folder):
 - Renderer unsubscribes on unmount; Main cleans up listeners
 
 ### Worker Threads
-`watchersWorker.ts` runs background watchers (AutoPAC CSVs, Nestpick outputs). CNC telemetry is now written directly into Postgres by the collector service, and the worker focuses on filesystem-driven flows. It posts events back to Main over Node worker messaging, and Main forwards status into Diagnostics.
+`watchersWorker.ts` runs background watchers (AutoPAC CSVs, Nestpick outputs). CNC telemetry is written directly into PostgreSQL by an external cncstats collector service; the worker does not handle telemetry ingestion and focuses exclusively on filesystem-driven job status flows. It posts events back to Main over Node worker messaging, and Main forwards status updates into Diagnostics.
 
 ### Why the Bridge (Preload)?
 - Security: Renderer doesn’t get Node APIs directly

@@ -19,7 +19,6 @@ import type {
   MachineHealthEntry,
   MachineHealthCode
 } from '../../../shared/src';
-import type { Settings } from '../../../shared/src';
 import { JOB_STATUS_VALUES } from '../../../shared/src';
 import { cn } from '../utils/cn';
 import { GlobalTable } from '@/components/table/GlobalTable';
@@ -103,6 +102,18 @@ const defaultFilters: FiltersState = {
   machineId: undefined,
   completedTimeframe: '7days'
 };
+
+function renderUserMeta(name?: string | null, timestamp?: string | null) {
+  if (!name && !timestamp) return null;
+  const parts: string[] = [];
+  if (name) parts.push(name);
+  if (timestamp) {
+    const formatted = formatTimestamp(timestamp);
+    if (formatted) parts.push(formatted);
+  }
+  if (!parts.length) return null;
+  return <span className="text-xs text-muted-foreground">{parts.join(' • ')}</span>;
+}
 
 function formatTimestamp(value: string) {
   const d = new Date(value);
@@ -251,7 +262,6 @@ export function JobsPage() {
   const [search, setSearch] = useState('');
   const [sorting, setSorting] = useState<SortingState>([{ id: 'dateadded', desc: true }]);
   const [filters, setFilters] = useState<FiltersState>({ ...defaultFilters });
-  const [settings, setSettings] = useState<Settings | null>(null);
   const [filterOptions, setFilterOptions] = useState<JobsFiltersRes['options']>({ materials: [], statuses: JOB_STATUS_VALUES });
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [columnSizing, _setColumnSizing] = useState<ColumnSizingState>(loadColumnSizing);
@@ -312,23 +322,17 @@ export function JobsPage() {
   }, []);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await window.api.settings.get();
-        if (res.ok) {
-          setSettings(res.value);
-          // Initialize filters from settings
-          if (res.value.jobs?.statusFilter) {
-            setFilters(prev => ({
-              ...prev,
-              statusGroups: res.value.jobs.statusFilter
-            }));
-          }
-        }
-      } catch (err) {
-        console.error('Failed to load settings', err);
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem('jobs:statusFilter');
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.every((value) => ['pending', 'processing', 'complete'].includes(value))) {
+        setFilters((prev) => ({ ...prev, statusGroups: parsed as StatusGroup[] }));
       }
-    })();
+    } catch (err) {
+      console.warn('Failed to load persisted jobs status filter', err);
+    }
   }, []);
 
   useEffect(() => {
@@ -624,7 +628,15 @@ export function JobsPage() {
       meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.locked, minWidthPx: 70 },
       cell: ({ row, getValue }) => {
         if ('_type' in row.original && row.original._type === 'folder-group') return '';
-        return getValue<boolean>() ? 'Yes' : 'No';
+        const locked = getValue<boolean>();
+        if (!locked) return 'No';
+        const jobRow = row.original as JobRow;
+        return (
+          <div className="flex flex-col">
+            <span>Yes</span>
+            {renderUserMeta(jobRow.lockedBy, jobRow.allocatedAt)}
+          </div>
+        );
       }
     },
     {
@@ -635,11 +647,21 @@ export function JobsPage() {
         if ('_type' in row.original && row.original._type === 'folder-group') return '';
         const raw = getValue<JobStatus | null>();
         if (!raw) return <span className="text-muted-foreground">-</span>;
-        return (
+        const badge = (
           <span className={cn('inline-flex items-center rounded px-2 py-0.5 text-sm font-medium', statusBadgeClass(raw))}>
             {formatStatusLabel(raw)}
           </span>
         );
+        if ((row.original as JobRow).status === 'STAGED') {
+          const jobRow = row.original as JobRow;
+          return (
+            <div className="flex flex-col">
+              {badge}
+              {renderUserMeta(jobRow.stagedBy, jobRow.stagedAt)}
+            </div>
+          );
+        }
+        return badge;
       }
     },
     {
@@ -891,24 +913,15 @@ export function JobsPage() {
   }, []);
 
   const updateStatusFilter = useCallback(async (newGroups: StatusGroup[]) => {
-    setFilters(prev => ({ ...prev, statusGroups: newGroups }));
-
-    // Save to settings (persist full object)
-    if (settings) {
+    setFilters((prev) => ({ ...prev, statusGroups: newGroups }));
+    if (typeof window !== 'undefined') {
       try {
-        const res = await window.api.settings.save({
-          ...settings,
-          jobs: {
-            ...settings.jobs,
-            statusFilter: newGroups
-          }
-        });
-        if (res.ok) setSettings(res.value);
+        window.localStorage.setItem('jobs:statusFilter', JSON.stringify(newGroups));
       } catch (err) {
-        console.error('Failed to save status filter to settings', err);
+        console.warn('Failed to persist jobs status filter', err);
       }
     }
-  }, [settings]);
+  }, []);
 
   const handleRowContextMenu = useCallback((event: MouseEvent<HTMLTableRowElement>, rowKey: string) => {
     // If the right-clicked row is not part of the current selection,
@@ -1039,20 +1052,11 @@ export function JobsPage() {
               setSearch('');
               setFilters(reset);
               setRowSelection({});
-
-              // Save reset status filter to settings
-              if (settings) {
+              if (typeof window !== 'undefined') {
                 try {
-                  const res = await window.api.settings.save({
-                    ...settings,
-                    jobs: {
-                      ...settings.jobs,
-                      statusFilter: reset.statusGroups
-                    }
-                  });
-                  if (res.ok) setSettings(res.value);
+                  window.localStorage.setItem('jobs:statusFilter', JSON.stringify(reset.statusGroups));
                 } catch (err) {
-                  console.error('Failed to save reset filter to settings', err);
+                  console.warn('Failed to persist jobs status filter', err);
                 }
               }
 

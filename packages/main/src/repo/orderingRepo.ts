@@ -1,4 +1,3 @@
-import os from 'os';
 import { withClient } from '../services/db';
 import { getGrundnerLookupColumn } from '../services/grundner';
 import { loadConfig } from '../services/config';
@@ -42,16 +41,6 @@ function normalizeMaterialKey(material: string | null | undefined): string {
   const trimmed = material?.trim();
   if (!trimmed) return UNKNOWN_KEY;
   return trimmed;
-}
-
-function resolveActor(): string {
-  try {
-    const info = os.userInfo();
-    if (info?.username) return info.username;
-  } catch {
-    // ignore
-  }
-  return process.env.USERNAME || process.env.USER || 'unknown';
 }
 
 export async function computeOrderingRows(): Promise<OrderingComputation> {
@@ -305,9 +294,10 @@ export async function listOrdering(): Promise<{ items: OrderingRow[]; includeRes
 
 export async function updateOrderingStatus(
   id: number,
+  actor: string,
   options: { ordered?: boolean; comments?: string | null }
 ): Promise<OrderingRow> {
-  const actor = resolveActor();
+  const actorName = actor?.trim() || 'unknown';
   return withClient(async (client) => {
     // Ensure the Grundner row exists; do not create any Grundner records here.
     const exists = await client
@@ -360,7 +350,7 @@ export async function updateOrderingStatus(
         [
           id,
           orderedNext,
-          orderedNext ? actor : null,
+          orderedNext ? actorName : null,
           orderedNext ? new Date().toISOString() : null,
           commentsNext
         ]
@@ -374,7 +364,7 @@ export async function updateOrderingStatus(
         [
           id,
           orderedNext,
-          orderedNext ? actor : null,
+          orderedNext ? actorName : null,
           orderedNext ? new Date().toISOString() : null,
           commentsNext
         ]
@@ -400,7 +390,7 @@ export async function updateOrderingStatus(
       effectiveAvailable: 0,
       orderAmount: 0,
       ordered: orderedNext,
-      orderedBy: orderedNext ? actor : null,
+      orderedBy: orderedNext ? actorName : null,
       orderedAt: orderedNext ? new Date().toISOString() : null,
       comments: commentsNext
     };

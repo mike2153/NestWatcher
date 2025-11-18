@@ -1,6 +1,6 @@
-# NestWatcher Styling Guide
+# Woodtron Styling Guide
 
-Complete styling reference for replicating the NestWatcher application design system.
+Complete styling reference for the Woodtron application design system.
 
 ---
 
@@ -559,7 +559,7 @@ className="hover:bg-accent hover:-translate-y-0.5 transition-normal"
 
 ## Summary
 
-To replicate NestWatcher's styling in another application:
+To replicate Woodtron's styling in another application:
 
 1. Install dependencies: Tailwind CSS v4, CVA, Geist font, Radix UI, TanStack Table, Lucide icons
 2. Copy `theme.css` with all color tokens and utilities

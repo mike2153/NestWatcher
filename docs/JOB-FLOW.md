@@ -149,6 +149,7 @@ Set these in **Settings** page:
 | `machines[].apJobfolder` | Machine's ready-to-run folder | `\\Machine1\ReadyToRun` |
 | `machines[].nestpickFolder` | Nestpick input/output folder | `\\Machine1\Nestpick` |
 | `machines[].nestpickEnabled` | Enable Nestpick forwarding | `true` |
+| `machines[].pcIp` | PC IP Address for telemetry mapping (optional) | `192.168.1.100` |
 
 ## Quick Troubleshooting
 

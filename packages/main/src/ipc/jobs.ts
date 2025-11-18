@@ -18,6 +18,7 @@ import { logger } from '../logger';
 import { pushAppMessage } from '../services/messages';
 import { createAppError } from './errors';
 import { registerResultHandler } from './result';
+import { requireSession } from '../services/authSessions';
 
 function ensureNcExtension(value: string | null | undefined, fallbackBase: string): string {
   const raw = value ?? fallbackBase;
@@ -30,7 +31,11 @@ function formatSampleList(values: string[], limit = 3): string {
   return values.length > limit ? `${trimmed.join(', ')}, ...` : trimmed.join(', ');
 }
 
-async function unlockJobs(keys: string[]) {
+function formatUserSuffix(user?: string | null) {
+  return user ? ` (by ${user})` : '';
+}
+
+async function unlockJobs(keys: string[], actorName?: string) {
   const seen = new Set<string>();
   const orderedKeys: string[] = [];
   for (const rawKey of keys) {
@@ -80,13 +85,15 @@ async function unlockJobs(keys: string[]) {
   });
   const sampleNcFiles = formatSampleList(ncNames);
   const result = await placeProductionDeleteCsv(items);
+  const suffix = formatUserSuffix(actorName);
   if (!result.confirmed) {
     pushAppMessage(
       'unlock.failure',
       {
         count: orderedKeys.length,
         sampleNcFiles,
-        reason: result.message ?? 'Delete not confirmed by Grundner'
+        reason: result.message ?? 'Delete not confirmed by Grundner',
+        userSuffix: suffix
       },
       { source: 'jobs' }
     );
@@ -108,7 +115,8 @@ async function unlockJobs(keys: string[]) {
       {
         count: orderedKeys.length,
         sampleNcFiles,
-        reason: message
+        reason: message,
+        userSuffix: suffix
       },
       { source: 'jobs' }
     );
@@ -118,7 +126,8 @@ async function unlockJobs(keys: string[]) {
     'unlock.success',
     {
       count: orderedKeys.length,
-      sampleNcFiles
+      sampleNcFiles,
+      userSuffix: suffix
     },
     { source: 'jobs' }
   );
@@ -163,9 +172,10 @@ export function registerJobsIpc() {
     return ok<null, AppError>(null);
   });
 
-  registerResultHandler('jobs:lock', async (_e, raw) => {
+  registerResultHandler('jobs:lock', async (event, raw) => {
+    const session = requireSession(event);
     const req = LockReq.parse(raw);
-    const success = await lockJob(req.key);
+    const success = await lockJob(req.key, session.displayName);
     if (!success) {
       // Provide a clearer reason when locking fails
       const rows = await withDb((db) =>
@@ -192,20 +202,32 @@ export function registerJobsIpc() {
       }
       return err(createAppError('jobs.lockFailed', 'Failed to lock job.'));
     }
+    pushAppMessage(
+      'lock.success',
+      {
+        count: 1,
+        sampleNcFiles: req.key,
+        userSuffix: formatUserSuffix(session.displayName)
+      },
+      { source: 'jobs' }
+    );
     return ok<null, AppError>(null);
   });
 
-  registerResultHandler('jobs:unlock', async (_e, raw) => {
+  registerResultHandler('jobs:unlock', async (event, raw) => {
+    const session = requireSession(event);
     const req = UnlockReq.parse(raw);
-    return unlockJobs([req.key]);
+    return unlockJobs([req.key], session.displayName);
   });
 
-  registerResultHandler('jobs:unlockBatch', async (_e, raw) => {
+  registerResultHandler('jobs:unlockBatch', async (event, raw) => {
+    const session = requireSession(event);
     const req = UnlockBatchReq.parse(raw);
-    return unlockJobs(req.keys);
+    return unlockJobs(req.keys, session.displayName);
   });
 
-  registerResultHandler('jobs:lockBatch', async (_e, raw) => {
+  registerResultHandler('jobs:lockBatch', async (event, raw) => {
+    const session = requireSession(event);
     const req = LockBatchReq.parse(raw);
     const keys = Array.from(new Set(req.keys));
     if (keys.length === 0) return err(createAppError('jobs.invalidArguments', 'No jobs provided.'));
@@ -295,7 +317,8 @@ export function registerJobsIpc() {
         {
           count: keys.length,
           reason: 'Insufficient stock available',
-          details: message
+          details: message,
+          userSuffix: formatUserSuffix(session.displayName)
         },
         { source: 'jobs' }
       );
@@ -318,7 +341,8 @@ export function registerJobsIpc() {
           {
             count: keys.length,
             sampleNcFiles,
-            reason: message
+            reason: message,
+            userSuffix: formatUserSuffix(session.displayName)
           },
           { source: 'jobs' }
         );
@@ -327,13 +351,14 @@ export function registerJobsIpc() {
 
       // Mark locked after Grundner .erl confirmation
       for (const k of keys) {
-        await lockJobAfterGrundnerConfirmation(k);
+        await lockJobAfterGrundnerConfirmation(k, session.displayName);
       }
       pushAppMessage(
         'lock.success',
         {
           count: keys.length,
-          sampleNcFiles
+          sampleNcFiles,
+          userSuffix: formatUserSuffix(session.displayName)
         },
         { source: 'jobs' }
       );
@@ -346,7 +371,8 @@ export function registerJobsIpc() {
         {
           count: keys.length,
           sampleNcFiles,
-          reason: message
+          reason: message,
+          userSuffix: formatUserSuffix(session.displayName)
         },
         { source: 'jobs' }
       );
@@ -364,7 +390,8 @@ export function registerJobsIpc() {
     return ok<null, AppError>(null);
   });
 
-  registerResultHandler('jobs:addToWorklist', async (_e, raw) => {
+  registerResultHandler('jobs:addToWorklist', async (event, raw) => {
+    const session = requireSession(event);
     if (typeof raw !== 'object' || raw === null) {
       return err(createAppError('jobs.invalidArguments', 'Invalid arguments supplied.'));
     }
@@ -372,11 +399,12 @@ export function registerJobsIpc() {
     if (typeof key !== 'string' || typeof machineId !== 'number') {
       return err(createAppError('jobs.invalidArguments', 'Invalid arguments supplied.'));
     }
-    const result = await addJobToWorklist(key, machineId);
+    const result = await addJobToWorklist(key, machineId, session.displayName);
     return ok<WorklistAddResult, AppError>(result);
   });
 
-  registerResultHandler('jobs:rerunAndStage', async (_e, raw) => {
+  registerResultHandler('jobs:rerunAndStage', async (event, raw) => {
+    const session = requireSession(event);
     if (typeof raw !== 'object' || raw === null) {
       return err(createAppError('jobs.invalidArguments', 'Invalid arguments supplied.'));
     }
@@ -384,7 +412,7 @@ export function registerJobsIpc() {
     if (typeof key !== 'string' || typeof machineId !== 'number') {
       return err(createAppError('jobs.invalidArguments', 'Invalid arguments supplied.'));
     }
-    const result = await rerunAndStage(key, machineId);
+    const result = await rerunAndStage(key, machineId, session.displayName);
     return ok<WorklistAddResult, AppError>(result);
   });
 

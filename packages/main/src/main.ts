@@ -18,6 +18,7 @@ import { registerGrundnerIpc } from './ipc/grundner';
 import { registerAllocatedMaterialIpc } from './ipc/allocatedMaterial';
 import { registerMessagesIpc } from './ipc/messages';
 import { registerOrderingIpc } from './ipc/ordering';
+import { registerAuthIpc } from './ipc/auth';
 import { initWatchers, shutdownWatchers } from './services/watchers';
 import { startDbWatchdog, stopDbWatchdog } from './services/dbWatchdog';
 import { logger } from './logger';
@@ -81,6 +82,7 @@ app.whenReady().then(async () => {
   logSecurityConfigurationSummary();
 
   registerSettingsIpc();
+  registerAuthIpc();
   registerDbIpc();
   registerJobsIpc();
   registerMachinesIpc();

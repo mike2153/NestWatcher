@@ -17,6 +17,7 @@ import { GrundnerPage } from './pages/GrundnerPage';
 import { AllocatedMaterialPage } from './pages/AllocatedMaterialPage';
 import { MessagesPage } from './pages/MessagesPage';
 import { OrderingPage } from './pages/OrderingPage';
+import { AuthProvider } from './contexts/AuthContext';
 
 // Use BrowserRouter in dev for nicer URLs; HashRouter in production for file:// packaging
 const makeRoutes = () => ([
@@ -50,6 +51,8 @@ installRendererConsoleForwarding();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <RouterProvider router={router} />
+    <AuthProvider>
+      <RouterProvider router={router} />
+    </AuthProvider>
   </React.StrictMode>
 );

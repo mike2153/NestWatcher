@@ -1,6 +1,6 @@
-# Woodtron Desktop — User Manual
+# Woodtron User Manual
 
-This guide explains how to use the Woodtron desktop app end-to-end. It focuses on daily operator tasks, file formats, folder flows, statuses, and the Settings that matter to operators (folders and machines). It is not a developer reference and intentionally omits database setup details.
+This guide explains how to use the Woodtron desktop application end-to-end. It focuses on daily operator tasks, file formats, folder flows, statuses, and the Settings that matter to operators (folders and machines). It is not a developer reference and intentionally omits database setup details.
 
 Use this manual to understand:
 
@@ -20,13 +20,15 @@ Use the left sidebar to access the app’s pages:
 
 - Dashboard: Summarizes active jobs and highlights machine health issues.
 - Jobs: Search, filter, reserve/lock, and stage jobs to machines. Shows inline history.
-- Router: Lists NC files currently in each machine’s Ready-To-Run folder with status, filters, auto-refresh, Clear Processed, Delete Selected, and CSV export.
-- History: Browse completed jobs and see per-job timelines. Supports “Re-run” for a finished job.
-- Grundner: View Grundner stock, available, and reserved totals. Filter and export CSV. Edit “Available” where permitted.
+- Router: Lists NC files currently in each machine's Ready-To-Run folder with status, filters, auto-refresh, Clear Processed, Delete Selected, and CSV export.
+- History: Browse completed jobs and see per-job timelines. Supports "Re-run" for a finished job.
+- Grundner: View Grundner stock, available, and reserved totals. Filter and export CSV. Edit "Available" where permitted.
 - Allocated: List of in-flight allocations mapped to Grundner inventory and job lock state.
+- Ordering: Material ordering page showing required amounts based on pre-reserved and locked jobs. Supports marking materials as ordered and adding comments.
 - Telemetry: Machine RUN/READY/ALARM time breakdowns over a date range with live updates.
+- Messages: System messages and notifications with unread count badge.
 - CNC Alarms: Date- and machine-filtered list of CNC alarm history.
-- Settings: Configure folders and machines. Optional database settings are visible here but out of scope for this manual. A Hypernest button is available from the sidebar to open Hypernest externally.
+- Settings: Configure folders and machines. Optional database settings are visible here but out of scope for this manual.
 
 ---
 
@@ -351,8 +353,8 @@ Open the Settings page to manage folders and machine details. Database settings 
 
 - Name
   - Display name in the UI.
-- CNC IP
-  - Optional field that links telemetry rows to a machine. Set it to the host reported by the cncstats collector for accurate mapping.
+- PC IP Address
+  - Optional field that links telemetry rows to a machine. Set it to the host/IP reported by the cncstats collector for accurate mapping.
 - AP Job Folder
   - Ready-To-Run location for staged files.
 - Nestpick Folder
@@ -390,7 +392,7 @@ Open the Settings page to manage folders and machine details. Database settings 
 
 - Live summarized RUN/READY/ALARM/B-STOP/OTHER time breakdowns by machine over a date range.
 - Filter the date range and select specific machines.
-- Note: For mapping to work, a machine’s CNC IP should match the cncstats API host recorded in `public.cncstats`.
+- Note: For mapping to work, a machine's PC IP Address should match the host/IP recorded in the cncstats database table (`public.cncstats.pc_ip`).
 
 ### CNC Alarms
 
@@ -401,13 +403,27 @@ Open the Settings page to manage folders and machine details. Database settings 
 
 - View Grundner stock and allocation details using the configured Sheet ID Mode (type_data or customer_id).
 - Filters: search, only available, only reserved; adjustable limit.
-- Edit “Available” where permitted. Export CSV of the current table.
+- Edit "Available" where permitted. Export CSV of the current table.
 - Updates live when the backend ingests new `stock.csv` data.
 
 ### Allocated Material
 
 - Lists allocations tied to jobs: Type, Customer ID, Folder, NC, Dimensions (L×W×T), Status (Pre-Reserved or Locked), Stock, Available, Allocated Date.
 - Updates live when allocations or Grundner stock change.
+
+### Ordering
+
+- Shows material ordering requirements calculated from pre-reserved and locked jobs.
+- Columns include Type Data, Customer ID, Available, Required, Order Amount, Reserved, Locked, Ordered status, and Comments.
+- Toggle "Include Reserved" to adjust calculations.
+- Mark materials as ordered and add comments for tracking.
+- Export current view to CSV.
+
+### Messages
+
+- System messages and notifications.
+- Unread message count shown as badge on sidebar navigation.
+- Mark messages as read/unread.
 
 ### Dashboard
 
@@ -438,8 +454,8 @@ Open the Settings page to manage folders and machine details. Database settings 
   - Make sure Nestpick Enabled is “Yes” for that machine
   - Ensure a staged CSV exists under the AP Job Folder to forward
 - Telemetry page empty:
-  - Ensure each machine’s PC IP matches the host string stored in `public.cncstats.pc_ip` and that `machine_name` aligns with the machine Name in Settings.
-  - For test scenarios, enable “Use test data mode” and point to a folder with valid JSON/CSV telemetry samples.
+  - Ensure each machine's PC IP Address matches the host string stored in `public.cncstats.pc_ip` and that the machine name aligns with the machine Name in Settings.
+  - For test scenarios, enable "Use test data mode" and point to a folder with valid JSON/CSV telemetry samples.
 
 ---
 

@@ -47,7 +47,12 @@ import type {
   OrderingListRes,
   OrderingUpdateReq,
   OrderingExportRes,
-  OrderingRow
+  OrderingRow,
+  AuthStateRes,
+  AuthSuccessRes,
+  AuthLoginReq,
+  AuthRegisterReq,
+  AuthResetPasswordReq
 } from '../../shared/src';
 import { type ResultEnvelope } from '../../shared/src/result';
 
@@ -56,6 +61,13 @@ const invokeResult = <T>(channel: string, ...args: unknown[]): Promise<ResultEnv
   ipcRenderer.invoke(channel, ...args) as Promise<ResultEnvelope<T>>;
 
 const api = {
+  auth: {
+    me: () => invokeResult<AuthStateRes>('auth:me'),
+    login: (input: AuthLoginReq) => invokeResult<AuthSuccessRes>('auth:login', input),
+    register: (input: AuthRegisterReq) => invokeResult<AuthSuccessRes>('auth:register', input),
+    resetPassword: (input: AuthResetPasswordReq) => invokeResult<AuthSuccessRes>('auth:resetPassword', input),
+    logout: () => invokeResult<null>('auth:logout')
+  },
   settings: {
     get: () => invokeResult<Settings>('settings:get'),
     getPath: () => invokeResult<string>('settings:path'),

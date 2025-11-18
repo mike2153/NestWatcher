@@ -37,7 +37,7 @@ const definitions: Record<string, MessageDefinition> = {
   'job.staged': {
     key: 'job.staged',
     title: 'Job Staged',
-    body: 'Staged {{ncFile}} from {{folder}} to machine {{machineName}}.',
+    body: 'Staged {{ncFile}} from {{folder}} to machine {{machineName}}{{userSuffix}}.',
     tone: 'success'
   },
   'job.ready.missing': {
@@ -55,25 +55,25 @@ const definitions: Record<string, MessageDefinition> = {
   'lock.success': {
     key: 'lock.success',
     title: 'Jobs Locked',
-    body: 'Locked {{count}} job(s) for Grundner order: {{sampleNcFiles}}.',
+    body: 'Locked {{count}} job(s) for Grundner order: {{sampleNcFiles}}{{userSuffix}}.',
     tone: 'success'
   },
   'lock.failure': {
     key: 'lock.failure',
     title: 'Lock Failed',
-    body: 'Failed to lock {{count}} job(s). {{reason}}{{details ? ": " + details : ""}}',
+    body: 'Failed to lock {{count}} job(s). {{reason}}{{details ? ": " + details : ""}}{{userSuffix}}',
     tone: 'error'
   },
   'unlock.success': {
     key: 'unlock.success',
     title: 'Jobs Released',
-    body: 'Released {{count}} job(s) from Grundner: {{sampleNcFiles}}.',
+    body: 'Released {{count}} job(s) from Grundner: {{sampleNcFiles}}{{userSuffix}}.',
     tone: 'success'
   },
   'unlock.failure': {
     key: 'unlock.failure',
     title: 'Release Failed',
-    body: 'Unlock request failed for {{count}} job(s); Grundner reply incomplete ({{reason}}).',
+    body: 'Unlock request failed for {{count}} job(s); Grundner reply incomplete ({{reason}}){{userSuffix}}.',
     tone: 'error'
   },
   'status.pending_staged': {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Router, History, Settings, Layers, BellRing, Gauge, ListCheck, AlignVerticalJustifyEnd, MessageSquare, ShoppingCart } from 'lucide-react';
+import { LayoutDashboard, Router, History, Settings, Layers, BellRing, Gauge, ListCheck, AlignVerticalJustifyEnd, MessageSquare, ShoppingCart, UserRound, LogOut } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/sidebar';
 import { cn } from '@/utils/cn';
 import { SettingsModal } from './SettingsModal';
+import { useAuth } from '@/contexts/AuthContext';
 
 const nav = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -28,6 +29,7 @@ const nav = [
 export function AppSidebar() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
+  const { session, requireLogin, logout } = useAuth();
 
   useEffect(() => {
     let active = true;
@@ -84,23 +86,36 @@ export function AppSidebar() {
             );
           })}
 
-          {/* Settings Button */}
-          <SidebarMenuItem>
-            <button
-              onClick={() => setShowSettings(true)}
-              className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-base font-medium transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
-            >
-              <Settings />
-              <span className="ml-2 text-base font-medium">Settings</span>
-            </button>
-          </SidebarMenuItem>
         </SidebarMenu>
       </SidebarContent>
       <SidebarFooter>
+        <div className="px-4 pb-2 text-xs text-muted-foreground">
+          {session ? `Signed in as ${session.displayName}` : 'Not signed in'}
+        </div>
         <SidebarMenu>
           <SidebarMenuItem>
             <button
-              className="flex h-10 w-full ml-2 gap-2 overflow-hidden rounded-md pl-5 pr-3 text-left text-base font-medium transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              onClick={() => (session ? logout() : requireLogin())}
+              className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-base font-medium transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
+            >
+              {session ? <LogOut /> : <UserRound />}
+              <span className="ml-2 text-base font-medium">{session ? 'Logout' : 'Login'}</span>
+            </button>
+          </SidebarMenuItem>
+          {session?.role === 'admin' ? (
+            <SidebarMenuItem>
+              <button
+                onClick={() => setShowSettings(true)}
+                className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-base font-medium transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
+              >
+                <Settings />
+                <span className="ml-2 text-base font-medium">Settings</span>
+              </button>
+            </SidebarMenuItem>
+          ) : null}
+          <SidebarMenuItem>
+            <button
+              className="flex h-10 w-full gap-2 overflow-hidden rounded-md pl-4 pr-3 text-left text-base font-medium transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               onClick={async () => {
                 const res = await window.api.hypernest.open();
                 if (!res.ok) alert(`Failed to open Hypernest: ${res.error.message}`);

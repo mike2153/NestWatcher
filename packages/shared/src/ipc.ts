@@ -33,6 +33,50 @@ export type ThemePreferenceReq = z.infer<typeof ThemePreferenceReq>;
 export const ThemePreferenceRes = z.object({ preference: ThemePreference });
 export type ThemePreferenceRes = z.infer<typeof ThemePreferenceRes>;
 
+export const AuthRole = z.enum(['admin', 'operator']);
+export type AuthRole = z.infer<typeof AuthRole>;
+
+export const AuthSession = z.object({
+  userId: z.number().int(),
+  username: z.string(),
+  displayName: z.string(),
+  role: AuthRole
+});
+export type AuthSession = z.infer<typeof AuthSession>;
+
+export const AuthStateRes = z.object({ session: AuthSession.nullable() });
+export type AuthStateRes = z.infer<typeof AuthStateRes>;
+
+export const AuthSuccessRes = z.object({ session: AuthSession });
+export type AuthSuccessRes = z.infer<typeof AuthSuccessRes>;
+
+export const AuthLoginReq = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1)
+});
+export type AuthLoginReq = z.infer<typeof AuthLoginReq>;
+
+const SecurityAnswers = z.object({
+  firstPet: z.string().min(1),
+  motherMaiden: z.string().min(1),
+  firstSchool: z.string().min(1)
+});
+
+export const AuthRegisterReq = z.object({
+  username: z.string().min(3),
+  password: z.string().min(6),
+  displayName: z.string().min(1),
+  securityAnswers: SecurityAnswers
+});
+export type AuthRegisterReq = z.infer<typeof AuthRegisterReq>;
+
+export const AuthResetPasswordReq = z.object({
+  username: z.string().min(1),
+  newPassword: z.string().min(6),
+  answers: SecurityAnswers
+});
+export type AuthResetPasswordReq = z.infer<typeof AuthResetPasswordReq>;
+
 export const SettingsSchema = z.object({
   version: z.number().int().min(1).default(CURRENT_SETTINGS_VERSION),
   db: DbSettingsSchema,
@@ -114,7 +158,11 @@ export const JobRow = z.object({
   locked: z.boolean(),
   status: JobStatus,
   machineId: z.number().int().nullable(),
-  processingSeconds: z.number().int().nullable().optional()
+  processingSeconds: z.number().int().nullable().optional(),
+  stagedAt: z.string().nullable().optional(),
+  allocatedAt: z.string().nullable().optional(),
+  lockedBy: z.string().nullable().optional(),
+  stagedBy: z.string().nullable().optional()
 });
 export type JobRow = z.infer<typeof JobRow>;
 

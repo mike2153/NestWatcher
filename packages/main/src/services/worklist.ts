@@ -112,7 +112,7 @@ function chooseDestination(baseDir: string): { path: string; collision?: Worklis
   return { path: baseDir };
 }
 
-export async function addJobToWorklist(key: string, machineId: number): Promise<WorklistAddResult> {
+export async function addJobToWorklist(key: string, machineId: number, actorName?: string): Promise<WorklistAddResult> {
   const job = await withClient(async (c) => {
     const r = await c.query(
       `SELECT key, folder, ncfile, material, status, machine_id, is_locked FROM public.jobs WHERE key = $1`,
@@ -535,7 +535,8 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
     const lifecycle = await updateLifecycle(job.key, 'STAGED', {
       machineId,
       source: 'worklist',
-      payload: { dest: finalDestBaseDir, copied, skipped }
+      payload: { dest: finalDestBaseDir, copied, skipped },
+      actorName
     });
 
     if (lifecycle.ok) {
@@ -563,12 +564,14 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
     logger.warn({ err, key: job.key }, 'worklist: failed to append job event');
   }
 
+  const userSuffix = actorName ? ` (by ${actorName})` : '';
   pushAppMessage(
     'job.staged',
     {
       ncFile: toNcFileName(job.ncfile, job.key),
       folder: job.folder ?? '',
-      machineName: m.name ?? `Machine ${machineId}`
+      machineName: m.name ?? `Machine ${machineId}`,
+      userSuffix
     },
     { source: 'worklist' }
   );
@@ -601,7 +604,7 @@ export async function addJobToWorklist(key: string, machineId: number): Promise<
 
       if (res.confirmed) {
         // Lock only after confirmed .erl from Grundner
-        await lockJobAfterGrundnerConfirmation(job.key);
+        await lockJobAfterGrundnerConfirmation(job.key, actorName ?? 'Grundner');
         void dialog.showMessageBox({ type: 'info', title: 'Order Saw', message: `Order confirmed for ${job.key}.` });
       } else {
         const message = res.erl ? res.erl : 'Timed out waiting for confirmation (.erl).';
@@ -663,7 +666,7 @@ function parseNcQuick(ncPath: string): { material: string | null; size: string |
   }
 }
 
-export async function rerunAndStage(origKey: string, machineId: number): Promise<WorklistAddResult> {
+export async function rerunAndStage(origKey: string, machineId: number, actorName?: string): Promise<WorklistAddResult> {
   const cfg = loadConfig();
   const root = (cfg.paths.processedJobsRoot ?? '').trim();
   if (!root) return { ok: false, error: 'processedJobsRoot not configured' };
@@ -728,5 +731,5 @@ export async function rerunAndStage(origKey: string, machineId: number): Promise
   });
 
   // Stage the new job key
-  return addJobToWorklist(newKey, machineId);
+  return addJobToWorklist(newKey, machineId, actorName);
 }

@@ -4,6 +4,7 @@ import {
   inet,
   integer,
   jsonb,
+  uuid,
   pgEnum,
   pgTable,
   serial,
@@ -56,7 +57,9 @@ export const jobs = pgTable('jobs', {
   pallet: varchar('pallet', { length: 50 }),
   lastError: text('last_error'),
   qty: integer('qty').default(0).notNull(),
-  status: jobStatusEnum('status').default('PENDING').notNull()
+  status: jobStatusEnum('status').default('PENDING').notNull(),
+  lockedBy: text('locked_by'),
+  stagedBy: text('staged_by')
 });
 
 export const jobEvents = pgTable('job_events', {
@@ -93,6 +96,25 @@ export const orderingStatus = pgTable('ordering_status', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });
 
+export const appUsers = pgTable('app_users', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  username: text('username').notNull(),
+  displayName: text('display_name'),
+  passwordHash: text('password_hash').notNull(),
+  securityPetHash: text('security_pet_hash').notNull(),
+  securityMaidenHash: text('security_maiden_hash').notNull(),
+  securitySchoolHash: text('security_school_hash').notNull(),
+  role: text('role').default('operator').notNull(),
+  forcePasswordReset: boolean('force_password_reset').default(false).notNull(),
+  lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+  activeSessionToken: uuid('active_session_token'),
+  activeSessionIssuedAt: timestamp('active_session_issued_at', { withTimezone: true }),
+  failedAttempts: integer('failed_attempts').default(0).notNull(),
+  lockedUntil: timestamp('locked_until', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+});
+
 export const allocatedMaterialView = pgView('allocated_material_view', {
   grundnerId: integer('grundner_id'),
   typeData: integer('type_data'),
@@ -122,7 +144,8 @@ export const schema = {
   grundner,
   orderingStatus,
   allocatedMaterialView,
-  jobStatusEnum
+  jobStatusEnum,
+  appUsers
 };
 
 export type JobStatus = (typeof jobStatusEnum.enumValues)[number];

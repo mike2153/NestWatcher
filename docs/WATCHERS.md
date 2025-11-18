@@ -6,7 +6,7 @@ This app watches machine folders and CSVs to update job status and forward to Ne
 - Worker: `packages/main/src/workers/watchersWorker.ts`
   - AutoPAC CSV watcher
   - Nestpick processed/unstack watchers
-  - (CNC telemetry now flows directly into Postgres; no TCP clients remain in the worker)
+  - Note: CNC telemetry data is written directly to PostgreSQL by an external cncstats collector service. The worker does not handle telemetry ingestion; it focuses on filesystem-driven job status updates.
 
 ### AutoPAC CSV Files
 - Naming must include machine: `load_finishWT1.csv`, `label_finishWT2.csv`, `cnc_finishWT1.csv` (separators `_`/`-` allowed)

@@ -11,6 +11,7 @@ type LifecycleUpdateOptions = {
   machineId?: number | null;
   source?: string;
   payload?: unknown;
+  actorName?: string | null;
 };
 
 type LifecycleUpdateResult =
@@ -241,6 +242,10 @@ export async function listJobs(req: JobsListReq) {
         isLocked: jobs.isLocked,
         status: jobs.status,
         machineId: jobs.machineId,
+        stagedAt: jobs.stagedAt,
+        allocatedAt: jobs.allocatedAt,
+        lockedBy: jobs.lockedBy,
+        stagedBy: jobs.stagedBy,
         processingSeconds: sql<number | null>`CASE 
           WHEN ${jobs.nestpickCompletedAt} IS NULL OR ${jobs.stagedAt} IS NULL THEN NULL
           ELSE EXTRACT(EPOCH FROM (${jobs.nestpickCompletedAt} - ${jobs.stagedAt}))::int
@@ -268,7 +273,11 @@ export async function listJobs(req: JobsListReq) {
     locked: !!row.isLocked,
     status: row.status as JobStatus,
     machineId: row.machineId ?? null,
-    processingSeconds: row.processingSeconds ?? null
+    processingSeconds: row.processingSeconds ?? null,
+    stagedAt: row.stagedAt ? row.stagedAt.toISOString() : null,
+    allocatedAt: row.allocatedAt ? row.allocatedAt.toISOString() : null,
+    lockedBy: row.lockedBy ?? null,
+    stagedBy: row.stagedBy ?? null
   }));
 
   const nextCursor = rows.length > safeLimit ? rows[safeLimit].key : null;
@@ -321,7 +330,8 @@ export async function unreserveJob(key: string) {
   );
 }
 
-export async function lockJob(key: string) {
+export async function lockJob(key: string, actor?: string) {
+  const actorName = actor?.trim() || null;
   return withDb((db) =>
     db.transaction(async (tx) => {
       const updated = await tx
@@ -329,6 +339,7 @@ export async function lockJob(key: string) {
         .set({
           isLocked: true,
           preReserved: false,
+          lockedBy: actorName,
           updatedAt: sql<Date>`now()` as unknown as Date,
           allocatedAt: sql<Date>`CASE WHEN ${jobs.preReserved} = false AND ${jobs.isLocked} = false THEN now() ELSE ${jobs.allocatedAt} END` as unknown as Date
         })
@@ -351,7 +362,8 @@ export async function lockJob(key: string) {
 // Use ONLY after Grundner .erl confirmation to enforce lock regardless of status.
 // This prevents generic UI/manual locking of STAGED jobs but still locks when
 // we have a positive confirmation from Grundner.
-export async function lockJobAfterGrundnerConfirmation(key: string) {
+export async function lockJobAfterGrundnerConfirmation(key: string, actor?: string) {
+  const actorName = actor?.trim() || null;
   return withDb((db) =>
     db.transaction(async (tx) => {
       const updated = await tx
@@ -359,6 +371,7 @@ export async function lockJobAfterGrundnerConfirmation(key: string) {
         .set({
           isLocked: true,
           preReserved: false,
+          lockedBy: actorName,
           updatedAt: sql<Date>`now()` as unknown as Date,
           allocatedAt: sql<Date>`CASE WHEN ${jobs.preReserved} = false AND ${jobs.isLocked} = false THEN now() ELSE ${jobs.allocatedAt} END` as unknown as Date
         })
@@ -384,6 +397,7 @@ export async function unlockJob(key: string) {
         .update(jobs)
         .set({
           isLocked: false,
+          lockedBy: null,
           updatedAt: sql<Date>`now()` as unknown as Date,
           allocatedAt: sql<Date | null>`CASE WHEN ${jobs.preReserved} = false THEN NULL ELSE ${jobs.allocatedAt} END` as unknown as Date
         })
@@ -619,6 +633,7 @@ export async function updateLifecycle(
           status: jobs.status,
           machineId: jobs.machineId,
           stagedAt: jobs.stagedAt,
+          stagedBy: jobs.stagedBy,
           cutAt: jobs.cutAt,
           nestpickCompletedAt: jobs.nestpickCompletedAt,
           updatedAt: jobs.updatedAt,
@@ -659,6 +674,11 @@ export async function updateLifecycle(
       if ((to === 'STAGED' || to === 'LOAD_FINISH' || to === 'LABEL_FINISH') && !current.stagedAt) {
         patch.stagedAt = dbNow as unknown as Date;
         touched = true;
+      }
+      if (to === 'STAGED') {
+        patch.stagedBy = options.actorName?.trim() || currentRows[0].stagedBy || null;
+      } else if (previousStatus === 'STAGED' && to !== 'STAGED') {
+        patch.stagedBy = null;
       }
 
       if (to === 'CNC_FINISH' && !current.cutAt) {
