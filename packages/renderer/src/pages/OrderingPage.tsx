@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getCoreRowModel,
   getSortedRowModel,
@@ -23,6 +23,14 @@ const ORDERING_COL_WIDTH = {
 
 type CommentDrafts = Record<string, string>;
 
+function formatOrderedAt(value: string): string | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const datePart = date.toLocaleDateString();
+  const timePart = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return `${datePart}, ${timePart}`;
+}
+
 export function OrderingPage() {
   const [rows, setRows] = useState<OrderingRow[]>([]);
   const [includeReserved, setIncludeReserved] = useState(false);
@@ -34,6 +42,8 @@ export function OrderingPage() {
   const [busyOrderedKey, setBusyOrderedKey] = useState<string | null>(null);
   const [busyCommentKey, setBusyCommentKey] = useState<string | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<CommentDrafts>({});
+  const commentDraftsRef = useRef<CommentDrafts>({});
+  commentDraftsRef.current = commentDrafts;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -173,7 +183,7 @@ export function OrderingPage() {
           const item = row.original;
           const key = item.materialKey;
           const disabled = !item.id || busyOrderedKey === key || busyCommentKey === key;
-          const orderedAt = item.orderedAt ? new Date(item.orderedAt).toLocaleString() : null;
+          const orderedAt = item.orderedAt ? formatOrderedAt(item.orderedAt) : null;
           return (
             <div className="flex flex-col gap-1 text-sm">
               <label className="inline-flex items-center gap-2">
@@ -202,7 +212,7 @@ export function OrderingPage() {
         cell: ({ row }) => {
           const item = row.original;
           const key = item.materialKey;
-          const value = commentDrafts[key] ?? '';
+          const value = commentDraftsRef.current[key] ?? '';
           const disabled = !item.id || busyCommentKey === key || busyOrderedKey === key;
           return (
             <input
@@ -218,6 +228,13 @@ export function OrderingPage() {
               onBlur={(e) => {
                 const next = e.target.value.trim();
                 void handleSaveComment(item, next);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.currentTarget.blur();
+                }
               }}
             />
           );
@@ -238,7 +255,7 @@ export function OrderingPage() {
     }
 
     return base;
-  }, [includeReserved, commentDrafts, busyCommentKey, busyOrderedKey, handleSaveComment, handleToggleOrdered]);
+  }, [includeReserved, busyCommentKey, busyOrderedKey, handleSaveComment, handleToggleOrdered]);
 
   const table = useReactTable({
     data: filteredRows,

@@ -29,7 +29,7 @@ The UI lives in `packages/renderer/src/pages/OrderingPage.tsx`. All server-side 
 - Export buttons call `window.api.ordering.exportCsv()` / `exportPdf()` which generate timestamped files through Electron’s save dialog.
 
 ### Ordered toggle
-Clicking the checkbox sends `window.api.ordering.update({ id, ordered: !row.ordered })`. `updateOrderingStatus()` updates `public.ordering_status`, stamps the actor (current OS user), and recomputes the rows. If the row was already marked ordered by someone else the handler returns an `ORDER_LOCKED` error that the UI surfaces via `alert`.
+Clicking the checkbox sends `window.api.ordering.update({ id, ordered: !row.ordered })`. `updateOrderingStatus()` updates `public.ordering_status`, stamps the authenticated user’s display name, and recomputes the rows. If the row was already marked ordered by someone else the handler returns an `ORDER_LOCKED` error that the UI surfaces via `alert`.
 
 ### Comments
 - Each row renders a controlled text input seeded with `row.comments`.
