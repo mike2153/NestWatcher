@@ -103,3 +103,26 @@ export type ValidationDataRes = {
   nestPick: NestPickResult | null;
   mesOutputVersion: string | null;
 };
+
+export type AggregatedValidationDataReq = { keys: string[] };
+
+export type AggregatedValidationDataRes = {
+  jobCount: number;
+  totalNcEstRuntime: number | null;
+  avgYieldPercentage: number | null;
+  totalWasteOffcutM2: number | null;
+  totalWasteOffcutDustM3: number | null;
+  totalToolDustM3: number | null;
+  totalDrillDustM3: number | null;
+  totalSheetDustM3: number | null;
+  totalCuttingDistanceMeters: number | null;
+  allPartsPickable: boolean;
+  totalPalletAdjustedVolumeM3: number | null;
+  toolUsage: ToolUsage[];
+  drillUsage: DrillUsage[];
+  validationSummary: {
+    passCount: number;
+    warningsCount: number;
+    errorsCount: number;
+  };
+};

@@ -50,6 +50,8 @@ import type {
   OrderingRow,
   ValidationDataReq,
   ValidationDataRes,
+  AggregatedValidationDataReq,
+  AggregatedValidationDataRes,
   AuthStateRes,
   AuthSuccessRes,
   AuthLoginReq,
@@ -77,7 +79,8 @@ const api = {
     }
   },
   validation: {
-    getData: (input: ValidationDataReq) => invokeResult<ValidationDataRes>('validation:getData', input)
+    getData: (input: ValidationDataReq) => invokeResult<ValidationDataRes>('validation:getData', input),
+    getAggregatedData: (input: AggregatedValidationDataReq) => invokeResult<AggregatedValidationDataRes>('validation:getAggregatedData', input)
   },
   settings: {
     get: () => invokeResult<Settings>('settings:get'),

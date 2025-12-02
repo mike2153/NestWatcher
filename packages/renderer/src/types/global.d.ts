@@ -49,7 +49,9 @@ import type {
   AuthRegisterReq,
   AuthResetPasswordReq,
   ValidationDataReq,
-  ValidationDataRes
+  ValidationDataRes,
+  AggregatedValidationDataReq,
+  AggregatedValidationDataRes
 } from '../../../shared/src';
 import type { TelemetrySummaryReq, TelemetrySummaryRes, AlarmsHistoryReq, AlarmsHistoryRes } from '../../../shared/src';
 
@@ -66,6 +68,7 @@ declare global {
       };
       validation: {
         getData: (req: ValidationDataReq) => Promise<Result<ValidationDataRes, AppError>>;
+        getAggregatedData: (req: AggregatedValidationDataReq) => Promise<Result<AggregatedValidationDataRes, AppError>>;
       };
       settings: {
         get: () => Promise<Result<Settings, AppError>>;

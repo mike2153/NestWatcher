@@ -77,8 +77,6 @@ async function loadExistingJobKeys(keys: string[]): Promise<Set<string>> {
 export async function processValidationJson(): Promise<void> {
   if (processing) return;
   const jsonPath = getValidationJsonPath();
-  const userData = app.getPath('userData');
-  logger.info({ jsonPath, userData }, `MES scan: checking for validation.json at ${jsonPath} (userData ${userData})`);
   if (!existsSync(jsonPath)) {
     logger.debug({ jsonPath }, 'MES scan: no validation.json found');
     return;
@@ -125,7 +123,9 @@ export async function processValidationJson(): Promise<void> {
       try {
         await upsertNcStats({
           jobKey,
-          ncEstRuntime: entry.ncEstRuntime,
+          ncEstRuntime: Number.isFinite(entry.ncEstRuntime)
+            ? Math.round(entry.ncEstRuntime)
+            : null,
           yieldPercentage: entry.yieldPercentage,
           wasteOffcutM2: entry.wasteOffcutM2,
           wasteOffcutDustM3: entry.wasteOffcutDustM3,
