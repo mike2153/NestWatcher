@@ -11,6 +11,7 @@ import { cn } from '../utils/cn';
 import { GlobalTable } from '@/components/table/GlobalTable';
 import type { ColumnDef, RowSelectionState } from '@tanstack/react-table';
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table';
+import { ValidationDataModal } from '@/components/ValidationDataModal';
 
 const AUTO_REFRESH_ENABLED_KEY = 'router:autoRefresh';
 const AUTO_REFRESH_INTERVAL_KEY = 'router:autoRefreshInterval';
@@ -90,6 +91,8 @@ export function RouterPage() {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [deleting, setDeleting] = useState(false);
   const [clearedByMachine, setClearedByMachine] = useState<Map<number, Map<string, number>>>(() => new Map());
+  const [validationModalOpen, setValidationModalOpen] = useState(false);
+  const [validationJobKey, setValidationJobKey] = useState<string | null>(null);
 
   // Auto-clear banner after 5 seconds
   useEffect(() => {
@@ -612,6 +615,22 @@ export function RouterPage() {
         viewportPadding={200}
         density="normal"
         headerHoverAlways
+        onRowDoubleClick={(row) => {
+          const original = row.original as RouterReadyFile;
+          if (original.jobKey) {
+            setValidationJobKey(original.jobKey);
+            setValidationModalOpen(true);
+          }
+        }}
+      />
+
+      <ValidationDataModal
+        open={validationModalOpen}
+        onOpenChange={(next) => {
+          setValidationModalOpen(next);
+          if (!next) setValidationJobKey(null);
+        }}
+        jobKey={validationJobKey}
       />
     </div>
   );

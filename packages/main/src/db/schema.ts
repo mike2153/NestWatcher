@@ -11,7 +11,8 @@ import {
   text,
   timestamp,
   varchar,
-  pgView
+  pgView,
+  real
 } from 'drizzle-orm/pg-core';
 
 export const jobStatusEnum = pgEnum('job_status', [
@@ -96,6 +97,26 @@ export const orderingStatus = pgTable('ordering_status', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });
 
+export const ncStats = pgTable('nc_stats', {
+  jobKey: varchar('job_key', { length: 100 })
+    .primaryKey()
+    .references(() => jobs.key, { onDelete: 'cascade' }),
+  ncEstRuntime: integer('nc_est_runtime'),
+  yieldPercentage: real('yield_percentage'),
+  wasteOffcutM2: real('waste_offcut_m2'),
+  wasteOffcutDustM3: real('waste_offcut_dust_m3'),
+  totalToolDustM3: real('total_tool_dust_m3'),
+  totalDrillDustM3: real('total_drill_dust_m3'),
+  sheetTotalDustM3: real('sheet_total_dust_m3'),
+  cuttingDistanceMeters: real('cutting_distance_meters'),
+  usableOffcuts: jsonb('usable_offcuts').$type<unknown>(),
+  toolUsage: jsonb('tool_usage').$type<unknown>(),
+  drillUsage: jsonb('drill_usage').$type<unknown>(),
+  validation: jsonb('validation').$type<unknown>(),
+  nestpick: jsonb('nestpick').$type<unknown>(),
+  mesOutputVersion: text('mes_output_version')
+});
+
 export const appUsers = pgTable('app_users', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   username: text('username').notNull(),
@@ -143,6 +164,7 @@ export const schema = {
   jobEvents,
   grundner,
   orderingStatus,
+  ncStats,
   allocatedMaterialView,
   jobStatusEnum,
   appUsers

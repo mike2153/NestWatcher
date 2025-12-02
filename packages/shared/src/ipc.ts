@@ -52,7 +52,9 @@ export type AuthSuccessRes = z.infer<typeof AuthSuccessRes>;
 
 export const AuthLoginReq = z.object({
   username: z.string().min(1),
-  password: z.string().min(1)
+  password: z.string().min(1),
+  // When true, override an existing active session for this user
+  force: z.boolean().optional().default(false)
 });
 export type AuthLoginReq = z.infer<typeof AuthLoginReq>;
 

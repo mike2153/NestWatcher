@@ -173,7 +173,7 @@ export function registerJobsIpc() {
   });
 
   registerResultHandler('jobs:lock', async (event, raw) => {
-    const session = requireSession(event);
+    const session = await requireSession(event);
     const req = LockReq.parse(raw);
     const success = await lockJob(req.key, session.displayName);
     if (!success) {
@@ -215,19 +215,19 @@ export function registerJobsIpc() {
   });
 
   registerResultHandler('jobs:unlock', async (event, raw) => {
-    const session = requireSession(event);
+    const session = await requireSession(event);
     const req = UnlockReq.parse(raw);
     return unlockJobs([req.key], session.displayName);
   });
 
   registerResultHandler('jobs:unlockBatch', async (event, raw) => {
-    const session = requireSession(event);
+    const session = await requireSession(event);
     const req = UnlockBatchReq.parse(raw);
     return unlockJobs(req.keys, session.displayName);
   });
 
   registerResultHandler('jobs:lockBatch', async (event, raw) => {
-    const session = requireSession(event);
+    const session = await requireSession(event);
     const req = LockBatchReq.parse(raw);
     const keys = Array.from(new Set(req.keys));
     if (keys.length === 0) return err(createAppError('jobs.invalidArguments', 'No jobs provided.'));
@@ -391,7 +391,7 @@ export function registerJobsIpc() {
   });
 
   registerResultHandler('jobs:addToWorklist', async (event, raw) => {
-    const session = requireSession(event);
+    const session = await requireSession(event);
     if (typeof raw !== 'object' || raw === null) {
       return err(createAppError('jobs.invalidArguments', 'Invalid arguments supplied.'));
     }
@@ -404,7 +404,7 @@ export function registerJobsIpc() {
   });
 
   registerResultHandler('jobs:rerunAndStage', async (event, raw) => {
-    const session = requireSession(event);
+    const session = await requireSession(event);
     if (typeof raw !== 'object' || raw === null) {
       return err(createAppError('jobs.invalidArguments', 'Invalid arguments supplied.'));
     }

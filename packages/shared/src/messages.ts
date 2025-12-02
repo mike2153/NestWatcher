@@ -195,6 +195,30 @@ const definitions: Record<string, MessageDefinition> = {
     title: 'Message Log Trimmed',
     body: 'Message history trimmed to {{limit}} entries.',
     tone: 'info'
+  },
+  'mes.parseError': {
+    key: 'mes.parseError',
+    title: 'MES JSON Parse Failed',
+    body: 'Could not parse validation.json ({{reason}}).',
+    tone: 'error'
+  },
+  'mes.validationFailure': {
+    key: 'mes.validationFailure',
+    title: 'MES Validation Failed',
+    body: '{{failed}} file(s) failed validation in {{folder}}. Review errors before proceeding.',
+    tone: 'error'
+  },
+  'mes.processed': {
+    key: 'mes.processed',
+    title: 'MES Data Processed',
+    body: 'Processed {{processed}} file(s); updated {{updated}} job(s).',
+    tone: 'info'
+  },
+  'mes.jobsNotFound': {
+    key: 'mes.jobsNotFound',
+    title: 'MES Jobs Missing',
+    body: '{{missing}} file(s) from validation.json did not match any jobs.',
+    tone: 'warning'
   }
 };
 

@@ -163,6 +163,7 @@ function trackWatcher(watcher: FSWatcher) {
 
 let shuttingDown = false;
 let jobsIngestInterval: NodeJS.Timeout | null = null;
+let processedRootMissingNotified = false;
 let stageSanityTimer: NodeJS.Timeout | null = null;
 let sourceSanityTimer: NodeJS.Timeout | null = null;
 
@@ -2298,7 +2299,7 @@ async function grundnerPollOnce(folder: string) {
 
     // If a pending request exists, do nothing and wait for next interval
     if (await fileExists(reqPath)) {
-      recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Request in flight; skipping' });
+      //recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Request in flight; skipping' });
       return;
     }
 
@@ -2532,6 +2533,32 @@ function startJobsIngestPolling() {
   async function runIngest() {
     if (shuttingDown) return;
     try {
+      const cfg = loadConfig();
+      const root = cfg.paths.processedJobsRoot?.trim?.() ?? '';
+      if (!root) {
+        if (!processedRootMissingNotified) {
+          emitAppMessage(
+            'jobsFolder.unreadable',
+            { path: '(not configured)', error: 'Jobs folder path is not configured' },
+            'jobs-ingest'
+          );
+          processedRootMissingNotified = true;
+        }
+        return;
+      }
+      if (!existsSync(root)) {
+        if (!processedRootMissingNotified) {
+          emitAppMessage(
+            'jobsFolder.unreadable',
+            { path: root, error: 'Jobs folder path does not exist' },
+            'jobs-ingest'
+          );
+          processedRootMissingNotified = true;
+        }
+        return;
+      }
+      processedRootMissingNotified = false;
+
       const result = await ingestProcessedJobsRoot();
       for (const job of result.addedJobs ?? []) {
         emitAppMessage('job.detected', { ncFile: job.ncFile, folder: job.folder }, 'jobs-ingest');

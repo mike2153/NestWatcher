@@ -22,6 +22,7 @@ import type {
 import { JOB_STATUS_VALUES } from '../../../shared/src';
 import { cn } from '../utils/cn';
 import { GlobalTable } from '@/components/table/GlobalTable';
+import { ValidationDataModal } from '@/components/ValidationDataModal';
 import { Button } from '@/components/ui/button';
 import {
   ContextMenu,
@@ -284,6 +285,8 @@ export function JobsPage() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [historyJobKey, setHistoryJobKey] = useState<string | null>(null);
+  const [validationModalOpen, setValidationModalOpen] = useState(false);
+  const [validationJobKey, setValidationJobKey] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<ExpandedState>({});
   const isRefreshingRef = useRef(false);
 
@@ -1124,6 +1127,13 @@ export function JobsPage() {
                   row.toggleExpanded();
                 }
               }}
+              onRowDoubleClick={(row) => {
+                const original = row.original;
+                if (isJobRow(original)) {
+                  setValidationJobKey(original.key);
+                  setValidationModalOpen(true);
+                }
+              }}
               toggleRowSelectionOnClick={true}
             />
           </div>
@@ -1212,6 +1222,15 @@ export function JobsPage() {
           </div>
         </SheetContent>
       </Sheet>
+
+      <ValidationDataModal
+        open={validationModalOpen}
+        onOpenChange={(next) => {
+          setValidationModalOpen(next);
+          if (!next) setValidationJobKey(null);
+        }}
+        jobKey={validationJobKey}
+      />
 
       {/* Context menu handled above */}
     </div>

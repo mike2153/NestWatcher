@@ -39,9 +39,9 @@ export function registerResultHandler<T>(
   ipcMain.handle(channel, async (event, ...args) => {
     try {
       if (requiresAdmin) {
-        requireAdminSession(event);
+        await requireAdminSession(event);
       } else if (requiresAuth) {
-        requireSession(event);
+        await requireSession(event);
       }
       const result = await handler(event, ...args);
       return fromResult(result);

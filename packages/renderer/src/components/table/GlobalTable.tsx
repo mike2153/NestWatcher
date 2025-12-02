@@ -26,6 +26,7 @@ type GlobalTableProps<TData extends RowData> = {
   headerHoverAlways?: boolean;
   onRowClick?: (row: Row<TData>, event: MouseEvent<HTMLTableRowElement>) => void;
   onRowContextMenu?: (row: Row<TData>, event: MouseEvent<HTMLTableRowElement>) => void;
+  onRowDoubleClick?: (row: Row<TData>, event: MouseEvent<HTMLTableRowElement>) => void;
   getRowClassName?: (row: Row<TData>) => string | undefined;
 };
 
@@ -47,6 +48,7 @@ export function GlobalTable<TData extends RowData>({
   headerHoverAlways = false,
   onRowClick,
   onRowContextMenu,
+  onRowDoubleClick,
   getRowClassName
 }: GlobalTableProps<TData>) {
   const rows = table.getRowModel().rows;
@@ -176,6 +178,9 @@ export function GlobalTable<TData extends RowData>({
                   event.preventDefault();
                 }
                 onRowContextMenu?.(row, event);
+              }}
+              onDoubleClick={(event) => {
+                onRowDoubleClick?.(row, event);
               }}
             >
               {row.getVisibleCells().map((cell) => {

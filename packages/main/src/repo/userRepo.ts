@@ -12,11 +12,12 @@ export type DbUser = {
   forcePasswordReset: boolean;
   failedAttempts: number;
   activeSessionToken: string | null;
+  activeSessionIssuedAt: Date | string | null;
 };
 
 export async function findUserByUsername(username: string): Promise<DbUser | null> {
   return withClient(async (client) => {
-    const { rows } = await client.query<DbUser & { display_name: string | null }>({
+    const { rows } = await client.query<DbUser & { display_name: string | null; active_session_issued_at: Date | string | null }>({
       text: `
         SELECT id,
                username,
@@ -28,7 +29,8 @@ export async function findUserByUsername(username: string): Promise<DbUser | nul
                role,
                force_password_reset AS "forcePasswordReset",
                failed_attempts AS "failedAttempts",
-               active_session_token AS "activeSessionToken"
+               active_session_token AS "activeSessionToken",
+               active_session_issued_at AS "activeSessionIssuedAt"
           FROM public.app_users
          WHERE LOWER(username) = LOWER($1)
          LIMIT 1
@@ -48,7 +50,7 @@ export async function createUser(input: {
   securitySchoolHash: string;
 }): Promise<DbUser> {
   return withClient(async (client) => {
-    const { rows } = await client.query<DbUser & { display_name: string | null }>({
+    const { rows } = await client.query<DbUser & { display_name: string | null; active_session_issued_at: Date | string | null }>({
       text: `
         INSERT INTO public.app_users (
           username,
@@ -69,7 +71,8 @@ export async function createUser(input: {
                   role,
                   force_password_reset AS "forcePasswordReset",
                   failed_attempts AS "failedAttempts",
-                  active_session_token AS "activeSessionToken"
+                  active_session_token AS "activeSessionToken",
+                  active_session_issued_at AS "activeSessionIssuedAt"
       `,
       values: [
         input.username,
@@ -112,6 +115,21 @@ export async function clearSession(userId: number): Promise<void> {
       [userId]
     )
   );
+}
+
+export async function getActiveSessionToken(userId: number): Promise<string | null> {
+  return withClient(async (client) => {
+    const { rows } = await client.query<{ active_session_token: string | null }>(
+      `
+        SELECT active_session_token
+          FROM public.app_users
+         WHERE id = $1
+         LIMIT 1
+      `,
+      [userId]
+    );
+    return rows[0]?.active_session_token ?? null;
+  });
 }
 
 export async function recordFailedLogin(userId: number): Promise<{ attempts: number; requiresReset: boolean }> {
