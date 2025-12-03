@@ -1,174 +1,406 @@
-/* Clean, Minimal Theme System - Only What's Actually Used */
+/*
+ * Woodtron Dark Theme
+ * A sophisticated dark interface with charcoal backgrounds,
+ * subtle depth, and excellent contrast for industrial applications
+ */
 
 @layer base {
-  :root {
-    /* Core colors - Light theme with gradient effects */
-    --background: linear-gradient(135deg, theme('colors.neutral.200') 0%, theme('colors.neutral.100') 50%, theme('colors.neutral.100') 100%);
-      /* Header/UI elements background gradient */
-    --background-body: linear-gradient(to right, #feffff 0%, #feffff 100%)/* Main app body background. Use plain hex values so it can be easily customized. */
-    --foreground: theme('colors.zinc.900');         /* Main text color - nearly black */
-    --card:linear-gradient(to right, #fffffff3 0%, #ffffffef 100%);  /* Card background - warm gradient */
-    --card-foreground: theme('colors.zinc.900');   /* Card text - dark blue-gray */
-    /* Solid popover for context menus (no transparency) */
-    --primary: #1647e0;         /* Primary action color - vibrant indigo */
-    --destructive: theme('colors.rose.600');        /* Destructive actions - red */
-    --muted: theme('colors.slate.100');             /* Muted background elements */
-    --muted-foreground: theme('colors.slate.100');  /* Muted text - gray */
-    --border: theme('colors.stone.500');            /* Border color - warm gray */
+  /* === Dark Theme (Default) === */
+  :root,
+  .dark {
+    /* === Core Dark Theme Colors === */
+    /* Based on HSL color scheme with deep blue undertones */
 
-    /* Status indicator colors */
-    --status-success-bg: theme('colors.emerald.100');
-    --status-success-text: theme('colors.emerald.700');
-    --status-warning-bg: theme('colors.amber.100');
-    --status-warning-text: theme('colors.amber.700');
-    --status-error-bg: theme('colors.rose.100');
-    --status-error-text: theme('colors.rose.700');
+    /* Backgrounds - Deep blue-black */
+    --background: hsl(222 25% 8%);            /* Main app background */
+    --background-body: hsl(222 25% 8%);       /* Body background */
+    --background-elevated: hsl(222 22% 11%);  /* Elevated surfaces */
+    --background-subtle: hsl(222 20% 12%);    /* Subtle background variation */
 
-    /* Table colors */
-    --table-bg:  #feffff; /* Table background gradient */
-    --table-header-bg: #e2e2e2; /* Table header background - dark to match table */
-    --table-text: theme('colors.gray.900');        /* Table text - light for dark background */
-    --table-border: theme('colors.neutral.100');     /* Table outer border */
-    --table-row-border: theme('colors.neutral.300'); /* Horizontal lines between rows */
-    --table-hover-bg: #e9e9e9;   /* Row hover background */
-    --table-selected-bg: #e9e9e9; /* Row selected background */
-                                    
-    /* Sidebar colors - Metallic/Marble effect */
-    --sidebar: #f7f6f6; /* Metallic gradient background */
-    --sidebar-foreground: #404040; /* Light text on dark metallic bg */
-    --sidebar-accent:#eaeaeac5; /* Lighter metallic accent for active items */
-    --sidebar-border: theme('colors.slate.600');     /* Metallic border */
+    /* Foreground - Warm off-white for comfortable reading */
+    --foreground: hsl(40 15% 95%);            /* Primary text */
+    --foreground-muted: hsl(220 10% 55%);     /* Secondary/muted text */
+    --foreground-subtle: hsl(220 10% 45%);    /* Subtle/disabled text */
 
-    /* Input field styling */
-    --input-border: theme('colors.gray.700');       /* Input border color */
-    --input-border-width: 1.5px;                      /* Input border width */
-    /* Use a solid background for inputs/selects to unify appearance across panels */
-    --input-bg: #f3f4f6;              /* Input background color (light slate-100/gray-100 equivalent) */
+    /* Cards & Surfaces */
+    --card: hsl(222 22% 11%);                 /* Card background */
+    --card-foreground: hsl(40 15% 95%);       /* Card text */
+    --card-hover: hsl(222 20% 14%);           /* Card hover state */
 
-    /* Page title gradient */
-    --page-title-gradient: linear-gradient(135deg, theme('colors.stone.900') 0%, theme('colors.stone.700') 50%, theme('colors.stone.900') 100%);
+    /* Primary Action Color - Vibrant Blue */
+    --primary: hsl(213 94% 58%);              /* Primary action - vibrant blue */
+    --primary-hover: hsl(213 94% 65%);        /* Primary hover - lighter blue */
+    --primary-foreground: hsl(222 25% 8%);    /* Text on primary */
 
-  /* Design tokens */
-    --radius: 0.75rem;
-    --shadow-sm: 0 1px 2px 0 rgba(0,0,0,0.05);
-    --shadow-base: 0 1px 3px 0 rgba(0,0,0,0.10), 0 1px 2px -1px rgba(0,0,0,0.10);
-    --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.10), 0 2px 4px -2px rgba(0,0,0,0.10);
-    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.10), 0 4px 6px -4px rgba(0,0,0,0.10);
-    --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.10), 0 8px 10px -6px rgba(0,0,0,0.10);
+    /* Blue Accent for Hover Effects */
+    --accent-blue: hsl(213 94% 58%);          /* Main blue accent */
+    --accent-blue-light: hsl(213 94% 65%);    /* Light blue for hover */
+    --accent-blue-glow: rgba(59, 130, 246, 0.5);  /* Blue glow effect */
+    --accent-blue-subtle: rgba(59, 130, 246, 0.15); /* Subtle blue tint */
+    --accent-blue-border: rgba(59, 130, 246, 0.4);  /* Blue border on hover */
+
+    /* Secondary */
+    --secondary: hsl(222 20% 16%);            /* Secondary backgrounds */
+    --secondary-foreground: hsl(40 15% 90%);  /* Secondary text */
+    --secondary-hover: hsl(222 20% 20%);      /* Secondary hover */
+
+    /* Destructive */
+    --destructive: hsl(0 72% 55%);            /* Error/destructive red */
+    --destructive-hover: hsl(0 72% 60%);      /* Destructive hover */
+    --destructive-foreground: #ffffff;        /* Text on destructive */
+
+    /* Accent - Gold/Amber */
+    --accent: hsl(38 92% 55%);                /* Accent color - gold */
+    --accent-foreground: hsl(222 25% 8%);     /* Accent text */
+
+    /* Muted */
+    --muted: hsl(222 20% 16%);                /* Muted backgrounds */
+    --muted-foreground: hsl(220 10% 55%);     /* Muted text */
+
+    /* Borders */
+    --border: hsl(222 18% 18%);               /* Default border */
+    --border-subtle: hsl(222 20% 14%);        /* Subtle border */
+    --border-strong: hsl(222 18% 22%);        /* Strong/focus border */
+
+    /* Ring (focus) */
+    --ring: hsl(213 94% 58%);                 /* Focus ring color - vibrant blue */
+    --ring-glow: 0 0 0 3px rgba(59, 130, 246, 0.25);  /* Focus ring glow */
+
+    /* === Status Colors === */
+    --status-success-bg: hsl(152 30% 12%);    /* Success background */
+    --status-success-text: hsl(152 69% 42%);  /* Success text */
+    --status-success-border: hsl(152 50% 25%);/* Success border */
+
+    --status-warning-bg: hsl(38 40% 12%);     /* Warning background */
+    --status-warning-text: hsl(38 92% 55%);   /* Warning text - amber */
+    --status-warning-border: hsl(38 60% 30%); /* Warning border */
+
+    --status-error-bg: hsl(0 40% 12%);        /* Error background */
+    --status-error-text: hsl(0 72% 55%);      /* Error text - red */
+    --status-error-border: hsl(0 50% 25%);    /* Error border */
+
+    --status-info-bg: hsl(213 40% 12%);       /* Info background */
+    --status-info-text: hsl(213 94% 65%);     /* Info text - blue */
+    --status-info-border: hsl(213 60% 30%);   /* Info border */
+
+    /* === Table Colors === */
+    --table-bg: hsl(222 22% 11%);             /* Table background */
+    --table-header-bg: hsl(222 20% 14%);      /* Table header */
+    --table-text: hsl(40 15% 95%);            /* Table text */
+    --table-border: hsl(222 18% 18%);         /* Table border */
+    --table-row-border: hsl(222 20% 14%);     /* Row separator */
+    --table-hover-bg: hsl(222 20% 16%);       /* Row hover */
+    --table-selected-bg: hsl(213 30% 15%);    /* Selected row */
+
+    /* === Sidebar Colors === */
+    --sidebar: hsl(222 28% 6%);               /* Sidebar background - darkest */
+    --sidebar-foreground: hsl(40 15% 92%);    /* Sidebar text */
+    --sidebar-accent: hsl(222 25% 12%);       /* Sidebar active item */
+    --sidebar-accent-foreground: hsl(213 94% 65%); /* Active item text - blue */
+    --sidebar-border: hsl(222 20% 14%);       /* Sidebar border */
+    --sidebar-hover: hsl(222 25% 12%);        /* Sidebar hover */
+
+    /* === Input/Form Colors === */
+    --input-bg: hsl(222 22% 11%);             /* Input background */
+    --input-border: hsl(222 18% 18%);         /* Input border */
+    --input-border-width: 1px;                /* Input border width */
+    --input-focus-border: hsl(213 94% 58%);   /* Input focus border */
+    --input-placeholder: hsl(220 10% 45%);    /* Placeholder text */
+
+    /* === Popover/Dropdown === */
+    --popover: hsl(222 22% 11%);              /* Popover background */
+    --popover-foreground: hsl(40 15% 95%);    /* Popover text */
+    --popover-border: hsl(222 18% 18%);       /* Popover border */
+
+    /* === Scrollbar === */
+    --scrollbar-track: hsl(222 25% 8%);       /* Scrollbar track */
+    --scrollbar-thumb: hsl(222 18% 18%);      /* Scrollbar thumb */
+    --scrollbar-thumb-hover: hsl(222 18% 22%);/* Scrollbar thumb hover */
+
+    /* === Page Title === */
+    --page-title-gradient: linear-gradient(135deg, hsl(40 15% 95%) 0%, hsl(220 10% 55%) 100%);
+
+    /* === Design Tokens === */
+    --radius: 0.5rem;                         /* Border radius */
+    --radius-sm: 0.375rem;                    /* Small radius */
+    --radius-lg: 0.75rem;                     /* Large radius */
+
+    /* Shadows - subtle for dark theme */
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+    --shadow-base: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px -1px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.3);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+    --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.25);
+    --shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.35);
+
+    /* Blue Glow Shadows for Hover States */
+    --shadow-blue-sm: 0 0 8px rgba(59, 130, 246, 0.3);
+    --shadow-blue-md: 0 0 12px rgba(59, 130, 246, 0.4);
+    --shadow-blue-lg: 0 0 20px rgba(59, 130, 246, 0.5);
+    --shadow-blue-glow: 0 4px 14px -2px rgba(59, 130, 246, 0.4);
+
+    /* Transitions */
     --transition-fast: 150ms ease;
     --transition-normal: 200ms ease;
     --transition-slow: 300ms ease;
 
-    /* Alpha variants - using Tailwind colors with opacity */
-    --muted-a50: color-mix(in srgb, theme('colors.cyan.900') 50%, transparent);  /* Table row hover, table footer bg, inputs */
-    --primary-a10: color-mix(in srgb, theme('colors.indigo.500') 10%, transparent);  /* Selected row bg, gradient effects */
-    --primary-a15: color-mix(in srgb, theme('colors.indigo.500') 15%, transparent);  /* Box shadows, hover shadows */
-    --primary-a20: color-mix(in srgb, theme('colors.indigo.500') 20%, transparent);  /* Borders on focus, selected row borders, resizer hover */
-    --primary-a30: color-mix(in srgb, theme('colors.indigo.500') 30%, transparent);  /* Focus states, strong borders, box shadows */
-    --border-a06: color-mix(in srgb, theme('colors.slate.200') 6%, transparent);   /* Subtle box shadows */
-    --border-a08: color-mix(in srgb, theme('colors.slate.200') 8%, transparent);   /* Box shadows, elevated shadows */
-    --border-a10: color-mix(in srgb, theme('colors.slate.200') 10%, transparent);  /* Box shadows, table cell borders */
-    --border-a30: color-mix(in srgb, theme('colors.slate.200') 30%, transparent);  /* Table header borders */
+    /* Alpha variants for overlays */
+    --muted-a50: rgba(37, 37, 41, 0.5);
+    --primary-a10: rgba(91, 108, 240, 0.1);
+    --primary-a15: rgba(91, 108, 240, 0.15);
+    --primary-a20: rgba(91, 108, 240, 0.2);
+    --primary-a30: rgba(91, 108, 240, 0.3);
+    --border-a06: rgba(46, 46, 52, 0.06);
+    --border-a08: rgba(46, 46, 52, 0.08);
+    --border-a10: rgba(46, 46, 52, 0.1);
+    --border-a30: rgba(46, 46, 52, 0.3);
   }
 
-  .dark {
-    /* Dark theme - using Tailwind slate/gray colors */
-    --background: theme('colors.slate.900');        /* Dark background - deep slate */
-    --foreground: theme('colors.gray.200');         /* Light text on dark bg */
-    --card: theme('colors.gray.800');               /* Card background - dark gray */
-    --card-foreground: theme('colors.gray.200');    /* Card text - light gray */
-    --muted: theme('colors.slate.700');             /* Muted backgrounds */
-    --muted-foreground: theme('colors.slate.400');  /* Muted text */
-    --accent: theme('colors.slate.700');            /* Accent elements */
-    --border: theme('colors.slate.700');            /* Borders */
-    --table-bg: theme('colors.gray.800');           /* Table background */
-    --table-header-bg: theme('colors.slate.700');   /* Table header */
-    --table-text: theme('colors.gray.200');         /* Table text */
-    --table-hover-bg: color-mix(in srgb, theme('colors.slate.200') 10%, transparent); /* Row hover background */
-    --table-selected-bg: color-mix(in srgb, theme('colors.indigo.400') 20%, transparent); /* Row selected background */
-    --sidebar: theme('colors.slate.900');           /* Sidebar background */
-    --sidebar-foreground: theme('colors.gray.200'); /* Sidebar text */
-    --sidebar-accent: theme('colors.gray.800');     /* Sidebar active items */
-    --sidebar-border: theme('colors.slate.700');    /* Sidebar border */
-  }
+  /* === Light Theme === */
+  .light {
+    /* Backgrounds - Clean light grays */
+    --background: #f8f9fa;                    /* Main app background */
+    --background-body: #f8f9fa;               /* Body background */
+    --background-elevated: #ffffff;           /* Elevated surfaces */
+    --background-subtle: #f1f3f4;             /* Subtle background variation */
 
-  .modern {
-    /* Modern theme - using Tailwind blue/slate colors */
-    --background: theme('colors.blue.50');          /* Light blue background */
-    --foreground: theme('colors.slate.900');        /* Dark text */
-    --card: theme('colors.white');                  /* Pure white cards */
-    --card-foreground: theme('colors.slate.900');   /* Dark text on cards */
-    --primary: theme('colors.sky.500');             /* Sky blue primary */
-    --accent: theme('colors.blue.400');             /* Blue accent */
-    --muted: theme('colors.slate.50');              /* Very light muted bg */
-    --muted-foreground: theme('colors.slate.500');  /* Medium gray text */
-    --border: theme('colors.blue.200');             /* Light blue border */
-    --table-bg: theme('colors.white');              /* White table background */
-    --table-header-bg: theme('colors.slate.50');    /* Light table header */
-    --table-text: theme('colors.slate.900');        /* Dark table text */
-    --table-hover-bg: color-mix(in srgb, theme('colors.slate.900') 6%, transparent); /* Row hover background */
-    --table-selected-bg: color-mix(in srgb, theme('colors.sky.500') 12%, transparent); /* Row selected background */
-    --sidebar: theme('colors.blue.50');             /* Light blue sidebar */
-    --sidebar-foreground: theme('colors.slate.900'); /* Dark sidebar text */
-    --sidebar-accent: theme('colors.blue.100');     /* Light blue sidebar accent */
-    --sidebar-border: theme('colors.blue.200');     /* Light blue border */
+    /* Foreground - Dark text for readability */
+    --foreground: #1a1a1e;                    /* Primary text - near black */
+    --foreground-muted: #6b6b73;              /* Secondary/muted text */
+    --foreground-subtle: #a0a0a8;             /* Subtle/disabled text */
+
+    /* Cards & Surfaces */
+    --card: #ffffff;                          /* Card background - white */
+    --card-foreground: #1a1a1e;               /* Card text */
+    --card-hover: #f1f3f4;                    /* Card hover state */
+
+    /* Primary Action Color - Vibrant Blue */
+    --primary: #2563eb;                       /* Primary action - slightly deeper blue */
+    --primary-hover: #3b82f6;                 /* Primary hover */
+    --primary-foreground: #ffffff;            /* Text on primary */
+
+    /* Blue Accent for Hover Effects */
+    --accent-blue: #2563eb;                   /* Main blue accent */
+    --accent-blue-light: #3b82f6;             /* Light blue for hover */
+    --accent-blue-glow: rgba(37, 99, 235, 0.4);  /* Blue glow effect */
+    --accent-blue-subtle: rgba(37, 99, 235, 0.1); /* Subtle blue tint */
+    --accent-blue-border: rgba(37, 99, 235, 0.3);  /* Blue border on hover */
+
+    /* Secondary */
+    --secondary: #e5e7eb;                     /* Secondary backgrounds */
+    --secondary-foreground: #1a1a1e;          /* Secondary text */
+    --secondary-hover: #d1d5db;               /* Secondary hover */
+
+    /* Destructive */
+    --destructive: #dc2626;                   /* Error/destructive red */
+    --destructive-hover: #ef4444;             /* Destructive hover */
+    --destructive-foreground: #ffffff;        /* Text on destructive */
+
+    /* Accent */
+    --accent: #e5e7eb;                        /* Accent background */
+    --accent-foreground: #1a1a1e;             /* Accent text */
+
+    /* Muted */
+    --muted: #f1f3f4;                         /* Muted backgrounds */
+    --muted-foreground: #6b6b73;              /* Muted text */
+
+    /* Borders */
+    --border: #e5e7eb;                        /* Default border */
+    --border-subtle: #f1f3f4;                 /* Subtle border */
+    --border-strong: #d1d5db;                 /* Strong/focus border */
+
+    /* Ring (focus) */
+    --ring: #2563eb;                          /* Focus ring color */
+    --ring-glow: 0 0 0 3px rgba(37, 99, 235, 0.2);  /* Focus ring glow */
+
+    /* === Status Colors === */
+    --status-success-bg: #dcfce7;             /* Success background */
+    --status-success-text: #16a34a;           /* Success text */
+    --status-success-border: #86efac;         /* Success border */
+
+    --status-warning-bg: #fef3c7;             /* Warning background */
+    --status-warning-text: #d97706;           /* Warning text */
+    --status-warning-border: #fcd34d;         /* Warning border */
+
+    --status-error-bg: #fee2e2;               /* Error background */
+    --status-error-text: #dc2626;             /* Error text */
+    --status-error-border: #fca5a5;           /* Error border */
+
+    --status-info-bg: #dbeafe;                /* Info background */
+    --status-info-text: #2563eb;              /* Info text */
+    --status-info-border: #93c5fd;            /* Info border */
+
+    /* === Table Colors === */
+    --table-bg: #ffffff;                      /* Table background */
+    --table-header-bg: #f8f9fa;               /* Table header */
+    --table-text: #1a1a1e;                    /* Table text */
+    --table-border: #e5e7eb;                  /* Table border */
+    --table-row-border: #f1f3f4;              /* Row separator */
+    --table-hover-bg: #f8f9fa;                /* Row hover */
+    --table-selected-bg: rgba(37, 99, 235, 0.1); /* Selected row */
+
+    /* === Sidebar Colors === */
+    --sidebar: #ffffff;                       /* Sidebar background */
+    --sidebar-foreground: #1a1a1e;            /* Sidebar text */
+    --sidebar-accent: #f1f3f4;                /* Sidebar active item */
+    --sidebar-accent-foreground: #1a1a1e;     /* Active item text */
+    --sidebar-border: #e5e7eb;                /* Sidebar border */
+    --sidebar-hover: #f8f9fa;                 /* Sidebar hover */
+
+    /* === Input/Form Colors === */
+    --input-bg: #ffffff;                      /* Input background */
+    --input-border: #d1d5db;                  /* Input border */
+    --input-border-width: 1px;                /* Input border width */
+    --input-focus-border: #2563eb;            /* Input focus border */
+    --input-placeholder: #a0a0a8;             /* Placeholder text */
+
+    /* === Popover/Dropdown === */
+    --popover: #ffffff;                       /* Popover background */
+    --popover-foreground: #1a1a1e;            /* Popover text */
+    --popover-border: #e5e7eb;                /* Popover border */
+
+    /* === Scrollbar === */
+    --scrollbar-track: #f1f3f4;               /* Scrollbar track */
+    --scrollbar-thumb: #d1d5db;               /* Scrollbar thumb */
+    --scrollbar-thumb-hover: #9ca3af;         /* Scrollbar thumb hover */
+
+    /* === Page Title === */
+    --page-title-gradient: linear-gradient(135deg, #1a1a1e 0%, #6b6b73 100%);
+
+    /* Shadows - more visible for light theme */
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-base: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.06);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.06);
+    --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.08);
+    --shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.12);
+
+    /* Blue Glow Shadows for Hover States */
+    --shadow-blue-sm: 0 0 8px rgba(37, 99, 235, 0.2);
+    --shadow-blue-md: 0 0 12px rgba(37, 99, 235, 0.25);
+    --shadow-blue-lg: 0 0 20px rgba(37, 99, 235, 0.3);
+    --shadow-blue-glow: 0 4px 14px -2px rgba(37, 99, 235, 0.25);
+
+    /* Alpha variants for overlays */
+    --muted-a50: rgba(241, 243, 244, 0.5);
+    --primary-a10: rgba(37, 99, 235, 0.1);
+    --primary-a15: rgba(37, 99, 235, 0.15);
+    --primary-a20: rgba(37, 99, 235, 0.2);
+    --primary-a30: rgba(37, 99, 235, 0.3);
+    --border-a06: rgba(229, 231, 235, 0.06);
+    --border-a08: rgba(229, 231, 235, 0.08);
+    --border-a10: rgba(229, 231, 235, 0.1);
+    --border-a30: rgba(229, 231, 235, 0.3);
   }
 }
 
 @layer utilities {
-  /* Only the utility classes that are actually used */
+  /* === Background Utilities === */
   .bg-background {
     background: var(--background);
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
   }
+
   .bg-card {
     background: var(--card);
-    box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.1);
   }
-  .bg-muted { background-color: var(--muted); }
-  .bg-muted\/50 { background-color: var(--muted-a50); }
-  .bg-muted\/40 { background-color: var(--muted-a40); }
-  .bg-accent { background-color: var(--table-header-bg) !important; }
-  .bg-primary { background-color: var(--primary); }
-  .bg-destructive { background-color: var(--destructive); }
 
-  .text-background { color: var(--background); }
-  .text-foreground { color: var(--foreground); }
-  .text-card-foreground { color: var(--card-foreground); }
-  .text-muted-foreground { color: var(--table-text) !important; }
-  .text-accent-foreground { color: var(--table-text) !important; }
-  .text-destructive-foreground { color: #ffffff; }
+  .bg-muted {
+    background-color: var(--muted);
+  }
 
-  .border-border { border-color: var(--border); }
-  .border-muted { border-color: var(--muted); }
+  .bg-muted\/50 {
+    background-color: var(--muted-a50);
+  }
 
-  /* Sidebar utilities - with metallic/marble gradient */
+  .bg-accent {
+    background-color: var(--accent);
+  }
+
+  .bg-primary {
+    background-color: var(--primary);
+  }
+
+  .bg-destructive {
+    background-color: var(--destructive);
+  }
+
+  .bg-popover {
+    background-color: var(--popover);
+  }
+
+  /* === Text Utilities === */
+  .text-foreground {
+    color: var(--foreground);
+  }
+
+  .text-card-foreground {
+    color: var(--card-foreground);
+  }
+
+  .text-muted-foreground {
+    color: var(--muted-foreground);
+  }
+
+  .text-accent-foreground {
+    color: var(--accent-foreground);
+  }
+
+  .text-destructive-foreground {
+    color: var(--destructive-foreground);
+  }
+
+  .text-primary-foreground {
+    color: var(--primary-foreground);
+  }
+
+  .text-popover-foreground {
+    color: var(--popover-foreground);
+  }
+
+  /* === Border Utilities === */
+  .border-border {
+    border-color: var(--border);
+  }
+
+  .border-muted {
+    border-color: var(--muted);
+  }
+
+  /* === Sidebar Utilities === */
   .bg-sidebar {
     background: var(--sidebar);
-    box-shadow: inset 1px 0 3px rgba(255, 255, 255, 0.1);
   }
-  .text-sidebar-foreground { color: var(--sidebar-foreground); }
+
+  .text-sidebar-foreground {
+    color: var(--sidebar-foreground);
+  }
+
+  .text-sidebar-accent-foreground {
+    color: var(--sidebar-accent-foreground);
+  }
+
   .hover\:bg-sidebar-accent:hover {
-    background: var(--sidebar-accent);
+    background: var(--accent-blue-subtle);
+    border-left: 2px solid var(--accent-blue);
   }
 
-  /* Main content area gradient */
-  .bg-main-gradient {
-    background: linear-gradient(135deg, theme('colors.stone.200') 0%, theme('colors.stone.100') 50%, theme('colors.stone.200') 100%);
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+  .bg-sidebar-accent {
+    background: var(--accent-blue-subtle);
+    border-left: 2px solid var(--accent-blue);
   }
 
-  /* Table background utility - uses background instead of background-color for gradients */
+  /* === Table Utilities === */
   .bg-table {
     background: var(--table-bg);
   }
 
-  /* Table styles - now simple since we removed layered components */
   .table-text {
     color: var(--table-text);
   }
 
-  /* Input field styling */
+  /* === Input/Form Styling === */
   input[type="text"],
   input[type="search"],
   input[type="number"],
@@ -181,14 +413,63 @@
   input[type="url"],
   select,
   textarea {
-    border: var(--input-border-width) solid var(--input-border) !important;
-    background: var(--input-bg) !important;
-    background-color: var(--input-bg) !important;
-    border-radius: 0.375rem;
-    padding: 0.5rem;
+    border: var(--input-border-width) solid var(--input-border);
+    background: var(--input-bg);
+    background-color: var(--input-bg);
+    color: var(--foreground);
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 0.75rem;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
   }
 
-  /* Page title gradient text */
+  input[type="text"]:focus,
+  input[type="search"]:focus,
+  input[type="number"]:focus,
+  input[type="email"]:focus,
+  input[type="password"]:focus,
+  input[type="date"]:focus,
+  input[type="datetime-local"]:focus,
+  input[type="time"]:focus,
+  input[type="tel"]:focus,
+  input[type="url"]:focus,
+  select:focus,
+  textarea:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 0 3px var(--accent-blue-subtle), var(--shadow-blue-sm);
+  }
+
+  /* Hover state for inputs - subtle blue border hint */
+  input[type="text"]:hover:not(:focus),
+  input[type="search"]:hover:not(:focus),
+  input[type="number"]:hover:not(:focus),
+  input[type="email"]:hover:not(:focus),
+  input[type="password"]:hover:not(:focus),
+  input[type="date"]:hover:not(:focus),
+  input[type="datetime-local"]:hover:not(:focus),
+  input[type="time"]:hover:not(:focus),
+  input[type="tel"]:hover:not(:focus),
+  input[type="url"]:hover:not(:focus),
+  select:hover:not(:focus),
+  textarea:hover:not(:focus) {
+    border-color: var(--accent-blue-border);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--input-placeholder);
+  }
+
+  /* Select dropdown arrow - white for dark theme */
+  select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a0a0a8' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    padding-right: 2.5rem;
+  }
+
+  /* === Page Title === */
   .page-title-gradient {
     background: var(--page-title-gradient);
     -webkit-background-clip: text;
@@ -196,11 +477,30 @@
     background-clip: text;
     font-size: 1.5rem;
     font-weight: 600;
-    /* Inherit global app font (Geist Variable) */
     font-family: inherit;
   }
 
-  /* Apply Geist globally */
+  /* === Scrollbar Styling === */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+
+  /* === Global Font === */
   body, button, input, select, textarea {
     font-family: "Geist Variable", Geist, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }

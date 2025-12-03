@@ -6,42 +6,41 @@ import type { AppError } from '../../../shared/src';
 import { applyWindowNavigationGuards, applyCustomContentSecurityPolicy } from '../security';
 import { registerResultHandler } from './result';
 
-let hypernestWin: BrowserWindow | null = null;
+let ncCatWin: BrowserWindow | null = null;
 
-function resolveHypernestIndex(): string {
-  const entry = process.env.HYPERNEST_ENTRY || 'index.html';
+function resolveNcCatalystIndex(): string {
+  const entry = process.env.NC_CATALYST_ENTRY || 'new-ui/dist/index.html';
 
   // Prefer a dev working copy when provided
-  const devDir = process.env.HYPERNEST_DEV_DIR;
+  const devDir = process.env.NC_CATALYST_DEV_DIR;
   if (devDir && existsSync(devDir)) {
     return join(resolve(devDir), entry);
   }
 
-  // Packaged: <App>/resources/hypernest
-  // Dev:      ../../../resources/hypernest relative to compiled dist
+  // Packaged: <App>/resources/nc-catalyst-2
+  // Dev:      ../../../resources/nc-catalyst-2 relative to compiled dist
   const base = app.isPackaged
-    ? join(process.resourcesPath, 'hypernest')
-    : resolve(__dirname, '../../../resources/hypernest');
+    ? join(process.resourcesPath, 'nc-catalyst-2')
+    : resolve(__dirname, '../../../resources/nc-catalyst-2');
 
   return join(base, entry);
 }
 
-export function openHypernestWindow() {
-  if (hypernestWin && !hypernestWin.isDestroyed()) {
-    hypernestWin.focus();
+export function openNcCatalystWindow() {
+  if (ncCatWin && !ncCatWin.isDestroyed()) {
+    ncCatWin.focus();
     return;
   }
 
-  const indexFile = resolveHypernestIndex();
+  const indexFile = resolveNcCatalystIndex();
 
-  hypernestWin = new BrowserWindow({
+  ncCatWin = new BrowserWindow({
     width: 1400,
     height: 900,
     show: false,
-    autoHideMenuBar: true,
     webPreferences: {
       // Use a separate session so we can apply a relaxed CSP without affecting the main app
-      partition: 'persist:hypernest',
+      partition: 'persist:nc-catalyst',
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
@@ -49,23 +48,23 @@ export function openHypernestWindow() {
     }
   });
 
-  applyWindowNavigationGuards(hypernestWin.webContents, { allowExternal: false });
+  applyWindowNavigationGuards(ncCatWin.webContents, { allowExternal: false });
 
-  hypernestWin.on('ready-to-show', () => hypernestWin?.show());
-  hypernestWin.on('closed', () => {
-    hypernestWin = null;
+  ncCatWin.on('ready-to-show', () => ncCatWin?.show());
+  ncCatWin.on('closed', () => {
+    ncCatWin = null;
   });
-  hypernestWin.webContents.on('did-finish-load', () => {
-    // Hypernest UI is designed for a browser viewport; scale it slightly for the desktop window
-    hypernestWin?.webContents.setZoomFactor(0.9);
+  ncCatWin.webContents.on('did-finish-load', () => {
+    // NC Catalyst UI is designed for a browser viewport; scale slightly for the desktop window
+    ncCatWin?.webContents.setZoomFactor(0.9);
   });
 
-  // Relaxed CSP for Hypernest: allow required CDNs and inline handlers in this session only
-  const hnSession = session.fromPartition('persist:hypernest');
-  const hnPolicy = [
+  // Relaxed CSP for NC Catalyst: allow required CDNs and inline handlers in this session only
+  const ncSession = session.fromPartition('persist:nc-catalyst');
+  const ncPolicy = [
     "default-src 'self' https: data:",
-    // Inline handlers + Tailwind CDN runtime rely on relaxed script execution
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.babylonjs.com",
+    // Inline handlers + Tailwind CDN runtime + Babylon + JSZip rely on relaxed script execution
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://cdn.babylonjs.com",
     // Tailwind + Google Fonts stylesheet
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     // Google Fonts assets
@@ -78,16 +77,16 @@ export function openHypernestWindow() {
     "base-uri 'self'",
     "form-action 'self'"
   ].join('; ');
-  applyCustomContentSecurityPolicy(hnSession, hnPolicy);
+  applyCustomContentSecurityPolicy(ncSession, ncPolicy);
 
-  hypernestWin.loadFile(indexFile).catch((err) => {
-    console.error('Failed to load Hypernest', { err, indexFile });
+  ncCatWin.loadFile(indexFile).catch((err) => {
+    console.error('Failed to load NC Catalyst', { err, indexFile });
   });
 }
 
-export function registerHypernestIpc() {
-  registerResultHandler('hypernest:open', async () => {
-    openHypernestWindow();
+export function registerNcCatalystIpc() {
+  registerResultHandler('nc-catalyst:open', async () => {
+    openNcCatalystWindow();
     return ok<null, AppError>(null);
   });
 }

@@ -7,7 +7,7 @@ import { registerMachinesIpc } from './ipc/machines';
 import { registerFilesIpc } from './ipc/files';
 import { registerRouterIpc } from './ipc/router';
 import { registerLifecycleIpc } from './ipc/lifecycle';
-import { registerHypernestIpc } from './ipc/hypernest';
+import { registerNcCatalystIpc } from './ipc/hypernest';
 import { registerHistoryIpc } from './ipc/history';
 import { registerAlarmsIpc } from './ipc/alarms';
 import { registerDiagnosticsIpc } from './ipc/diagnostics';
@@ -19,8 +19,10 @@ import { registerAllocatedMaterialIpc } from './ipc/allocatedMaterial';
 import { registerMessagesIpc } from './ipc/messages';
 import { registerOrderingIpc } from './ipc/ordering';
 import { registerAuthIpc } from './ipc/auth';
+import { registerMesDataIpc } from './ipc/mesData';
 import { initWatchers, shutdownWatchers } from './services/watchers';
 import { startDbWatchdog, stopDbWatchdog } from './services/dbWatchdog';
+import { initMesValidationScanner, stopMesValidationScanner } from './services/mesValidation';
 import { logger } from './logger';
 import { initializeDiagnostics } from './services/diagnostics';
 import { applyStoredThemePreference, getStoredWindowState, monitorWindowState } from './services/uiState';
@@ -89,7 +91,7 @@ app.whenReady().then(async () => {
   registerFilesIpc();
   registerRouterIpc();
   registerLifecycleIpc();
-  registerHypernestIpc();
+  registerNcCatalystIpc();
   registerHistoryIpc();
   registerAlarmsIpc();
   registerDiagnosticsIpc();
@@ -100,6 +102,7 @@ app.whenReady().then(async () => {
   registerAllocatedMaterialIpc();
   registerMessagesIpc();
   registerOrderingIpc();
+  registerMesDataIpc();
 
   try {
     await initializeDiagnostics();
@@ -114,6 +117,7 @@ app.whenReady().then(async () => {
   }
 
   initWatchers();
+  initMesValidationScanner();
   createWindow();
 
   app.on('activate', () => {
@@ -135,6 +139,12 @@ app.on('will-quit', async () => {
     await shutdownWatchers();
   } catch (err) {
     logger.error({ err }, 'Failed to stop watchers worker');
+  }
+
+  try {
+    stopMesValidationScanner();
+  } catch (err) {
+    logger.error({ err }, 'Failed to stop MES validation scanner');
   }
 
   try {

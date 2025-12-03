@@ -26,6 +26,7 @@ type GlobalTableProps<TData extends RowData> = {
   headerHoverAlways?: boolean;
   onRowClick?: (row: Row<TData>, event: MouseEvent<HTMLTableRowElement>) => void;
   onRowContextMenu?: (row: Row<TData>, event: MouseEvent<HTMLTableRowElement>) => void;
+  onRowDoubleClick?: (row: Row<TData>, event: MouseEvent<HTMLTableRowElement>) => void;
   getRowClassName?: (row: Row<TData>) => string | undefined;
 };
 
@@ -47,6 +48,7 @@ export function GlobalTable<TData extends RowData>({
   headerHoverAlways = false,
   onRowClick,
   onRowContextMenu,
+  onRowDoubleClick,
   getRowClassName
 }: GlobalTableProps<TData>) {
   const rows = table.getRowModel().rows;
@@ -160,10 +162,11 @@ export function GlobalTable<TData extends RowData>({
             <tr
               key={row.id}
               className={cn(
-                'border-b border-[var(--table-row-border)] hover:[background:var(--table-hover-bg)] transition-colors',
+                'border-b border-[var(--table-row-border)] transition-all duration-150',
+                'hover:bg-[var(--accent-blue-subtle)] hover:outline hover:outline-2 hover:outline-[var(--accent-blue)] hover:-outline-offset-1',
                 interactiveRows && 'cursor-pointer',
-                row.getIsSelected() && '[background:var(--table-selected-bg)] data-[state=selected]:[background:var(--table-selected-bg)]',
-                getRowClassName?.(row)
+                getRowClassName?.(row),
+                row.getIsSelected() && '!bg-[var(--accent-blue-subtle)]'
               )}
               onClick={(event) => {
                 if (toggleRowSelectionOnClick && row.getCanSelect?.()) {
@@ -176,6 +179,9 @@ export function GlobalTable<TData extends RowData>({
                   event.preventDefault();
                 }
                 onRowContextMenu?.(row, event);
+              }}
+              onDoubleClick={(event) => {
+                onRowDoubleClick?.(row, event);
               }}
             >
               {row.getVisibleCells().map((cell) => {

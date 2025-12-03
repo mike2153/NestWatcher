@@ -48,6 +48,10 @@ import type {
   OrderingUpdateReq,
   OrderingExportRes,
   OrderingRow,
+  ValidationDataReq,
+  ValidationDataRes,
+  AggregatedValidationDataReq,
+  AggregatedValidationDataRes,
   AuthStateRes,
   AuthSuccessRes,
   AuthLoginReq,
@@ -66,7 +70,17 @@ const api = {
     login: (input: AuthLoginReq) => invokeResult<AuthSuccessRes>('auth:login', input),
     register: (input: AuthRegisterReq) => invokeResult<AuthSuccessRes>('auth:register', input),
     resetPassword: (input: AuthResetPasswordReq) => invokeResult<AuthSuccessRes>('auth:resetPassword', input),
-    logout: () => invokeResult<null>('auth:logout')
+    logout: () => invokeResult<null>('auth:logout'),
+    onRevoked: (listener: () => void) => {
+      const channel = 'auth:revoked';
+      const handler = () => listener();
+      ipcRenderer.on(channel, handler);
+      return () => ipcRenderer.removeListener(channel, handler);
+    }
+  },
+  validation: {
+    getData: (input: ValidationDataReq) => invokeResult<ValidationDataRes>('validation:getData', input),
+    getAggregatedData: (input: AggregatedValidationDataReq) => invokeResult<AggregatedValidationDataRes>('validation:getAggregatedData', input)
   },
   settings: {
     get: () => invokeResult<Settings>('settings:get'),
@@ -198,8 +212,8 @@ const api = {
       };
     }
   },
-  hypernest: {
-    open: () => invokeResult<null>('hypernest:open')
+  ncCatalyst: {
+    open: () => invokeResult<null>('nc-catalyst:open')
   },
   alarms: {
     list: () => invokeResult('alarms:list'),

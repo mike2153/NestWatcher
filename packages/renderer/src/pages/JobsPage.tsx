@@ -22,6 +22,7 @@ import type {
 import { JOB_STATUS_VALUES } from '../../../shared/src';
 import { cn } from '../utils/cn';
 import { GlobalTable } from '@/components/table/GlobalTable';
+import { ValidationDataModal } from '@/components/ValidationDataModal';
 import { Button } from '@/components/ui/button';
 import {
   ContextMenu,
@@ -284,6 +285,9 @@ export function JobsPage() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [historyJobKey, setHistoryJobKey] = useState<string | null>(null);
+  const [validationModalOpen, setValidationModalOpen] = useState(false);
+  const [validationJobKey, setValidationJobKey] = useState<string | null>(null);
+  const [validationJobKeys, setValidationJobKeys] = useState<string[] | null>(null);
   const [expanded, setExpanded] = useState<ExpandedState>({});
   const isRefreshingRef = useRef(false);
 
@@ -1098,8 +1102,15 @@ export function JobsPage() {
               table={table}
               onRowContextMenu={(row, event) => {
                 const original = row.original;
-                // Don't open context menu for folder group rows
-                if (!isJobRow(original)) {
+                // Handle folder group rows - select all jobs in folder and show stats
+                if (isFolderGroupRow(original)) {
+                  const folderJobKeys = original.subRows.map((job) => job.key);
+                  if (folderJobKeys.length > 0) {
+                    // Set keys for aggregated stats and open modal directly
+                    setValidationJobKey(null);
+                    setValidationJobKeys(folderJobKeys);
+                    setValidationModalOpen(true);
+                  }
                   event.preventDefault();
                   return;
                 }
@@ -1124,6 +1135,13 @@ export function JobsPage() {
                   row.toggleExpanded();
                 }
               }}
+              onRowDoubleClick={(row) => {
+                const original = row.original;
+                if (isJobRow(original)) {
+                  setValidationJobKey(original.key);
+                  setValidationModalOpen(true);
+                }
+              }}
               toggleRowSelectionOnClick={true}
             />
           </div>
@@ -1145,6 +1163,19 @@ export function JobsPage() {
             onSelect={() => isSingleSelection && openHistoryModal(selectedKeys[0])}
             disabled={!isSingleSelection}
           >View History</ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() => {
+              if (selectedKeys.length === 1) {
+                setValidationJobKey(selectedKeys[0]);
+                setValidationJobKeys(null);
+              } else {
+                setValidationJobKey(null);
+                setValidationJobKeys(selectedKeys);
+              }
+              setValidationModalOpen(true);
+            }}
+            disabled={selectedKeys.length === 0}
+          >Show Stats</ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuSub>
             <ContextMenuSubTrigger inset>Select Machine</ContextMenuSubTrigger>
@@ -1212,6 +1243,19 @@ export function JobsPage() {
           </div>
         </SheetContent>
       </Sheet>
+
+      <ValidationDataModal
+        open={validationModalOpen}
+        onOpenChange={(next) => {
+          setValidationModalOpen(next);
+          if (!next) {
+            setValidationJobKey(null);
+            setValidationJobKeys(null);
+          }
+        }}
+        jobKey={validationJobKey}
+        jobKeys={validationJobKeys}
+      />
 
       {/* Context menu handled above */}
     </div>

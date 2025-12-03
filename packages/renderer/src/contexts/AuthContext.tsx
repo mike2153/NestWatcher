@@ -45,6 +45,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = window.api.auth.onRevoked?.(() => {
+      setSession(null);
+      setModalOpen(true);
+    });
+    return () => {
+      unsubscribe?.();
+    };
+  }, []);
+
   const requireLogin = useCallback(() => {
     setModalOpen(true);
   }, []);

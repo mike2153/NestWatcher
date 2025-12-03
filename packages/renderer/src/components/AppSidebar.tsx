@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Router, History, Settings, Layers, BellRing, Gauge, ListCheck, AlignVerticalJustifyEnd, MessageSquare, ShoppingCart, UserRound, LogOut } from 'lucide-react';
+import { LayoutDashboard, Router, History, Settings, Layers, BellRing, Gauge, ListCheck, AlignVerticalJustifyEnd, MessageSquare, ShoppingCart, UserRound, LogOut, Sun, Moon } from 'lucide-react';
+import { useTheme } from '@/contexts/ThemeContext';
 import {
   Sidebar,
   SidebarContent,
@@ -30,6 +31,7 @@ export function AppSidebar() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const { session, requireLogin, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
     let active = true;
@@ -70,8 +72,8 @@ export function AppSidebar() {
                 <NavLink
                   to={item.to}
                   className={({ isActive }) => cn(
-                    'flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-base font-medium transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
-                    isActive && 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                    'flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-base font-medium transition-all duration-150 hover:bg-[var(--accent-blue-subtle)] hover:text-sidebar-accent-foreground hover:border-l-2 hover:border-l-[var(--accent-blue)] hover:pl-[14px] [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
+                    isActive && 'bg-[var(--accent-blue-subtle)] text-sidebar-accent-foreground font-medium border-l-2 border-l-[var(--accent-blue)] pl-[14px]'
                   )}
                 >
                   <Icon />
@@ -95,8 +97,18 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <button
+              onClick={toggleTheme}
+              className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-base font-medium transition-all duration-150 hover:bg-[var(--accent-blue-subtle)] hover:text-sidebar-accent-foreground hover:border-l-2 hover:border-l-[var(--accent-blue)] hover:pl-[14px] [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
+              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            >
+              {theme === 'dark' ? <Sun /> : <Moon />}
+              <span className="ml-2 text-base font-medium">{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+            </button>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <button
               onClick={() => (session ? logout() : requireLogin())}
-              className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-base font-medium transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
+              className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-base font-medium transition-all duration-150 hover:bg-[var(--accent-blue-subtle)] hover:text-sidebar-accent-foreground hover:border-l-2 hover:border-l-[var(--accent-blue)] hover:pl-[14px] [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
             >
               {session ? <LogOut /> : <UserRound />}
               <span className="ml-2 text-base font-medium">{session ? 'Logout' : 'Login'}</span>
@@ -106,7 +118,7 @@ export function AppSidebar() {
             <SidebarMenuItem>
               <button
                 onClick={() => setShowSettings(true)}
-                className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-base font-medium transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
+                className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-base font-medium transition-all duration-150 hover:bg-[var(--accent-blue-subtle)] hover:text-sidebar-accent-foreground hover:border-l-2 hover:border-l-[var(--accent-blue)] hover:pl-[14px] [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
               >
                 <Settings />
                 <span className="ml-2 text-base font-medium">Settings</span>
@@ -115,14 +127,14 @@ export function AppSidebar() {
           ) : null}
           <SidebarMenuItem>
             <button
-              className="flex h-10 w-full gap-2 overflow-hidden rounded-md pl-4 pr-3 text-left text-base font-medium transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              className="flex h-10 w-full items-center gap-2 overflow-hidden rounded-md pl-4 pr-3 text-left text-base font-medium transition-all duration-150 hover:bg-[var(--accent-blue-subtle)] hover:text-sidebar-accent-foreground hover:border-l-2 hover:border-l-[var(--accent-blue)] hover:pl-[14px]"
               onClick={async () => {
-                const res = await window.api.hypernest.open();
-                if (!res.ok) alert(`Failed to open Hypernest: ${res.error.message}`);
+                const res = await window.api.ncCatalyst.open();
+                if (!res.ok) alert(`Failed to open NC Catalyst: ${res.error.message}`);
               }}
-              title="Open Hypernest in a separate window"
+              title="Open NC Catalyst in a separate window"
             >
-              Hypernest
+              NC Catalyst
             </button>
           </SidebarMenuItem>
         </SidebarMenu>

@@ -36,6 +36,7 @@ export function LoginModal({ isOpen, onClose, onAuthenticated, disableClose }: L
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState<{ variant: 'info' | 'error' | 'success'; text: string } | null>(null);
+  const [canForceLogin, setCanForceLogin] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -43,6 +44,7 @@ export function LoginModal({ isOpen, onClose, onAuthenticated, disableClose }: L
       setForm(EMPTY_FORM);
       setSubmitting(false);
       setStatus(null);
+      setCanForceLogin(false);
     }
   }, [isOpen]);
 
@@ -137,11 +139,22 @@ export function LoginModal({ isOpen, onClose, onAuthenticated, disableClose }: L
     setSubmitting(true);
     try {
       if (mode === 'login') {
-        const res = await window.api.auth.login({ username, password: form.password });
-        if (!res.ok) throw new Error(res.error.message);
+        const res = await window.api.auth.login({ username, password: form.password, force: false });
+        if (!res.ok) {
+          if (res.error.code === 'auth.alreadyActive') {
+            setStatus({
+              variant: 'info',
+              text: 'This user appears signed in on another workstation. If that session is stale, you can sign in here to take over.'
+            });
+            setCanForceLogin(true);
+            return;
+          }
+          throw new Error(res.error.message);
+        }
         onAuthenticated(res.value.session);
         setForm(EMPTY_FORM);
         setStatus(null);
+        setCanForceLogin(false);
       } else if (mode === 'register') {
         const res = await window.api.auth.register({
           username,
@@ -173,6 +186,26 @@ export function LoginModal({ isOpen, onClose, onAuthenticated, disableClose }: L
         setStatus(null);
         setMode('login');
       }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus({ variant: 'error', text: message });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleForceLogin = async () => {
+    const username = form.username.trim();
+    if (!username || !form.password.trim()) return;
+    setSubmitting(true);
+    setStatus(null);
+    try {
+      const res = await window.api.auth.login({ username, password: form.password, force: true });
+      if (!res.ok) throw new Error(res.error.message);
+      onAuthenticated(res.value.session);
+      setForm(EMPTY_FORM);
+      setStatus(null);
+      setCanForceLogin(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus({ variant: 'error', text: message });
@@ -346,6 +379,16 @@ export function LoginModal({ isOpen, onClose, onAuthenticated, disableClose }: L
             {submitting ? <RefreshCcw className="h-4 w-4 animate-spin" /> : null}
             {cta}
           </button>
+          {mode === 'login' && canForceLogin ? (
+            <button
+              type="button"
+              disabled={submitting}
+              className="mt-2 w-full rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-60"
+              onClick={handleForceLogin}
+            >
+              Sign in here anyway
+            </button>
+          ) : null}
           {mode === 'login' ? (
             <p className="text-center text-xs text-muted-foreground">
               Five failed attempts will require a security reset.

@@ -165,7 +165,7 @@ export function registerOrderingIpc() {
   });
 
   registerResultHandler('ordering:update', async (event, raw) => {
-    const session = requireSession(event);
+    const session = await requireSession(event);
     const parsed = OrderingUpdateReq.safeParse(raw ?? {});
     if (!parsed.success) {
       return err(createAppError('ordering.invalidArguments', parsed.error.message));

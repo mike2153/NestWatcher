@@ -47,7 +47,11 @@ import type {
   AuthSuccessRes,
   AuthLoginReq,
   AuthRegisterReq,
-  AuthResetPasswordReq
+  AuthResetPasswordReq,
+  ValidationDataReq,
+  ValidationDataRes,
+  AggregatedValidationDataReq,
+  AggregatedValidationDataRes
 } from '../../../shared/src';
 import type { TelemetrySummaryReq, TelemetrySummaryRes, AlarmsHistoryReq, AlarmsHistoryRes } from '../../../shared/src';
 
@@ -60,6 +64,11 @@ declare global {
         register: (req: AuthRegisterReq) => Promise<Result<AuthSuccessRes, AppError>>;
         resetPassword: (req: AuthResetPasswordReq) => Promise<Result<AuthSuccessRes, AppError>>;
         logout: () => Promise<Result<null, AppError>>;
+        onRevoked: (listener: () => void) => () => void;
+      };
+      validation: {
+        getData: (req: ValidationDataReq) => Promise<Result<ValidationDataRes, AppError>>;
+        getAggregatedData: (req: AggregatedValidationDataReq) => Promise<Result<AggregatedValidationDataRes, AppError>>;
       };
       settings: {
         get: () => Promise<Result<Settings, AppError>>;
@@ -124,7 +133,7 @@ declare global {
         subscribe: (listener: (entry: AppMessage) => void) => () => void;
         subscribeCount: (listener: (count: number) => void) => () => void;
       };
-      hypernest: {
+      ncCatalyst: {
         open: () => Promise<Result<null, AppError>>;
       };
       alarms: {

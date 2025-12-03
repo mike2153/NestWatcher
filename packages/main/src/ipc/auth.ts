@@ -48,9 +48,7 @@ export function registerAuthIpc() {
     if (!user) {
       return err(createAppError('auth.invalidCredentials', 'Invalid username or password.'));
     }
-    if (user.activeSessionToken) {
-      return err(createAppError('auth.alreadyActive', 'This user is already signed in on another workstation.'));
-    }
+    // Only block for an active session after verifying credentials and if not forcing override
     if (user.forcePasswordReset) {
       return err(createAppError('auth.resetRequired', 'Please reset your password to continue.'));
     }
@@ -61,6 +59,9 @@ export function registerAuthIpc() {
         return err(createAppError('auth.resetRequired', 'Too many attempts. Please reset your password.'));
       }
       return err(createAppError('auth.invalidCredentials', 'Invalid username or password.'));
+    }
+    if (user.activeSessionToken && !parsed.data.force) {
+      return err(createAppError('auth.alreadyActive', 'This user is already signed in on another workstation.'));
     }
     const token = randomUUID();
     await activateSession(user.id, token);
@@ -106,7 +107,7 @@ export function registerAuthIpc() {
     }
   }, { requiresAuth: false });
 
-  registerResultHandler<AuthSessionRes>('auth:resetPassword', async (event, raw) => {
+  registerResultHandler<AuthSuccessRes>('auth:resetPassword', async (event, raw) => {
     const parsed = AuthResetPasswordReq.safeParse(raw);
     if (!parsed.success) {
       return err(createAppError('auth.invalidArguments', parsed.error.message));

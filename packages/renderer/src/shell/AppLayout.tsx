@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/AppSidebar';
-import type { AlarmEntry, DiagnosticsLogSummary, DiagnosticsLogTailRes, DiagnosticsSnapshot, MachineHealthEntry, ThemePreference } from '../../../shared/src';
+import type { AlarmEntry, DiagnosticsLogSummary, DiagnosticsLogTailRes, DiagnosticsSnapshot, MachineHealthEntry } from '../../../shared/src';
 import { cn } from '../utils/cn';
 import { selectCurrentAlarms } from './alarmUtils';
 
@@ -15,10 +15,10 @@ const PAGE_TITLES: Record<string, string> = {
   '/grundner': 'Grundner',
   '/allocated-material': 'Allocated Material',
   '/router': 'Router',
-  '/theme': 'Theme',
   '/telemetry': 'Telemetry',
   '/messages': 'Messages',
-  '/cnc-alarms': 'CNC Alarms'
+  '/cnc-alarms': 'CNC Alarms',
+  '/ordering': 'Ordering'
 };
 
 export function AppLayout() {
@@ -45,27 +45,6 @@ export function AppLayout() {
   const [logLinesLive, setLogLinesLive] = useState<string[] | null>(null);
   const [logLoading, setLogLoading] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
-  const [themePreference, setThemePreference] = useState<ThemePreference>('system');
-
-  const applyThemePreference = useCallback((preference: ThemePreference) => {
-    const root = document.documentElement;
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    
-    // Remove all theme classes
-    root.classList.remove('dark', 'modern');
-    
-    // Apply the appropriate theme class
-    if (preference === "dark") {
-      root.classList.add('dark');
-    } else if (preference === "modern") {
-      root.classList.add('modern');
-    } else if (preference === "system") {
-      if (prefersDark) {
-        root.classList.add('dark');
-      }
-      // For light system preference, no class needed (default light theme)
-    }
-  }, []);
 
   const dismissAlarm = useCallback((id: string) => {
     const t = alarmTimers.current.get(id);
@@ -187,19 +166,6 @@ export function AppLayout() {
     }
   }, [fetchLogTail, logLimit, logSelectedFile]);
 
-  const handleThemeChange = useCallback(async (next: ThemePreference) => {
-    setThemePreference(next);
-    applyThemePreference(next);
-    try {
-      const res = await window.api.ui.theme.set({ preference: next });
-      if (!res.ok) {
-        console.error('Failed to persist theme preference', res.error);
-      }
-    } catch (err) {
-      console.error('Failed to persist theme preference', err);
-    }
-  }, [applyThemePreference]);
-
   useEffect(() => {
     let cancelled = false;
     window.api.alarms
@@ -239,41 +205,6 @@ export function AppLayout() {
       unsubscribe?.();
     };
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    window.api.ui.theme
-      .get()
-      .then((res) => {
-        if (cancelled) return;
-        if (!res.ok) {
-          console.error('Failed to load theme preference', res.error);
-          return;
-        }
-        setThemePreference(res.value.preference);
-      })
-      .catch((err) => console.error('Failed to load theme preference', err));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    applyThemePreference(themePreference);
-    try {
-      window.localStorage.setItem('ui:theme', themePreference);
-    } catch (error) {
-      console.warn('Failed to persist theme preference locally', error);
-    }
-  }, [applyThemePreference, themePreference]);
-
-  useEffect(() => {
-    if (themePreference !== 'system') return;
-    const query = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = () => applyThemePreference('system');
-    query.addEventListener('change', handler);
-    return () => query.removeEventListener('change', handler);
-  }, [applyThemePreference, themePreference]);
 
   useEffect(() => {
     if (!copyFeedback) return;
@@ -394,31 +325,31 @@ export function AppLayout() {
 
   const alarmBadgeClass = cn(
     'inline-flex min-w-[1.5rem] items-center justify-center rounded-full px-1.5 text-xs font-medium',
-    hasActiveAlarms ? 'bg-red-500 text-white' : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-100'
+    hasActiveAlarms ? 'bg-[var(--status-error-text)] text-white' : 'bg-[var(--muted)] text-[var(--foreground)]'
   );
 
   const diagnosticsButtonClass = cn(
-    'flex items-center gap-1 rounded border px-2 py-1 text-sm',
-    hasDiagnosticsAlert && 'border-amber-500 text-amber-600'
+    'flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 text-sm text-[var(--foreground)] hover:bg-[var(--accent-blue-subtle)] hover:border-[var(--accent-blue-border)] transition-all duration-150',
+    hasDiagnosticsAlert && 'border-[var(--status-warning-text)] text-[var(--status-warning-text)]'
   );
   const diagnosticsBadgeClass = cn(
     'inline-flex min-w-[1.5rem] items-center justify-center rounded-full px-1.5 text-xs font-medium',
     diagnosticsAlertCount > 0
-      ? 'bg-amber-500 text-white'
-      : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-100'
+      ? 'bg-[var(--status-warning-text)] text-white'
+      : 'bg-[var(--muted)] text-[var(--foreground)]'
   );
 
   return (
     <SidebarProvider style={{ '--sidebar-width': '12rem', '--header-height': '3rem' } as React.CSSProperties}>
   <AppSidebar />
   <SidebarInset>
-    <header className="flex h-12 items-center justify-between gap-2 border-b px-3 bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
+    <header className="flex h-12 items-center justify-between gap-2 border-b border-[var(--border)] px-3 bg-[var(--card)] shadow-sm">
       <div className="flex items-center gap-2">
         <div className="page-title-gradient">{pageTitle}</div>
       </div>
       <div className="flex items-center gap-2">
         <button
-          className={cn('flex items-center gap-1 rounded border px-2 py-1 text-sm', hasActiveAlarms && 'border-red-500 text-red-600')}
+          className={cn('flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 text-sm text-[var(--foreground)] hover:bg-[var(--accent-blue-subtle)] hover:border-[var(--accent-blue-border)] transition-all duration-150', hasActiveAlarms && 'border-[var(--status-error-text)] text-[var(--status-error-text)]')}
           onClick={toggleAlarmPanel}
         >
           Alarms
@@ -428,18 +359,6 @@ export function AppLayout() {
           Diagnostics
           {diagnosticsAlertCount > 0 && <span className={diagnosticsBadgeClass}>{diagnosticsAlertCount}</span>}
         </button>
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground">Theme</label>
-          <select
-            className="rounded border px-2 py-1 text-sm"
-            value={themePreference}
-            onChange={(e) => handleThemeChange(e.target.value as ThemePreference)}
-          >
-            <option value="system">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
-        </div>
       </div>
     </header>
     <main className={cn(isSettingsPage ? 'overflow-auto' : 'overflow-y-auto overflow-x-hidden', 'p-4 min-w-0')}>
@@ -447,26 +366,26 @@ export function AppLayout() {
     </main>{alarms.length > 0 && (
         <div className="fixed right-8 top-16 z-50 space-y-2">
           <div className="flex justify-end">
-            <button className="rounded border border-slate-800 bg-red-400 px-3 py-1.5 text-xs text-slate-900 hover:bg-red-300 hover:text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-blue-500" title="Clear all toasts" onClick={clearAllToasts}>
+            <button className="rounded border border-[var(--border)] bg-[var(--status-error-bg)] px-3 py-1.5 text-xs text-[var(--status-error-text)] hover:bg-[var(--accent)] transition-colors" title="Clear all toasts" onClick={clearAllToasts}>
               Clear All
             </button>
           </div>
           {alarms.map((alarm) => (
             <div
               key={alarm.id}
-              className="relative w-72 rounded border border-red-200 bg-red-100 p-3 shadow-lg dark:border-red-700 dark:bg-red-950/70"
+              className="relative w-72 rounded border border-[var(--status-error-border)] bg-[var(--status-error-bg)] p-3 shadow-lg"
             >
               <button
-                className="absolute right-1 top-1 rounded px-1 text-xs text-red-700 hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-900/40"
+                className="absolute right-1 top-1 rounded px-1 text-xs text-[var(--status-error-text)] hover:bg-[var(--accent)]"
                 title="Dismiss"
                 onClick={() => dismissAlarm(alarm.id)}
               >
                 X
               </button>
               <div className="space-y-1">
-                <div className="text-sm font-semibold text-red-700 dark:text-red-300">{alarm.alarm}</div>
-                <div className="text-xs text-muted-foreground">{alarm.key}</div>
-                {alarm.status && <div className="text-xs text-muted-foreground">Status: {alarm.status}</div>}
+                <div className="text-sm font-semibold text-[var(--status-error-text)]">{alarm.alarm}</div>
+                <div className="text-xs text-[var(--muted-foreground)]">{alarm.key}</div>
+                {alarm.status && <div className="text-xs text-[var(--muted-foreground)]">Status: {alarm.status}</div>}
               </div>
             </div>
           ))}
@@ -474,25 +393,25 @@ export function AppLayout() {
       )}
 
       {showAlarmPanel && (
-        <div className="fixed right-4 top-16 z-40 w-80 rounded border bg-background shadow-lg">
-          <div className="flex items-center justify-between border-b px-3 py-2">
-            <div className="text-sm font-semibold">Active Alarms</div>
-            <button className="text-xs text-muted-foreground" onClick={() => setShowAlarmPanel(false)}>
+        <div className="fixed right-4 top-16 z-40 w-80 rounded border border-[var(--border)] bg-[var(--card)] shadow-lg">
+          <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2">
+            <div className="text-sm font-semibold text-[var(--foreground)]">Active Alarms</div>
+            <button className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]" onClick={() => setShowAlarmPanel(false)}>
               Close
             </button>
           </div>
           <div className="max-h-80 space-y-2 overflow-y-auto p-3 text-sm">
             {alarms.length === 0 ? (
-              <div className="text-muted-foreground">No active alarms.</div>
+              <div className="text-[var(--muted-foreground)]">No active alarms.</div>
             ) : (
               alarms.map((alarm) => (
-                <div key={alarm.id} className="rounded border p-2">
-                  <div className="font-medium">{alarm.key}</div>
-                  <div className="text-sm">{alarm.alarm}</div>
-                  {alarm.mode && <div className="text-xs text-muted-foreground">Mode: {alarm.mode}</div>}
-                  {alarm.status && <div className="text-xs text-muted-foreground">Status: {alarm.status}</div>}
+                <div key={alarm.id} className="rounded border border-[var(--border)] p-2 bg-[var(--background)]">
+                  <div className="font-medium text-[var(--foreground)]">{alarm.key}</div>
+                  <div className="text-sm text-[var(--foreground)]">{alarm.alarm}</div>
+                  {alarm.mode && <div className="text-xs text-[var(--muted-foreground)]">Mode: {alarm.mode}</div>}
+                  {alarm.status && <div className="text-xs text-[var(--muted-foreground)]">Status: {alarm.status}</div>}
                   {alarm.lastSeenAt && (
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-xs text-[var(--muted-foreground)]">
                       Last seen {new Date(alarm.lastSeenAt).toLocaleTimeString()}
                     </div>
                   )}
@@ -503,37 +422,37 @@ export function AppLayout() {
         </div>
       )}
       {showDiagnostics && (
-        <div className="fixed right-4 top-16 z-40 w-[800px] rounded border bg-background shadow-lg">
-          <div className="flex items-center justify-between border-b px-3 py-2">
-            <div className="text-sm font-semibold">Diagnostics</div>
+        <div className="fixed right-4 top-16 z-40 w-[800px] rounded border border-[var(--border)] bg-[var(--card)] shadow-lg">
+          <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2">
+            <div className="text-sm font-semibold text-[var(--foreground)]">Diagnostics</div>
             <div className="flex items-center gap-2">
               <button
-                className="text-xs rounded border px-2 py-1 bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100"
+                className="text-xs rounded border border-[var(--status-warning-border)] px-2 py-1 bg-[var(--status-warning-bg)] text-[var(--status-warning-text)] hover:opacity-80 transition-opacity"
                 onClick={handleRestartWatchers}
                 disabled={restartingWatchers}
               >
                 {restartingWatchers ? 'Restarting...' : 'Restart Watchers'}
               </button>
               <button
-                className="text-xs rounded border px-2 py-1"
+                className="text-xs rounded border border-[var(--border)] px-2 py-1 text-[var(--foreground)] hover:bg-[var(--accent-blue-subtle)] hover:border-[var(--accent-blue-border)] transition-all duration-150"
                 onClick={handleCopyDiagnostics}
                 disabled={copyingDiagnostics}
               >
                 {copyingDiagnostics ? 'Copying...' : 'Copy Diagnostics'}
               </button>
-              <button className="text-xs text-muted-foreground" onClick={() => setShowDiagnostics(false)}>
+              <button className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]" onClick={() => setShowDiagnostics(false)}>
                 Close
               </button>
             </div>
           </div>
-          <div className="space-y-4 p-3 text-sm max-h-[80vh] overflow-y-auto">
+          <div className="space-y-4 p-3 text-sm max-h-[80vh] overflow-y-auto text-[var(--foreground)]">
             {copyFeedback && (
               <div
                 className={cn(
                   'rounded border px-2 py-1 text-xs',
                   copyFeedback.type === 'success'
-                    ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
-                    : 'border-red-300 bg-red-50 text-red-700'
+                    ? 'border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-text)]'
+                    : 'border-[var(--status-error-border)] bg-[var(--status-error-bg)] text-[var(--status-error-text)]'
                 )}
               >
                 {copyFeedback.message}
@@ -571,15 +490,15 @@ export function AppLayout() {
                 </div>
               </div>
               {diagnostics?.dbStatus?.error && (
-                <div className="mt-1 text-xs text-red-600">{diagnostics.dbStatus.error}</div>
+                <div className="mt-1 text-xs text-[var(--status-error-text)]">{diagnostics.dbStatus.error}</div>
               )}
               {watcherIssues.length > 0 && (
                 <ul className="mt-3 space-y-1">
                   {watcherIssues.map((watcher) => {
                     const statusClass =
                       watcher.status === 'error'
-                        ? 'border-red-300 bg-red-50 text-red-700'
-                        : 'border-amber-300 bg-amber-50 text-amber-700';
+                        ? 'border-[var(--status-error-border)] bg-[var(--status-error-bg)] text-[var(--status-error-text)]'
+                        : 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning-text)]';
                     return (
                       <li
                         key={watcher.name}
@@ -597,28 +516,28 @@ export function AppLayout() {
               )}
               {machineHealthEntries.length > 0 && (
                 <div className="mt-3 space-y-2">
-                  <div className="text-xs uppercase text-muted-foreground">Machine Health</div>
+                  <div className="text-xs uppercase text-[var(--muted-foreground)]">Machine Health</div>
                   {machineHealthEntries.map((issue) => (
-                    <div key={issue.id} className="rounded border p-2">
+                    <div key={issue.id} className="rounded border border-[var(--border)] p-2 bg-[var(--background)]">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium">
+                        <span className="font-medium text-[var(--foreground)]">
                           {issue.machineId != null ? `Machine ${issue.machineId}` : 'General'}
                         </span>
                         <span
                           className={cn(
                             'text-xs font-semibold uppercase tracking-wide',
                             issue.severity === 'critical'
-                              ? 'text-red-600'
+                              ? 'text-[var(--status-error-text)]'
                               : issue.severity === 'warning'
-                              ? 'text-amber-600'
-                              : 'text-muted-foreground'
+                              ? 'text-[var(--status-warning-text)]'
+                              : 'text-[var(--muted-foreground)]'
                           )}
                         >
                           {issue.code.replace(/_/g, ' ')}
                         </span>
                       </div>
-                      <div className="mt-1 text-sm">{issue.message}</div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="mt-1 text-sm text-[var(--foreground)]">{issue.message}</div>
+                      <div className="text-xs text-[var(--muted-foreground)]">
                         {new Date(issue.lastUpdatedAt).toLocaleTimeString()}
                       </div>
                     </div>
@@ -627,29 +546,29 @@ export function AppLayout() {
               )}
             </section>
             <section>
-              <div className="text-xs uppercase text-muted-foreground">Recent Errors</div>
-              <div className="mt-2 space-y-2 max-h-40 overflow-y-auto rounded border border-[var(--table-border)] bg-muted/20 p-2">
+              <div className="text-xs uppercase text-[var(--muted-foreground)]">Recent Errors</div>
+              <div className="mt-2 space-y-2 max-h-40 overflow-y-auto rounded border border-[var(--border)] bg-[var(--background)] p-2">
                 {diagnosticsErrors.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">No errors recorded.</div>
+                  <div className="text-xs text-[var(--muted-foreground)]">No errors recorded.</div>
                 ) : (
                   diagnosticsErrors.slice(0, 8).map((entry) => (
-                    <div key={entry.id} className="rounded border bg-background px-2 py-1">
-                      <div className="text-xs text-muted-foreground">
+                    <div key={entry.id} className="rounded border border-[var(--border)] bg-[var(--card)] px-2 py-1">
+                      <div className="text-xs text-[var(--muted-foreground)]">
                         {new Date(entry.timestamp).toLocaleString()}
                       </div>
-                      <div className="text-sm font-medium">{entry.source}</div>
-                      <div>{entry.message}</div>
+                      <div className="text-sm font-medium text-[var(--foreground)]">{entry.source}</div>
+                      <div className="text-[var(--foreground)]">{entry.message}</div>
                     </div>
                   ))
                 )}
               </div>
             </section>
             <section>
-              <div className="text-xs uppercase text-muted-foreground">Logs</div>
+              <div className="text-xs uppercase text-[var(--muted-foreground)]">Logs</div>
               <div className="mt-2 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <select
-                    className="border rounded px-2 py-1 text-xs"
+                    className="border border-[var(--border)] rounded px-2 py-1 text-xs bg-[var(--input-bg)] text-[var(--foreground)]"
                     value={logSelectedFile ?? ""}
                     onChange={(e) => setLogSelectedFile(e.target.value ? e.target.value : null)}
                     disabled={logListLoading || logList.length === 0}
@@ -661,7 +580,7 @@ export function AppLayout() {
                     ))}
                   </select>
                   <select
-                    className="border rounded px-2 py-1 text-xs"
+                    className="border border-[var(--border)] rounded px-2 py-1 text-xs bg-[var(--input-bg)] text-[var(--foreground)]"
                     value={logLimit}
                     onChange={(e) => setLogLimit(Number(e.target.value))}
                     disabled={logLoading || !logSelectedFile}
@@ -673,14 +592,14 @@ export function AppLayout() {
                     ))}
                   </select>
                   <button
-                    className="border rounded px-2 py-1 text-xs"
+                    className="border border-[var(--border)] rounded px-2 py-1 text-xs text-[var(--foreground)] hover:bg-[var(--accent-blue-subtle)] hover:border-[var(--accent-blue-border)] transition-all duration-150"
                     onClick={fetchLogList}
                     disabled={logListLoading}
                   >
                     Refresh List
                   </button>
                   <button
-                    className="border rounded px-2 py-1 text-xs"
+                    className="border border-[var(--border)] rounded px-2 py-1 text-xs text-[var(--foreground)] hover:bg-[var(--accent-blue-subtle)] hover:border-[var(--accent-blue-border)] transition-all duration-150"
                     onClick={refreshLogTail}
                     disabled={logLoading || !logSelectedFile}
                   >
@@ -688,15 +607,15 @@ export function AppLayout() {
                   </button>
                 </div>
                 {logListLoading && logList.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">Loading logs...</div>
+                  <div className="text-xs text-[var(--muted-foreground)]">Loading logs...</div>
                 ) : logList.length === 0 ? (
-                  <div className={cn('text-xs', logError ? 'text-red-600' : 'text-muted-foreground')}>
+                  <div className={cn('text-xs', logError ? 'text-[var(--status-error-text)]' : 'text-[var(--muted-foreground)]')}>
                     {logError ? `Load failed: ${logError}` : 'No log files available.'}
                   </div>
                 ) : (
                   <>
                     {selectedLogSummary && (
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--muted-foreground)]">
                         <span>{selectedLogSummary.name}</span>
                         <span>
                           Updated {selectedLogSummary.updatedAt ? new Date(selectedLogSummary.updatedAt).toLocaleString() : '-'}
@@ -707,16 +626,16 @@ export function AppLayout() {
                       </div>
                     )}
                     {logTail && (
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-xs text-[var(--muted-foreground)]">
                         Showing {logLines.length} {logLines.length === 1 ? "line" : "lines"}
                         {logAvailable != null ? ` of ${logAvailable}` : ""} (limit {logLimit})
                       </div>
                     )}
-                    {logError && <div className="text-xs text-red-600">{logError}</div>}
-                    <div className="max-h-72 overflow-auto rounded border bg-muted/40">
+                    {logError && <div className="text-xs text-[var(--status-error-text)]">{logError}</div>}
+                    <div className="max-h-72 overflow-auto rounded border border-[var(--border)] bg-[var(--background)]">
                       <pre
                         key={logSelectedFile ?? 'none'}
-                        className="min-w-full px-2 py-2 font-mono text-[11px] leading-snug whitespace-pre"
+                        className="min-w-full px-2 py-2 font-mono text-[11px] leading-snug whitespace-pre text-[var(--foreground)]"
                       >
                         {logLoading
                           ? 'Loading log...'
