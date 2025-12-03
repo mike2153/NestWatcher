@@ -7,7 +7,7 @@ import { registerMachinesIpc } from './ipc/machines';
 import { registerFilesIpc } from './ipc/files';
 import { registerRouterIpc } from './ipc/router';
 import { registerLifecycleIpc } from './ipc/lifecycle';
-import { registerHypernestIpc } from './ipc/hypernest';
+import { registerNcCatalystIpc } from './ipc/hypernest';
 import { registerHistoryIpc } from './ipc/history';
 import { registerAlarmsIpc } from './ipc/alarms';
 import { registerDiagnosticsIpc } from './ipc/diagnostics';
@@ -91,7 +91,7 @@ app.whenReady().then(async () => {
   registerFilesIpc();
   registerRouterIpc();
   registerLifecycleIpc();
-  registerHypernestIpc();
+  registerNcCatalystIpc();
   registerHistoryIpc();
   registerAlarmsIpc();
   registerDiagnosticsIpc();

@@ -212,8 +212,8 @@ const api = {
       };
     }
   },
-  hypernest: {
-    open: () => invokeResult<null>('hypernest:open')
+  ncCatalyst: {
+    open: () => invokeResult<null>('nc-catalyst:open')
   },
   alarms: {
     list: () => invokeResult('alarms:list'),

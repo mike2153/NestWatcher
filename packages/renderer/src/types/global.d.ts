@@ -133,7 +133,7 @@ declare global {
         subscribe: (listener: (entry: AppMessage) => void) => () => void;
         subscribeCount: (listener: (count: number) => void) => () => void;
       };
-      hypernest: {
+      ncCatalyst: {
         open: () => Promise<Result<null, AppError>>;
       };
       alarms: {

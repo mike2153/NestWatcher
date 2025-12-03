@@ -78,8 +78,8 @@ function ContextMenuContentBase({ children, className }: { children: React.React
       <div
         ref={contentRef}
         className={cn(
-          'z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md',
-          'bg-white dark:bg-neutral-900',
+          'z-50 min-w-[8rem] overflow-hidden rounded-md border p-1 shadow-lg',
+          'bg-[var(--popover)] text-[var(--popover-foreground)] border-[var(--border)]',
           className
         )}
         style={style}
@@ -117,8 +117,10 @@ function ContextMenuItemBase({
     <button
       type="button"
       className={cn(
-        'relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none',
-        'hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:pointer-events-none',
+        'relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-all duration-150',
+        'text-[var(--popover-foreground)] hover:bg-[var(--accent-blue-subtle)] hover:text-[var(--accent-foreground)]',
+        'hover:pl-3 hover:border-l-2 hover:border-l-[var(--accent-blue)]',
+        'disabled:opacity-50 disabled:pointer-events-none',
         inset && 'pl-8',
         className
       )}
@@ -133,11 +135,11 @@ function ContextMenuItemBase({
 }
 
 function ContextMenuSeparatorBase() {
-  return <div className="my-1 border-t" />;
+  return <div className="my-1 border-t border-[var(--border)]" />;
 }
 
 function ContextMenuLabelBase({ children }: { children: React.ReactNode }) {
-  return <div className="px-2 pt-1 pb-0.5 text-xs uppercase text-muted-foreground">{children}</div>;
+  return <div className="px-2 pt-1 pb-0.5 text-xs uppercase text-[var(--muted-foreground)]">{children}</div>;
 }
 
 // Shortcut (right-aligned hint)
@@ -149,7 +151,7 @@ function ContextMenuShortcutBase({ children }: { children: React.ReactNode }) {
 function ContextMenuCheckboxItemBase({ checked = false, children, inset, onSelect }: { checked?: boolean; inset?: boolean; children: React.ReactNode; onSelect?: () => void }) {
   return (
     <ContextMenuItemBase inset={inset} onSelect={onSelect}>
-      <span className={cn('mr-2 inline-flex h-3 w-3 items-center justify-center rounded-[2px] border', checked ? 'bg-primary border-primary' : 'border-muted')}></span>
+      <span className={cn('mr-2 inline-flex h-3 w-3 items-center justify-center rounded-[2px] border', checked ? 'bg-[var(--primary)] border-[var(--primary)]' : 'border-[var(--border)]')}></span>
       <span>{children}</span>
     </ContextMenuItemBase>
   );
@@ -169,8 +171,8 @@ function ContextMenuRadioItemBase({ value, children, inset, onSelect }: { value:
   const selected = rctx?.value === value;
   return (
     <ContextMenuItemBase inset={inset} onSelect={() => { rctx?.setValue(value); onSelect?.(); }}>
-      <span className={cn('mr-2 inline-flex h-3 w-3 items-center justify-center rounded-full border', selected ? 'border-primary' : 'border-muted')}>
-        {selected ? <span className="h-2 w-2 rounded-full bg-primary" /> : null}
+      <span className={cn('mr-2 inline-flex h-3 w-3 items-center justify-center rounded-full border', selected ? 'border-[var(--primary)]' : 'border-[var(--border)]')}>
+        {selected ? <span className="h-2 w-2 rounded-full bg-[var(--primary)]" /> : null}
       </span>
       <span>{children}</span>
     </ContextMenuItemBase>
@@ -215,7 +217,7 @@ function ContextMenuSubContentBase({ children, className }: { children: React.Re
   return (
     <div className="fixed inset-0 z-50 pointer-events-none">
       <div
-        className={cn('pointer-events-auto z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md bg-white dark:bg-neutral-900', className)}
+        className={cn('pointer-events-auto z-50 min-w-[8rem] overflow-hidden rounded-md border p-1 shadow-lg bg-[var(--popover)] text-[var(--popover-foreground)] border-[var(--border)]', className)}
         style={{ position: 'fixed', top: pos.top, left: pos.left }}
         onMouseLeave={() => sctx.setOpen(false)}
       >

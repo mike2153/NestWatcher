@@ -138,7 +138,7 @@ export function ensureContentSecurityPolicy() {
   logger.info({ policy }, 'Content Security Policy applied');
 }
 
-// Apply a custom CSP to a specific session (e.g., Hypernest window)
+// Apply a custom CSP to a specific session (e.g., NC Catalyst window)
 export function applyCustomContentSecurityPolicy(targetSession: Session, policy: string) {
   targetSession.webRequest.onHeadersReceived((details, callback) => {
     const responseHeaders = { ...details.responseHeaders };

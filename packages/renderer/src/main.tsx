@@ -10,7 +10,6 @@ import { JobsPage } from './pages/JobsPage';
 import { RouterPage } from './pages/RouterPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { MachinesPage } from './pages/MachinesPage';
-import ThemeShowcase from './pages/ThemeShowcase';
 import { TelemetryPage } from './pages/TelemetryPage';
 import { CncAlarmsPage } from './pages/CncAlarmsPage';
 import { GrundnerPage } from './pages/GrundnerPage';
@@ -18,6 +17,7 @@ import { AllocatedMaterialPage } from './pages/AllocatedMaterialPage';
 import { MessagesPage } from './pages/MessagesPage';
 import { OrderingPage } from './pages/OrderingPage';
 import { AuthProvider } from './contexts/AuthContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 
 // Use BrowserRouter in dev for nicer URLs; HashRouter in production for file:// packaging
 const makeRoutes = () => ([
@@ -36,7 +36,6 @@ const makeRoutes = () => ([
       { path: '/allocated-material', element: <AllocatedMaterialPage /> },
       { path: '/ordering', element: <OrderingPage /> },
       { path: '/machines', element: <MachinesPage /> },
-      { path: '/theme', element: <ThemeShowcase /> },
       { index: true, element: <DashboardPage /> }
     ]
   }
@@ -51,8 +50,10 @@ installRendererConsoleForwarding();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <AuthProvider>
-      <RouterProvider router={router} />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>
+    </ThemeProvider>
   </React.StrictMode>
 );
