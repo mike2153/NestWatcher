@@ -213,7 +213,11 @@ const api = {
     }
   },
   ncCatalyst: {
-    open: () => invokeResult<null>('nc-catalyst:open')
+    open: () => invokeResult<null>('nc-catalyst:open'),
+    syncSettings: (snapshot: unknown) =>
+      invokeResult<null>('nc-catalyst:settings-updated', snapshot),
+    getSharedSettings: () =>
+      invokeResult<import('../../shared/src').SharedSettingsSnapshot>('nc-catalyst:get-shared-settings')
   },
   alarms: {
     list: () => invokeResult('alarms:list'),

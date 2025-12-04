@@ -15,6 +15,9 @@
                        "packages/*"
                    ],
     "scripts":  {
+                    "nc": "concurrently -k -n NC-CAT,MAIN,PRELOAD,ELECTRON \"pnpm:nc:vite\" \"pnpm:dev:main\" \"pnpm:dev:preload\" \"pnpm:nc:electron\"",
+                    "nc:vite": "pnpm -C resources/nc-catalyst-2/new-ui dev",
+                    "nc:electron": "wait-on http-get://localhost:5174 packages/preload/dist/index.js packages/main/dist/main.js packages/main/dist/workers/watchersWorker.js && cross-env NC_CATALYST_DEV_URL=http://localhost:5174 pnpm -C packages/main exec electron dist/main.js",
                     "dev":  "concurrently -k -n RENDERER,MAIN,PRELOAD,ELECTRON \"pnpm:dev:renderer\" \"pnpm:dev:main\" \"pnpm:dev:preload\" \"pnpm:dev:electron\"",
                     "dev:renderer":  "pnpm -C packages/renderer dev",
                     "dev:main":  "esbuild packages/main/src/main.ts packages/main/src/workers/watchersWorker.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --external:fsevents --outdir=packages/main/dist --sourcemap --watch",
