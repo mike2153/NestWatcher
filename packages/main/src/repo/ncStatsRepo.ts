@@ -1,5 +1,5 @@
-import { eq, inArray } from 'drizzle-orm';
-import { ncStats } from '../db/schema';
+import { eq, inArray, sql, or } from 'drizzle-orm';
+import { ncStats, jobs } from '../db/schema';
 import { withDb } from '../services/db';
 import type {
   AggregatedValidationDataRes,
@@ -8,7 +8,9 @@ import type {
   Offcut,
   ToolUsage,
   ValidationDataRes,
-  ValidationResult
+  ValidationResult,
+  ValidationWarningEntry,
+  ValidationWarningsListRes
 } from '../../../shared/src';
 
 export type NcStatsUpsert = {
@@ -227,5 +229,63 @@ export async function getAggregatedNcStats(jobKeys: string[]): Promise<Aggregate
       warningsCount,
       errorsCount
     }
+  };
+}
+
+export async function getValidationWarnings(): Promise<ValidationWarningsListRes> {
+  const rows = await withDb((db) =>
+    db
+      .select({
+        jobKey: ncStats.jobKey,
+        folder: jobs.folder,
+        ncfile: jobs.ncfile,
+        validation: ncStats.validation,
+        dateAdded: jobs.dateAdded
+      })
+      .from(ncStats)
+      .innerJoin(jobs, eq(ncStats.jobKey, jobs.key))
+      .where(
+        or(
+          sql`${ncStats.validation}->>'status' = 'warnings'`,
+          sql`${ncStats.validation}->>'status' = 'errors'`
+        )
+      )
+  );
+
+  let warningCount = 0;
+  let errorCount = 0;
+
+  const items: ValidationWarningEntry[] = rows.map((row) => {
+    const validation = row.validation as ValidationResult | null;
+    const severity = validation?.status === 'errors' ? 'error' : 'warning';
+
+    if (severity === 'error') {
+      errorCount += 1;
+    } else {
+      warningCount += 1;
+    }
+
+    const messages: string[] = [];
+    if (validation?.errors?.length) {
+      messages.push(...validation.errors);
+    }
+    if (validation?.warnings?.length) {
+      messages.push(...validation.warnings);
+    }
+
+    return {
+      jobKey: row.jobKey,
+      folder: row.folder,
+      ncfile: row.ncfile,
+      severity,
+      messages,
+      createdAt: row.dateAdded?.toISOString() ?? new Date().toISOString()
+    };
+  });
+
+  return {
+    items,
+    warningCount,
+    errorCount
   };
 }

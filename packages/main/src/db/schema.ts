@@ -12,7 +12,8 @@ import {
   timestamp,
   varchar,
   pgView,
-  real
+  real,
+  numeric
 } from 'drizzle-orm/pg-core';
 
 export const jobStatusEnum = pgEnum('job_status', [
@@ -32,6 +33,20 @@ export const machines = pgTable('machines', {
   apJobfolder: text('ap_jobfolder').notNull(),
   nestpickFolder: text('nestpick_folder').notNull(),
   nestpickEnabled: boolean('nestpick_enabled').default(true).notNull(),
+  // FK to nc_cat_profiles table - the profile assigned to this machine
+  ncCatProfileId: text('nc_cat_profile_id').references(() => ncCatProfiles.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+});
+
+export const toolLibrary = pgTable('tool_library', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  type: text('type').notNull(),
+  diameterMm: numeric('diameter_mm'),
+  lengthMm: numeric('length_mm'),
+  materialType: text('material_type'),
+  notes: text('notes'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });
@@ -117,6 +132,15 @@ export const ncStats = pgTable('nc_stats', {
   mesOutputVersion: text('mes_output_version')
 });
 
+export const ncCatProfiles = pgTable('nc_cat_profiles', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  settings: jsonb('settings').$type<unknown>().notNull(),
+  isActive: boolean('is_active').default(false).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+});
+
 export const appUsers = pgTable('app_users', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   username: text('username').notNull(),
@@ -161,10 +185,12 @@ export const allocatedMaterialView = pgView('allocated_material_view', {
 export const schema = {
   jobs,
   machines,
+  toolLibrary,
   jobEvents,
   grundner,
   orderingStatus,
   ncStats,
+  ncCatProfiles,
   allocatedMaterialView,
   jobStatusEnum,
   appUsers

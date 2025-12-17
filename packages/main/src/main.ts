@@ -7,7 +7,7 @@ import { registerMachinesIpc } from './ipc/machines';
 import { registerFilesIpc } from './ipc/files';
 import { registerRouterIpc } from './ipc/router';
 import { registerLifecycleIpc } from './ipc/lifecycle';
-import { registerNcCatalystIpc } from './ipc/hypernest';
+import { registerNcCatalystIpc, startNcCatBackgroundWindow, stopNcCatBackgroundWindow } from './ipc/hypernest';
 import { registerHistoryIpc } from './ipc/history';
 import { registerAlarmsIpc } from './ipc/alarms';
 import { registerDiagnosticsIpc } from './ipc/diagnostics';
@@ -118,6 +118,14 @@ app.whenReady().then(async () => {
 
   initWatchers();
   initMesValidationScanner();
+
+  // Start NC-Cat in background mode for subscription auth
+  try {
+    startNcCatBackgroundWindow();
+  } catch (error) {
+    logger.warn({ error }, 'Failed to start NC-Cat background window');
+  }
+
   createWindow();
 
   app.on('activate', () => {
@@ -151,5 +159,11 @@ app.on('will-quit', async () => {
     stopDbWatchdog();
   } catch (err) {
     logger.error({ err }, 'Failed to stop DB watchdog');
+  }
+
+  try {
+    stopNcCatBackgroundWindow();
+  } catch (err) {
+    logger.error({ err }, 'Failed to stop NC-Cat background window');
   }
 });

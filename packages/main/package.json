@@ -12,7 +12,6 @@
   "dependencies": {
     "chokidar": "^3.6.0",
     "drizzle-orm": "^0.44.5",
-    "electron": "^31.0.0",
     "neverthrow": "^7.1.0",
     "pg": "^8.11.5",
     "pino": "^9.3.2",

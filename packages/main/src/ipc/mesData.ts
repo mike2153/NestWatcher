@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { ok, err } from 'neverthrow';
-import type { AppError, ValidationDataRes, AggregatedValidationDataRes } from '../../../shared/src';
+import type { AppError, ValidationDataRes, AggregatedValidationDataRes, ValidationWarningsListRes } from '../../../shared/src';
 import { registerResultHandler } from './result';
 import { createAppError } from './errors';
-import { getAggregatedNcStats, getNcStats } from '../repo/ncStatsRepo';
+import { getAggregatedNcStats, getNcStats, getValidationWarnings } from '../repo/ncStatsRepo';
 
 const ValidationGetReq = z.object({ key: z.string().min(1) });
 const AggregatedValidationGetReq = z.object({ keys: z.array(z.string().min(1)).min(1) });
@@ -31,5 +31,10 @@ export function registerMesDataIpc() {
       return err(createAppError('mes.notFound', 'No MES data found for these jobs.'));
     }
     return ok<AggregatedValidationDataRes, AppError>(record);
+  });
+
+  registerResultHandler<ValidationWarningsListRes>('validation:getWarnings', async () => {
+    const result = await getValidationWarnings();
+    return ok<ValidationWarningsListRes, AppError>(result);
   });
 }

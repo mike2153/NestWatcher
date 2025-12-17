@@ -882,6 +882,32 @@ export function JobsPage() {
     }
   }, [jobByKey, refresh]);
 
+  /**
+   * Open selected jobs in the NC-Cat simulator
+   */
+  const performOpenInSimulator = useCallback(async (targetKeys: string[]) => {
+    if (!targetKeys.length) return;
+    setActionBusy(true);
+    try {
+      console.log('[JobsPage] Opening jobs in simulator:', targetKeys);
+      const res = await window.api.ncCatalyst.openJobs(targetKeys);
+      console.log('[JobsPage] openJobs response:', res);
+      if (!res.ok) {
+        const details = res.error.details ? `\n\nDetails: ${JSON.stringify(res.error.details)}` : '';
+        alert(`Failed to open in simulator: ${res.error.message}${details}`);
+      } else if (!res.value.ok) {
+        // Response indicates failure
+        alert(`Failed to open in simulator: ${res.value.error || 'Unknown error'}`);
+      } else if (res.value.error) {
+        // Partial success - some files failed
+        alert(`Opened ${res.value.jobCount} job(s) in simulator.\n\nWarning: ${res.value.error}`);
+      }
+      // Don't clear selection - user might want to do other actions
+    } finally {
+      setActionBusy(false);
+    }
+  }, []);
+
   const loadHistory = useCallback(async (key: string) => {
     setHistoryLoading(true);
     setHistoryError(null);
@@ -1102,16 +1128,20 @@ export function JobsPage() {
               table={table}
               onRowContextMenu={(row, event) => {
                 const original = row.original;
-                // Handle folder group rows - select all jobs in folder and show stats
+                // Handle folder group rows - select all jobs in folder to allow context menu actions
                 if (isFolderGroupRow(original)) {
                   const folderJobKeys = original.subRows.map((job) => job.key);
                   if (folderJobKeys.length > 0) {
-                    // Set keys for aggregated stats and open modal directly
-                    setValidationJobKey(null);
-                    setValidationJobKeys(folderJobKeys);
-                    setValidationModalOpen(true);
+                    // Select all jobs in the folder so the context menu can act on them
+                    const newSelection: RowSelectionState = {};
+                    original.subRows.forEach((job) => {
+                      // The row ID is the key for job rows when using getRowId
+                      newSelection[job.key] = true;
+                    });
+                    setRowSelection(newSelection);
+                    // Let the default context menu show via the ContextMenuTrigger
+                    // Don't prevent default - allow the context menu to appear
                   }
-                  event.preventDefault();
                   return;
                 }
                 console.log('Right-clicked row:', { rowId: row.id, originalKey: original.key });
@@ -1176,6 +1206,10 @@ export function JobsPage() {
             }}
             disabled={selectedKeys.length === 0}
           >Show Stats</ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() => performOpenInSimulator(selectedKeys)}
+            disabled={actionBusy || selectedKeys.length === 0}
+          >Open in Simulator</ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuSub>
             <ContextMenuSubTrigger inset>Select Machine</ContextMenuSubTrigger>

@@ -51,7 +51,8 @@ import type {
   ValidationDataReq,
   ValidationDataRes,
   AggregatedValidationDataReq,
-  AggregatedValidationDataRes
+  AggregatedValidationDataRes,
+  OpenJobInSimulatorRes
 } from '../../../shared/src';
 import type { TelemetrySummaryReq, TelemetrySummaryRes, AlarmsHistoryReq, AlarmsHistoryRes } from '../../../shared/src';
 
@@ -135,6 +136,7 @@ declare global {
       };
       ncCatalyst: {
         open: () => Promise<Result<null, AppError>>;
+        openJobs: (jobKeys: string[]) => Promise<Result<OpenJobInSimulatorRes, AppError>>;
       };
       alarms: {
         list: () => Promise<Result<AlarmEntry[], AppError>>;

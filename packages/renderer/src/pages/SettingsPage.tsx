@@ -427,7 +427,8 @@ export function SettingsPage() {
       test: testState,
       grundner: grundnerState,
       ordering: orderingState,
-      jobs: { completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] }
+      jobs: { completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] },
+      validationWarnings: { showValidationWarnings: false }
     };
     const saved = extractResult<Settings>(await window.api.settings.save(next));
     if (!saved.ok) {

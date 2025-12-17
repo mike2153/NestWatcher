@@ -1,5 +1,8 @@
 # NC Catalyst Integration, Licensing, and Contracts Plan
 
+> **Working TODO**: See `TODO-NC-CAT-INTEGRATION.md` (root) for current status and tasks.
+> This document is the **design/background reference** — not actively maintained.
+
 ## 1. Context and Goals
 
 This document describes how **Woodtron Electron** (WE) and **NC Catalyst** (NC‑Cat) will work together as a cohesive product family, while still allowing NC‑Cat to be developed, licensed, and shipped as a standalone application.
@@ -42,7 +45,7 @@ This document is a **plan**, not an implementation. It is meant to be kept up‑
 - **NC‑Cat (Core)**  
   - Core validation/visualisation engine and UI.
   - Initially a browser app (HTML + JS + CSS), to be migrated to React + Tailwind + TypeScript.
-  - Lives in its own repo; a copy or build output is embedded into WE under `resources/nc-catalyst-2`.
+  - Lives in its own repo; a copy or build output is embedded into WE under `resources/NC_CAT_V3`.
 
 - **NC‑Cat Electron (Standalone)**  
   - A small Electron wrapper around NC‑Cat core.
@@ -80,7 +83,7 @@ This document is a **plan**, not an implementation. It is meant to be kept up‑
 - Main Electron app with:
   - Postgres database, watchers, MES integration.
   - React UI for dashboard, jobs, settings, etc.
-- NC‑Cat is included as resources under `resources/nc-catalyst-2` (today static browser app).
+- NC‑Cat is included as resources under `resources/NC_CAT_V3` (today static browser app).
 - Planned addition: `packages/contracts` (or equivalent) for `@woodtron/contracts`.
 
 ### 3.2. NC‑Cat Repo (external)
@@ -94,7 +97,7 @@ This document is a **plan**, not an implementation. It is meant to be kept up‑
 - Build outputs:
   - A static bundle (HTML/JS/CSS) that can be:
     - Deployed as a web app.
-    - Embedded in WE (under `resources/nc-catalyst-2`).
+    - Embedded in WE (under `resources/NC_CAT_V3`).
     - Loaded by standalone NC‑Cat Electron.
 
 ### 3.3. Shared Contracts Package (`@woodtron/contracts`)
@@ -501,10 +504,15 @@ We also need to share a subset of WE settings with NC‑Cat so that:
 ```ts
 export interface SharedSettingsSnapshot {
   processedJobsRoot: string; // Root folder where WE expects processed jobs.
-  jobsRoot: string;          // Root folder where NC‑Cat watches for new jobs.
+  jobsRoot: string;          // Root folder where NC‑Cat watches for new jobs (currently same as processedJobsRoot).
   quarantineRoot?: string;   // Optional root folder for quarantined jobs.
 
-  machines: MachineConfig[]; // Machine configurations shared between WE and NC‑Cat (from NcCatSettingsSnapshot.machines).
+  // Minimal machine view exposed from WE to NC-Cat
+  machines: {
+    machineId: number;           // WE machines.machine_id
+    name: string;                // WE machines.name
+    ncCatMachineId?: string | null; // machines.nc_cat_machine_id, if set
+  }[];
 
   nestWatcherInstalled: boolean; // If true, NC‑Cat treats WE as present and uses these settings.
 
@@ -521,111 +529,152 @@ Rules:
   - If `nestWatcherInstalled` is `true`, NC‑Cat reads `SharedSettingsSnapshot` from WE and uses those settings for shared paths and machine IDs.
   - If `nestWatcherInstalled` is `false`, NC‑Cat behaves purely as a standalone app and does not assume WE is present.
 
-### 4.6. WE Database Shape for Machine Settings (planned)
+Implementation status:
 
-WE should mirror the new NC‑Cat `settings.json` structure in its database so that:
+- WE exposes `SharedSettingsSnapshot` over IPC as `nc-catalyst:get-shared-settings` (see `packages/main/src/ipc/hypernest.ts`), backed by:
+  - `Settings.paths.processedJobsRoot` for `processedJobsRoot`/`jobsRoot`.
+  - `public.machines` for the minimal `machines` list (`machine_id`, `name`, `nc_cat_machine_id`).
+- The preload bridge (`packages/preload/src/index.ts`) exposes `window.electronApi.ncCatalyst.getSharedSettings()` to NC‑Cat when running inside NestWatcher Electron.
+- NC‑Cat calls this via `SettingsOperationsManager.fetchSharedSettingsFromHost()` when the operator ticks the “NestWatcher installed on this PC” toggle in the Settings modal. For now this logs the snapshot and shows a brief status message; future work can hook this into automatic path/machine ID binding inside NC‑Cat.
 
-- NC‑Cat remains the **authoring UI** for machine configs.
-- WE is the **system of record** for production settings.
-- A change in NC‑Cat can be pushed to WE as a single `NcCatSettingsSnapshot`, and WE decomposes it into relational tables.
+### 4.6. WE Database Shape for Machine Settings (current)
 
-High‑level DB sketch (to be implemented later, not yet in `schema.sql`):
+WE mirrors the new NC‑Cat `settings.json` structure in a **minimal** way in Postgres:
+
+- Machine‑specific NC‑Cat configuration is stored as JSON on the existing `public.machines` table.
+- A single **global tool library** table captures tool geometry (one row per tool type, shared across machines).
+
+This keeps the relational schema simple while allowing NC‑Cat to remain the **authoring UI**.
+
+#### 4.6.1. Machines table (extended)
+
+`docs/schema.sql` now defines `public.machines` as (relevant columns only):
 
 ```sql
--- Machine catalog (one row per NC‑Cat machine)
-CREATE TABLE machines (
-  id TEXT PRIMARY KEY,           -- NcCat MachineConfig.id
-  name TEXT NOT NULL,
-  type TEXT,
+CREATE TABLE public.machines (
+  machine_id       integer PRIMARY KEY,
+  name             text NOT NULL,
+  pc_ip            inet,
+  ap_jobfolder     text NOT NULL,
+  nestpick_folder  text NOT NULL,
+  nestpick_enabled boolean DEFAULT true NOT NULL,
 
-  -- Optional references to latest settings export
-  settings_version TEXT,
-  last_modified TIMESTAMPTZ,
+  -- NC-Cat integration
+  nc_cat_machine_id      text UNIQUE,  -- NC-Cat MachineConfig.id
+  nc_cat_config          jsonb,        -- full per-machine config blob from NC-Cat
+  settings_version       text,         -- optional NC-Cat settings version
+  last_settings_sync_at  timestamptz,  -- when WE last applied an NC-Cat snapshot
 
-  -- Raw JSON column if we want to preserve the full blob
-  settings_json JSONB NOT NULL
+  created_at       timestamptz DEFAULT now() NOT NULL,
+  updated_at       timestamptz DEFAULT now() NOT NULL
 );
 
--- Per-machine tool library
-CREATE TABLE machine_tool_library (
-  id TEXT PRIMARY KEY,           -- ToolLibraryTool.id
-  machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
+COMMENT ON TABLE public.machines IS
+  'Per-CNC config: PC/CNC IPs, AutoPac/Nestpick folders, NC-Cat machine config + flags';
 
-  name TEXT NOT NULL,
-  type TEXT NOT NULL,
-  diameter NUMERIC NOT NULL,
-  length NUMERIC NOT NULL,
+COMMENT ON COLUMN public.machines.ap_jobfolder IS
+  'Ready-To-Run / AutoPac intake (per machine)';
 
-  spindle_rpm NUMERIC,
-  cutting_speed NUMERIC,
-  lead_in_out NUMERIC,
-  plunge_rate NUMERIC,
-  material_type TEXT,
-  max_depth NUMERIC,
-  tool_diameter NUMERIC,
+COMMENT ON COLUMN public.machines.nestpick_folder IS
+  'Where pallet-tagged CSVs are moved for Nestpick ingestion';
 
-  created_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ
-);
+COMMENT ON COLUMN public.machines.nc_cat_machine_id IS
+  'Stable NC-Cat MachineConfig.id used to map NC-Cat snapshots to this machine';
 
--- Per-machine tool changers
-CREATE TABLE machine_tool_changers (
-  id TEXT PRIMARY KEY,           -- ToolChangerConfig.id
-  machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
-  type TEXT NOT NULL,
-  positions_count INTEGER NOT NULL
-);
-
-CREATE TABLE machine_tool_changer_positions (
-  machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
-  changer_id TEXT NOT NULL REFERENCES machine_tool_changers(id) ON DELETE CASCADE,
-  position_index INTEGER NOT NULL,
-  tool_id TEXT REFERENCES machine_tool_library(id),
-  PRIMARY KEY (machine_id, changer_id, position_index)
-);
-
--- Per-machine tool strategies (one per tool with strategy data)
-CREATE TABLE machine_tool_strategies (
-  id TEXT PRIMARY KEY,           -- ToolStrategy.id
-  machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
-  tool_id TEXT NOT NULL REFERENCES machine_tool_library(id),
-
-  tool_number INTEGER,
-  spindle_rpm NUMERIC NOT NULL,
-  cutting_speed NUMERIC NOT NULL,
-  lead_in_out_length NUMERIC NOT NULL,
-  plunge_rate NUMERIC NOT NULL,
-  material_type TEXT NOT NULL,
-  tool_diameter NUMERIC NOT NULL,
-  max_depth NUMERIC NOT NULL,
-
-  created_at TIMESTAMPTZ NOT NULL,
-  updated_at TIMESTAMPTZ NOT NULL
-);
+COMMENT ON COLUMN public.machines.nc_cat_config IS
+  'Latest NC-Cat MachineConfig blob (machineParams, drill head, tool changers, strategies, etc.)';
 ```
 
-Sync rules (planned behaviour):
+`nc_cat_config` mirrors the per‑machine part of `NcCatSettingsSnapshot` (`MachineConfig`) for that machine:
 
-- When the operator changes machine settings in NC‑Cat and clicks **Save to File**:
-  - NC‑Cat produces an updated `NcCatSettingsSnapshot` (new multi‑machine `settings.json`).
-  - Inside WE, the NC‑Cat wrapper (Simulator window) sends that blob to the WE main process as JSON (e.g. IPC: `ncCat:settings-updated` with `NcCatSettingsSnapshot`).
+- `machineParams`
+- `drillHeadLayout`
+- tool changer layout and positions
+- per‑machine tool strategies
+- machine‑specific validator / label / NestPick settings, etc.
+
+WE remains free to add more relational tables later if deeper reporting over strategies/positions is needed, but this base keeps everything machine‑specific in one attached JSON blob.
+
+#### 4.6.2. Global tool library table
+
+Shared tool geometry is stored once per tool type:
+
+```sql
+CREATE TABLE public.tool_library (
+  id            text PRIMARY KEY,        -- matches NC-Cat ToolLibraryTool.id
+  name          text NOT NULL,
+  type          text NOT NULL,           -- e.g. 'end-mill'
+  diameter_mm   numeric NOT NULL,
+  length_mm     numeric NOT NULL,
+
+  material_type text,                    -- optional default material
+  notes         text,
+
+  created_at    timestamptz DEFAULT now() NOT NULL,
+  updated_at    timestamptz DEFAULT now() NOT NULL
+);
+
+COMMENT ON TABLE public.tool_library IS
+  'Global catalogue of tools (geometry and identity) shared across machines and NC-Cat';
+
+COMMENT ON COLUMN public.tool_library.id IS
+  'NC-Cat ToolLibraryTool.id used in settings.json and NcCatSettingsSnapshot';
+
+CREATE INDEX tool_library_name_idx ON public.tool_library USING btree (name);
+CREATE INDEX tool_library_type_idx ON public.tool_library USING btree (type);
+```
+
+NC‑Cat’s `ToolLibraryTool` entries are mapped into `tool_library`:
+
+- Geometry and identity (`id`, `name`, `type`, diameter, length, etc.) live in `tool_library`.
+- Machine‑specific usage (changer positions, strategies) stay inside `machines.nc_cat_config` and are authored in NC‑Cat.
+
+The SQL in `nc_cat_integration.sql` (and reflected in `docs/schema.sql`) adds these columns/table to the existing schema.
+
+### 4.7. Responsibility Split for Local Postgres (Design Choice)
+
+For the factory installation where multiple WE + NC‑Cat instances point at the same **local Postgres** database, we adopt the following rule:
+
+- **NC‑Cat never talks directly to the local Postgres DB.**
+- **WE main process is the only component that writes to (or reads from) the factory Postgres DB.**
+
+Concretely:
+
+- NC‑Cat (running inside WE as a simulator/settings window) is the **authoring UI** for machine, tool library, tool changer, and tool strategy configuration.
+- When an operator changes settings in NC‑Cat:
+  - NC‑Cat produces a new `NcCatSettingsSnapshot`.
+  - It sends that snapshot to WE over IPC (e.g. `ncCat:settings-updated`).
 - WE:
-  - Validates that `N` machines in `snapshot.machines` match or can be merged with rows in `machines` by `id`.
-  - Upserts:
-    - `machines` rows (id, name, type, `settings_json`, `settings_version`, `last_modified`).
-    - `machine_tool_library`, `machine_tool_changers`, `machine_tool_changer_positions`, `machine_tool_strategies` using the IDs from the snapshot.
-  - Keeps `Job.machine_id` pointing to `machines.id` so existing jobs automatically pick up updated settings for simulation/validation.
+  - Validates and version‑checks the snapshot.
+  - Applies it to the local Postgres DB via the schema above (`machines` with `nc_cat_*` columns, and `tool_library` for global tools).
 
-In other words:
+Rationale for this choice (Option B):
 
-- **NC‑Cat → WE**: pushes `NcCatSettingsSnapshot` whenever machine settings change.
-- **WE DB**: decomposes and stores the snapshot in relational tables (plus raw `settings_json` for audit).
-- **WE → NC‑Cat**: can optionally expose `SharedSettingsSnapshot` (including machines) back to NC‑Cat when **NestWatcher installed** is enabled, so both sides stay in sync on paths and machine IDs.
+- Single gateway to the DB:
+  - Simplifies security: DB credentials exist only in the WE main process.
+  - Reduces the attack surface and removes the need to embed DB knowledge into NC‑Cat.
+- Easier schema evolution:
+  - When factory DB tables change, only WE’s DB layer needs updating; NC‑Cat still emits the same snapshot shape.
+- Better behaviour in a multi‑PC factory:
+  - All configuration changes funnel through WE and can be permission‑checked and audited.
+  - No risk of different NC‑Cat versions writing conflicting shapes directly into Postgres.
+
+The only place where NC‑Cat talks directly to a backend is the **standalone NC‑Cat product**, where it uses Supabase (and Supabase Functions) **only** for auth and billing, not for the factory Postgres DB behind WE.
 
 In the NC‑Cat UI we will have a setting like **“NestWatcher installed”**. When ticked:
 
 - NC‑Cat expects WE integration to be available.
 - It can hide or lock certain settings that are now controlled by WE (e.g. processed jobs root).
+
+### 4.8. Phase 2 Implementation Checklist (Snapshot → Postgres)
+
+Phase 2 of the NC‑Cat ↔ WE rollout focuses on applying the `NcCatSettingsSnapshot` that NC‑Cat emits to the factory Postgres database. The high‑level responsibilities are:
+
+1. **Schema readiness.** Confirm that `docs/schema.sql` (and the matching migrations) contain all `nc_cat_*` columns on `public.machines`, plus the shared `tool_library` table/indexes described in §4.6. Update the schema dump + migration scripts if any structures are missing.
+2. **Snapshot ingestion service.** Implement `packages/main/src/services/ncCatSettings.ts` (or equivalent) that converts a `NcCatSettingsSnapshot` into persisted rows. Machines store their full `MachineConfig` blob inside `machines.nc_cat_config`, while the global `tool_library` table is synchronised from the snapshot’s `toolLibrary` entries.
+3. **Transactional apply path.** Wire `packages/main/src/ipc/hypernest.ts`’s `nc-catalyst:settings-updated` handler to call the ingestion service inside a transaction so that a snapshot either fully commits or fully rolls back. Include structured logging to trace machine IDs and version numbers that were processed.
+4. **Versioning + concurrency guards.** Persist the NC‑Cat `settingsSnapshot.version` / `lastModified` metadata per machine so stale exports cannot clobber newer settings. The service should reject snapshots that contain an older `lastModified` timestamp than what is already stored and surface that failure back to NC‑Cat.
+5. **Verification + tests.** Add unit tests around the ingestion service to cover: inserting a brand‑new machine, updating an existing one (tool changes, changer reassignments, strategy edits), and removing records that were deleted in NC‑Cat. Smoke‑test the IPC path by simulating `syncSettings(snapshot)` from the NC‑Cat preload to ensure the transaction + logging flow behaves as expected.
 
 ---
 
@@ -668,7 +717,7 @@ There are two phases for how NC‑Cat updates interact with WE.
 
 #### Phase 1 (Startup Plan)
 
-- WE embeds a specific NC‑Cat build under `resources/nc-catalyst-2`.
+- WE embeds a specific NC‑Cat build under `resources/NC_CAT_V3`.
 - When WE is updated, its NC‑Cat copy is updated as part of the release.
 - There is **no independent auto‑update** for NC‑Cat inside WE.
 - Standalone NC‑Cat Electron can still auto‑update independently.
@@ -822,7 +871,7 @@ WE on startup:
 2. **Main Process (WE)**:
    - Maintains a single NC‑Cat Simulator `BrowserWindow`.
    - If window does not exist:
-     - Creates it, loading NC‑Cat from `resources/nc-catalyst-2/index.html`.
+     - Creates it, loading NC‑Cat from `resources/NC_CAT_V3/index.html`.
      - Provides a **dedicated preload script** for NC‑Cat that:
        - Exposes a `window.electronApi` with:
          - `getInitialJob()`.

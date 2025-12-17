@@ -52,11 +52,28 @@ import type {
   ValidationDataRes,
   AggregatedValidationDataReq,
   AggregatedValidationDataRes,
+  ValidationWarningsListRes,
   AuthStateRes,
   AuthSuccessRes,
   AuthLoginReq,
   AuthRegisterReq,
-  AuthResetPasswordReq
+  AuthResetPasswordReq,
+  NcCatProfile,
+  NcCatProfilesListRes,
+  NcCatProfileSaveReq,
+  NcCatProfileSetActiveReq,
+  NcCatProfileDeleteReq,
+  NcCatAssignProfileReq,
+  NcCatAssignProfileRes,
+  NcCatProfileMachinesReq,
+  NcCatProfileMachinesRes,
+  NcCatSubmitValidationReq,
+  NcCatSubmitValidationRes,
+  OpenJobInSimulatorReq,
+  OpenJobInSimulatorRes,
+  SubscriptionAuthState,
+  SubscriptionLoginReq,
+  SubscriptionLoginRes
 } from '../../shared/src';
 import { type ResultEnvelope } from '../../shared/src/result';
 
@@ -80,7 +97,8 @@ const api = {
   },
   validation: {
     getData: (input: ValidationDataReq) => invokeResult<ValidationDataRes>('validation:getData', input),
-    getAggregatedData: (input: AggregatedValidationDataReq) => invokeResult<AggregatedValidationDataRes>('validation:getAggregatedData', input)
+    getAggregatedData: (input: AggregatedValidationDataReq) => invokeResult<AggregatedValidationDataRes>('validation:getAggregatedData', input),
+    getWarnings: () => invokeResult<ValidationWarningsListRes>('validation:getWarnings')
   },
   settings: {
     get: () => invokeResult<Settings>('settings:get'),
@@ -213,7 +231,84 @@ const api = {
     }
   },
   ncCatalyst: {
-    open: () => invokeResult<null>('nc-catalyst:open')
+    open: () => invokeResult<null>('nc-catalyst:open'),
+    getSharedSettings: () =>
+      invokeResult<import('../../shared/src').SharedSettingsSnapshot>('nc-catalyst:get-shared-settings'),
+    // Submit validated job data from NC-Cat to NestWatch
+    submitValidation: (req: NcCatSubmitValidationReq) =>
+      invokeResult<NcCatSubmitValidationRes>('nc-catalyst:submit-validation', req),
+    // Open jobs in the NC-Cat simulator (called from Jobs page)
+    openJobs: (jobKeys: string[]) =>
+      invokeResult<OpenJobInSimulatorRes>('nc-catalyst:open-jobs', { jobKeys }),
+    // Listen for jobs being pushed to NC-Cat from NestWatcher
+    onOpenJobs: (listener: (payload: OpenJobInSimulatorReq) => void) => {
+      const channel = 'nc-catalyst:open-jobs';
+      const handler = (_event: Electron.IpcRendererEvent, payload: OpenJobInSimulatorReq) => listener(payload);
+      ipcRenderer.on(channel, handler);
+      return () => ipcRenderer.removeListener(channel, handler);
+    },
+    // Machine profiles CRUD (stored in PostgreSQL)
+    profiles: {
+      list: () => invokeResult<NcCatProfilesListRes>('nc-catalyst:profiles:list'),
+      save: (req: NcCatProfileSaveReq) => invokeResult<NcCatProfile>('nc-catalyst:profiles:save', req),
+      setActive: (req: NcCatProfileSetActiveReq) => invokeResult<null>('nc-catalyst:profiles:setActive', req),
+      delete: (req: NcCatProfileDeleteReq) => invokeResult<null>('nc-catalyst:profiles:delete', req),
+      // Profile ↔ Machine assignment
+      assign: (req: NcCatAssignProfileReq) => invokeResult<NcCatAssignProfileRes>('nc-catalyst:profiles:assign', req),
+      getMachines: (req: NcCatProfileMachinesReq) => invokeResult<NcCatProfileMachinesRes>('nc-catalyst:profiles:machines', req)
+    },
+    // Subscription authentication (via NC-Cat → Supabase)
+    subscriptionAuth: {
+      // Get current auth state
+      getState: () => invokeResult<SubscriptionAuthState | null>('nc-catalyst:auth:getState'),
+      // Login with email/password
+      login: (req: SubscriptionLoginReq) => invokeResult<SubscriptionLoginRes>('nc-catalyst:auth:login', req),
+      // Logout
+      logout: () => invokeResult<null>('nc-catalyst:auth:logout'),
+      // Check if subscription is valid
+      isValid: () => invokeResult<boolean>('nc-catalyst:auth:isValid'),
+      // Get hardware ID (real hardware-based ID in Electron)
+      getHardwareId: () => invokeResult<string>('nc-catalyst:auth:getHardwareId'),
+      // Listen for auth state changes
+      onStateChange: (listener: (state: SubscriptionAuthState) => void) => {
+        const channel = 'nc-catalyst:auth:stateChanged';
+        const handler = (_event: Electron.IpcRendererEvent, state: SubscriptionAuthState) => listener(state);
+        ipcRenderer.on(channel, handler);
+        return () => ipcRenderer.removeListener(channel, handler);
+      },
+      // NC-Cat uses these to respond to NestWatcher requests
+      onRequestState: (handler: () => void) => {
+        const channel = 'nc-catalyst:auth:requestState';
+        const listener = () => handler();
+        ipcRenderer.on(channel, listener);
+        return () => ipcRenderer.removeListener(channel, listener);
+      },
+      sendStateResponse: (state: SubscriptionAuthState) => {
+        ipcRenderer.send('nc-catalyst:auth:stateResponse', state);
+      },
+      sendStateUpdate: (state: SubscriptionAuthState) => {
+        ipcRenderer.send('nc-catalyst:auth:stateUpdate', state);
+      },
+      // NC-Cat uses these for login/logout requests from NestWatcher
+      onLoginRequest: (handler: (req: SubscriptionLoginReq) => void) => {
+        const channel = 'nc-catalyst:auth:loginRequest';
+        const listener = (_event: Electron.IpcRendererEvent, req: SubscriptionLoginReq) => handler(req);
+        ipcRenderer.on(channel, listener);
+        return () => ipcRenderer.removeListener(channel, listener);
+      },
+      sendLoginResponse: (response: SubscriptionLoginRes) => {
+        ipcRenderer.send('nc-catalyst:auth:loginResponse', response);
+      },
+      onLogoutRequest: (handler: () => void) => {
+        const channel = 'nc-catalyst:auth:logoutRequest';
+        const listener = () => handler();
+        ipcRenderer.on(channel, listener);
+        return () => ipcRenderer.removeListener(channel, listener);
+      },
+      sendLogoutResponse: () => {
+        ipcRenderer.send('nc-catalyst:auth:logoutResponse');
+      }
+    }
   },
   alarms: {
     list: () => invokeResult('alarms:list'),
