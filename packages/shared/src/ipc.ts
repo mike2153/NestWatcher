@@ -102,7 +102,10 @@ export const SettingsSchema = z.object({
   jobs: z.object({
     completedJobsTimeframe: z.enum(['1day', '3days', '7days', '1month', 'all']).default('7days'),
     statusFilter: z.array(z.enum(['pending', 'processing', 'complete'])).default(['pending', 'processing', 'complete'])
-  }).default({ completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] })
+  }).default({ completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] }),
+  validationWarnings: z.object({
+    showValidationWarnings: z.boolean().default(false)
+  }).default({ showValidationWarnings: false })
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -758,3 +761,21 @@ export type AlarmIntervalRow = z.infer<typeof AlarmIntervalRow>;
 
 export const AlarmsHistoryRes = z.object({ items: z.array(AlarmIntervalRow) });
 export type AlarmsHistoryRes = z.infer<typeof AlarmsHistoryRes>;
+
+// Validation Warnings
+export const ValidationWarningEntry = z.object({
+  jobKey: z.string(),
+  folder: z.string().nullable(),
+  ncfile: z.string().nullable(),
+  severity: z.enum(['warning', 'error']),
+  messages: z.array(z.string()),
+  createdAt: z.string()
+});
+export type ValidationWarningEntry = z.infer<typeof ValidationWarningEntry>;
+
+export const ValidationWarningsListRes = z.object({
+  items: z.array(ValidationWarningEntry),
+  warningCount: z.number().int(),
+  errorCount: z.number().int()
+});
+export type ValidationWarningsListRes = z.infer<typeof ValidationWarningsListRes>;

@@ -1,6 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "ignoreDeprecations": "5.0",
     "outDir": "dist",
     "module": "CommonJS",
     "moduleResolution": "Node",
@@ -8,7 +9,7 @@
     "types": ["node"],
     "typeRoots": ["./node_modules/@types", "../node_modules/@types", "../../node_modules/@types"],
     "noEmit": false,
-    "ignoreDeprecations": "5.0"
+
   },
   "include": ["src/**/*.ts"]
 }

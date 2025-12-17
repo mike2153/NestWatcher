@@ -1,5 +1,8 @@
 # NC Catalyst Integration, Licensing, and Contracts Plan
 
+> **Working TODO**: See `TODO-NC-CAT-INTEGRATION.md` (root) for current status and tasks.
+> This document is the **design/background reference** — not actively maintained.
+
 ## 1. Context and Goals
 
 This document describes how **Woodtron Electron** (WE) and **NC Catalyst** (NC‑Cat) will work together as a cohesive product family, while still allowing NC‑Cat to be developed, licensed, and shipped as a standalone application.
@@ -42,7 +45,7 @@ This document is a **plan**, not an implementation. It is meant to be kept up‑
 - **NC‑Cat (Core)**  
   - Core validation/visualisation engine and UI.
   - Initially a browser app (HTML + JS + CSS), to be migrated to React + Tailwind + TypeScript.
-  - Lives in its own repo; a copy or build output is embedded into WE under `resources/nc-catalyst-2`.
+  - Lives in its own repo; a copy or build output is embedded into WE under `resources/NC_CAT_V3`.
 
 - **NC‑Cat Electron (Standalone)**  
   - A small Electron wrapper around NC‑Cat core.
@@ -80,7 +83,7 @@ This document is a **plan**, not an implementation. It is meant to be kept up‑
 - Main Electron app with:
   - Postgres database, watchers, MES integration.
   - React UI for dashboard, jobs, settings, etc.
-- NC‑Cat is included as resources under `resources/nc-catalyst-2` (today static browser app).
+- NC‑Cat is included as resources under `resources/NC_CAT_V3` (today static browser app).
 - Planned addition: `packages/contracts` (or equivalent) for `@woodtron/contracts`.
 
 ### 3.2. NC‑Cat Repo (external)
@@ -94,7 +97,7 @@ This document is a **plan**, not an implementation. It is meant to be kept up‑
 - Build outputs:
   - A static bundle (HTML/JS/CSS) that can be:
     - Deployed as a web app.
-    - Embedded in WE (under `resources/nc-catalyst-2`).
+    - Embedded in WE (under `resources/NC_CAT_V3`).
     - Loaded by standalone NC‑Cat Electron.
 
 ### 3.3. Shared Contracts Package (`@woodtron/contracts`)
@@ -714,7 +717,7 @@ There are two phases for how NC‑Cat updates interact with WE.
 
 #### Phase 1 (Startup Plan)
 
-- WE embeds a specific NC‑Cat build under `resources/nc-catalyst-2`.
+- WE embeds a specific NC‑Cat build under `resources/NC_CAT_V3`.
 - When WE is updated, its NC‑Cat copy is updated as part of the release.
 - There is **no independent auto‑update** for NC‑Cat inside WE.
 - Standalone NC‑Cat Electron can still auto‑update independently.
@@ -868,7 +871,7 @@ WE on startup:
 2. **Main Process (WE)**:
    - Maintains a single NC‑Cat Simulator `BrowserWindow`.
    - If window does not exist:
-     - Creates it, loading NC‑Cat from `resources/nc-catalyst-2/index.html`.
+     - Creates it, loading NC‑Cat from `resources/NC_CAT_V3/index.html`.
      - Provides a **dedicated preload script** for NC‑Cat that:
        - Exposes a `window.electronApi` with:
          - `getInitialJob()`.

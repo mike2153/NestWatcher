@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Database, FolderOpen, Package, Plus, Trash2 } from 'lucide-react';
+import { X, Database, FolderOpen, Package, Plus, Trash2, AlertTriangle } from 'lucide-react';
 import type { Machine } from '../../../shared/src';
 import { DatabaseSettings } from './settings/DatabaseSettings';
 import { FolderPathsSettings } from './settings/FolderPathsSettings';
 import { GrundnerSettings } from './settings/GrundnerSettings';
 import { MachineSettings } from './settings/MachineSettings';
+import { ValidationWarningsSettings } from './settings/ValidationWarningsSettings';
 
-type SettingsCategory = 'database' | 'folders' | 'grundner' | 'machine';
+type SettingsCategory = 'database' | 'folders' | 'grundner' | 'validation' | 'machine';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -114,6 +115,18 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 <Package className="w-4 h-4" />
                 Grundner
               </button>
+
+              <button
+                onClick={() => setActiveCategory('validation')}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  activeCategory === 'validation'
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
+                }`}
+              >
+                <AlertTriangle className="w-4 h-4" />
+                Validation
+              </button>
             </nav>
 
             {/* Separator */}
@@ -176,6 +189,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               {activeCategory === 'database' && 'Database'}
               {activeCategory === 'folders' && 'Folder Paths'}
               {activeCategory === 'grundner' && 'Grundner'}
+              {activeCategory === 'validation' && 'Validation'}
               {activeCategory === 'machine' && 'Machine Configuration'}
             </h3>
             <button
@@ -191,6 +205,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             {activeCategory === 'database' && <DatabaseSettings />}
             {activeCategory === 'folders' && <FolderPathsSettings />}
             {activeCategory === 'grundner' && <GrundnerSettings />}
+            {activeCategory === 'validation' && <ValidationWarningsSettings />}
             {activeCategory === 'machine' && (
               <MachineSettings
                 machineId={selectedMachineId}

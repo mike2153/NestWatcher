@@ -677,7 +677,7 @@ export async function updateLifecycle(
       }
       if (to === 'STAGED') {
         patch.stagedBy = options.actorName?.trim() || currentRows[0].stagedBy || null;
-      } else if (previousStatus === 'STAGED' && to !== 'STAGED') {
+      } else if ((previousStatus as string) === 'STAGED' && (to as string) !== 'STAGED') {
         patch.stagedBy = null;
       }
 

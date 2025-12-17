@@ -30,7 +30,8 @@ const DEFAULT_SETTINGS: Settings = {
   test: { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' },
   grundner: { reservedAdjustmentMode: 'delta' },
   ordering: { includeReserved: false },
-  jobs: { completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] }
+  jobs: { completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] },
+  validationWarnings: { showValidationWarnings: false }
 };
 
 let cache: Settings | null = null;
@@ -45,7 +46,8 @@ function cloneDefaults(): Settings {
     test: { ...DEFAULT_SETTINGS.test },
     grundner: { ...DEFAULT_SETTINGS.grundner },
     ordering: { ...DEFAULT_SETTINGS.ordering },
-    jobs: { ...DEFAULT_SETTINGS.jobs }
+    jobs: { ...DEFAULT_SETTINGS.jobs },
+    validationWarnings: { ...DEFAULT_SETTINGS.validationWarnings }
   };
 }
 
@@ -61,7 +63,8 @@ function normalizeSettings(input: MaybeSettings): Settings {
     test: { ...DEFAULT_SETTINGS.test, ...(base.test ?? {}) },
     grundner: { ...DEFAULT_SETTINGS.grundner, ...(base.grundner ?? {}) },
     ordering: { ...DEFAULT_SETTINGS.ordering, ...(base.ordering ?? {}) },
-    jobs: { ...DEFAULT_SETTINGS.jobs, ...(base.jobs ?? {}) }
+    jobs: { ...DEFAULT_SETTINGS.jobs, ...(base.jobs ?? {}) },
+    validationWarnings: { ...DEFAULT_SETTINGS.validationWarnings, ...(base.validationWarnings ?? {}) }
   };
 }
 
@@ -74,7 +77,8 @@ function mergeSettingsInternal(base: Settings, update: MaybeSettings): Settings 
     test: { ...base.test, ...(partial.test ?? {}) },
     grundner: { ...base.grundner, ...(partial.grundner ?? {}) },
     ordering: { ...base.ordering, ...(partial.ordering ?? {}) },
-    jobs: { ...base.jobs, ...(partial.jobs ?? {}) }
+    jobs: { ...base.jobs, ...(partial.jobs ?? {}) },
+    validationWarnings: { ...base.validationWarnings, ...(partial.validationWarnings ?? {}) }
   });
 }
 

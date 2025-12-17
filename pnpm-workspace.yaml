@@ -1,3 +1,4 @@
 packages:
   - "packages/*"
+  - "resources/NC_CAT_V3/nc-catalyst"
 
