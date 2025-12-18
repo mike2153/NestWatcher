@@ -26,7 +26,7 @@ const DEFAULT_SETTINGS: Settings = {
     sslMode: 'disable',
     statementTimeoutMs: 30000
   },
-  paths: { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '' },
+  paths: { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' },
   test: { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' },
   grundner: { reservedAdjustmentMode: 'delta' },
   ordering: { includeReserved: false },

@@ -87,7 +87,9 @@ export const SettingsSchema = z.object({
     autoPacCsvDir: z.string().default(''),
     grundnerFolderPath: z.string().default(''),
     archiveRoot: z.string().default(''),
-  }).default({ processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '' }),
+    jobsRoot: z.string().default(''),
+    quarantineRoot: z.string().default(''),
+  }).default({ processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' }),
   test: z.object({
     testDataFolderPath: z.string().default(''),
     useTestDataMode: z.boolean().default(false),

@@ -3,14 +3,16 @@ import { FolderOpen } from 'lucide-react';
 import type { Settings } from '../../../../shared/src';
 
 type PathsState = Settings['paths'];
-type PathFieldKey = 'processedJobsRoot' | 'autoPacCsvDir' | 'grundnerFolderPath' | 'archiveRoot';
+type PathFieldKey = 'processedJobsRoot' | 'autoPacCsvDir' | 'grundnerFolderPath' | 'archiveRoot' | 'jobsRoot' | 'quarantineRoot';
 type PathValidationState = { status: 'empty' | 'checking' | 'valid' | 'invalid'; message: string };
 
 const DEFAULT_PATHS: PathsState = {
   processedJobsRoot: '',
   autoPacCsvDir: '',
   grundnerFolderPath: '',
-  archiveRoot: ''
+  archiveRoot: '',
+  jobsRoot: '',
+  quarantineRoot: ''
 };
 
 export function FolderPathsSettings() {
@@ -19,7 +21,9 @@ export function FolderPathsSettings() {
     processedJobsRoot: { status: 'empty', message: 'Not set' },
     autoPacCsvDir: { status: 'empty', message: 'Not set' },
     grundnerFolderPath: { status: 'empty', message: 'Not set' },
-    archiveRoot: { status: 'empty', message: 'Not set' }
+    archiveRoot: { status: 'empty', message: 'Not set' },
+    jobsRoot: { status: 'empty', message: 'Not set' },
+    quarantineRoot: { status: 'empty', message: 'Not set' }
   });
   const [saving, setSaving] = useState(false);
 
@@ -39,7 +43,9 @@ export function FolderPathsSettings() {
       { key: 'processedJobsRoot', value: paths.processedJobsRoot ?? '', required: true },
       { key: 'autoPacCsvDir', value: paths.autoPacCsvDir ?? '', required: false },
       { key: 'grundnerFolderPath', value: paths.grundnerFolderPath ?? '', required: false },
-      { key: 'archiveRoot', value: paths.archiveRoot ?? '', required: false }
+      { key: 'archiveRoot', value: paths.archiveRoot ?? '', required: false },
+      { key: 'jobsRoot', value: paths.jobsRoot ?? '', required: false },
+      { key: 'quarantineRoot', value: paths.quarantineRoot ?? '', required: false }
     ];
 
     setPathStatus((prev) => {
@@ -232,6 +238,56 @@ export function FolderPathsSettings() {
           </div>
           <span className={`text-xs ${getStatusColor(pathStatus.archiveRoot.status)}`}>
             {pathStatus.archiveRoot.message}
+          </span>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">Jobs Root (NC Cat Input)</label>
+          <p className="text-xs text-muted-foreground mb-2">
+            Folder where NC files are dropped for automatic validation and processing
+          </p>
+          <div className="flex gap-2">
+            <input
+              className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 ${getStatusBorder(pathStatus.jobsRoot.status)}`}
+              value={paths.jobsRoot}
+              onChange={(e) => setPaths({ ...paths, jobsRoot: e.target.value })}
+              placeholder="C:\path\to\jobs\input"
+            />
+            <button
+              onClick={() => browseFolder('jobsRoot')}
+              className="px-3 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors"
+              title="Browse for folder"
+            >
+              <FolderOpen className="w-4 h-4" />
+            </button>
+          </div>
+          <span className={`text-xs ${getStatusColor(pathStatus.jobsRoot.status)}`}>
+            {pathStatus.jobsRoot.message}
+          </span>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">Quarantine Root</label>
+          <p className="text-xs text-muted-foreground mb-2">
+            Folder where jobs with validation errors are moved for review
+          </p>
+          <div className="flex gap-2">
+            <input
+              className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 ${getStatusBorder(pathStatus.quarantineRoot.status)}`}
+              value={paths.quarantineRoot}
+              onChange={(e) => setPaths({ ...paths, quarantineRoot: e.target.value })}
+              placeholder="C:\path\to\quarantine"
+            />
+            <button
+              onClick={() => browseFolder('quarantineRoot')}
+              className="px-3 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors"
+              title="Browse for folder"
+            >
+              <FolderOpen className="w-4 h-4" />
+            </button>
+          </div>
+          <span className={`text-xs ${getStatusColor(pathStatus.quarantineRoot.status)}`}>
+            {pathStatus.quarantineRoot.message}
           </span>
         </div>
       </div>

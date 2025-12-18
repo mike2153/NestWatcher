@@ -32,7 +32,7 @@ type TestState = Settings['test'];
 type GrundnerState = Settings['grundner'];
 type OrderingState = Settings['ordering'];
 
-const DEFAULT_PATHS: PathsState = { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '' };
+const DEFAULT_PATHS: PathsState = { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' };
 const DEFAULT_TEST: TestState = { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' };
 const DEFAULT_GRUNDNER: GrundnerState = { reservedAdjustmentMode: 'delta' };
 const DEFAULT_ORDERING: OrderingState = { includeReserved: false };

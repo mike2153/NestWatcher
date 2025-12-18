@@ -187,6 +187,9 @@ const TESTDATA_WATCHER_NAME = 'watcher:testdata';
 const TESTDATA_WATCHER_LABEL = 'Test Data Telemetry';
 const TESTDATA_PROCESSED_DIR = 'processed';
 const TESTDATA_FAILED_DIR = 'failed';
+
+const NCCAT_WATCHER_NAME = 'watcher:nccat';
+const NCCAT_WATCHER_LABEL = 'NC Cat Jobs Watcher';
 const TESTDATA_SKIP_DIRS = new Set([TESTDATA_PROCESSED_DIR, TESTDATA_FAILED_DIR]);
 
 // Serial processing queue for test data files
@@ -2607,6 +2610,241 @@ function startJobsIngestPolling() {
   logger.info({ intervalMs: INGEST_INTERVAL_MS }, 'Jobs ingest polling started');
 }
 
+// ---------------------------------------------------------------------------------
+// NC Cat Jobs Watcher - Watches jobsRoot for new NC files and moves them to processedJobsRoot
+// ---------------------------------------------------------------------------------
+
+/**
+ * Move an entire folder from source to destination.
+ * Tries atomic rename first, falls back to copy+delete for cross-device moves.
+ */
+async function moveFolderToDestination(source: string, destRoot: string): Promise<{ ok: boolean; newPath?: string; error?: string }> {
+  try {
+    const folderName = basename(source);
+    const destination = join(destRoot, folderName);
+
+    // Ensure destination root exists
+    if (!existsSync(destRoot)) {
+      mkdirSync(destRoot, { recursive: true });
+    }
+
+    // Check if destination already exists - add timestamp suffix
+    let finalDest = destination;
+    if (existsSync(destination)) {
+      finalDest = join(destRoot, `${folderName}_${Date.now()}`);
+      logger.warn({ source, destination, finalDest }, 'nccat: destination exists, using timestamped name');
+    }
+
+    try {
+      // Try atomic rename first
+      await rename(source, finalDest);
+      return { ok: true, newPath: finalDest };
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code === 'EXDEV') {
+        // Cross-device, need to copy then delete
+        await copyFolderRecursive(source, finalDest);
+        await deleteFolderRecursive(source);
+        return { ok: true, newPath: finalDest };
+      }
+      throw err;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, error: message };
+  }
+}
+
+async function copyFolderRecursive(src: string, dest: string): Promise<void> {
+  if (!existsSync(dest)) {
+    mkdirSync(dest, { recursive: true });
+  }
+  const entries = await readdir(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = join(src, entry.name);
+    const destPath = join(dest, entry.name);
+    if (entry.isDirectory()) {
+      await copyFolderRecursive(srcPath, destPath);
+    } else if (entry.isFile()) {
+      await copyFile(srcPath, destPath);
+    }
+  }
+}
+
+async function deleteFolderRecursive(path: string): Promise<void> {
+  const entries = await readdir(path, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = join(path, entry.name);
+    if (entry.isDirectory()) {
+      await deleteFolderRecursive(fullPath);
+    } else {
+      await unlink(fullPath);
+    }
+  }
+  await fsp.rmdir(path);
+}
+
+/**
+ * Handle a new NC file detected in jobsRoot.
+ * Moves the entire parent folder (job folder) to processedJobsRoot.
+ */
+async function handleNcCatJobFile(ncFilePath: string) {
+  const cfg = loadConfig();
+  const processedJobsRoot = cfg.paths.processedJobsRoot;
+  const quarantineRoot = cfg.paths.quarantineRoot;
+
+  if (!processedJobsRoot) {
+    logger.warn({ ncFilePath }, 'nccat: processedJobsRoot not configured, skipping');
+    return;
+  }
+
+  // Get the job folder (parent of NC file)
+  const jobFolder = join(ncFilePath, '..');
+  const normalizedJobFolder = normalize(jobFolder);
+  const folderName = basename(normalizedJobFolder);
+  const ncFileName = basename(ncFilePath);
+
+  logger.info({ ncFilePath, jobFolder: normalizedJobFolder, folderName }, 'nccat: processing new NC file');
+
+  recordWatcherEvent(NCCAT_WATCHER_NAME, {
+    label: NCCAT_WATCHER_LABEL,
+    message: `Processing: ${ncFileName}`,
+    context: { ncFilePath, folderName }
+  });
+
+  // For now, move directly to processedJobsRoot without validation
+  // TODO: Add NC Cat validation integration via IPC to main process
+  const destRoot = processedJobsRoot;
+
+  const moveResult = await moveFolderToDestination(normalizedJobFolder, destRoot);
+
+  if (!moveResult.ok) {
+    logger.error({ ncFilePath, jobFolder: normalizedJobFolder, error: moveResult.error }, 'nccat: failed to move job folder');
+    recordWatcherError(NCCAT_WATCHER_NAME, new Error(moveResult.error ?? 'Move failed'), {
+      label: NCCAT_WATCHER_LABEL,
+      ncFilePath,
+      jobFolder: normalizedJobFolder
+    });
+
+    // If move failed and quarantine is configured, try to move to quarantine
+    if (quarantineRoot) {
+      const quarantineResult = await moveFolderToDestination(normalizedJobFolder, quarantineRoot);
+      if (quarantineResult.ok) {
+        emitAppMessage('ncCat.jobQuarantined', {
+          folderName,
+          ncFile: ncFileName,
+          reason: 'move_failed',
+          error: moveResult.error
+        }, 'nc-cat-watcher');
+      }
+    }
+    return;
+  }
+
+  logger.info(
+    { ncFilePath, source: normalizedJobFolder, destination: moveResult.newPath },
+    'nccat: job folder moved successfully'
+  );
+
+  recordWatcherEvent(NCCAT_WATCHER_NAME, {
+    label: NCCAT_WATCHER_LABEL,
+    message: `Moved: ${folderName}`,
+    context: { source: normalizedJobFolder, destination: moveResult.newPath }
+  });
+
+  emitAppMessage('ncCat.jobMoved', {
+    folderName,
+    ncFile: ncFileName,
+    destination: moveResult.newPath
+  }, 'nc-cat-watcher');
+
+  // Trigger ingest to pick up the new job
+  try {
+    const ingestResult = await ingestProcessedJobsRoot();
+    logger.info(
+      { inserted: ingestResult.inserted, updated: ingestResult.updated },
+      'nccat: triggered ingest after move'
+    );
+  } catch (ingestErr) {
+    logger.warn({ err: ingestErr }, 'nccat: ingest failed after move');
+  }
+}
+
+/**
+ * Collect existing NC files in jobsRoot for processing on startup
+ */
+async function collectExistingNcFiles(dir: string, depth = 0, maxDepth = 3): Promise<string[]> {
+  if (depth > maxDepth) return [];
+  const results: string[] = [];
+
+  try {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const subFiles = await collectExistingNcFiles(fullPath, depth + 1, maxDepth);
+        results.push(...subFiles);
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.nc')) {
+        results.push(fullPath);
+      }
+    }
+  } catch (err) {
+    logger.warn({ err, dir }, 'nccat: failed to scan directory');
+  }
+
+  return results;
+}
+
+function setupNcCatJobsWatcher(dir: string) {
+  registerWatcher(NCCAT_WATCHER_NAME, NCCAT_WATCHER_LABEL);
+
+  const onAdd = stableProcess(handleNcCatJobFile, 2000, {
+    watcherName: NCCAT_WATCHER_NAME,
+    watcherLabel: NCCAT_WATCHER_LABEL
+  });
+
+  const watcher = chokidar.watch(dir, {
+    ignoreInitial: false, // Process existing files on startup
+    depth: 3, // Watch jobsRoot/FolderName/SubFolder/file.nc
+    awaitWriteFinish: {
+      stabilityThreshold: 2000, // Wait 2 seconds for file to stabilize
+      pollInterval: 250
+    }
+  });
+
+  trackWatcher(watcher);
+
+  // Only trigger for .nc files
+  watcher.on('add', (path) => {
+    if (path.toLowerCase().endsWith('.nc')) {
+      onAdd(path);
+    }
+  });
+
+  watcher.on('error', (err) => {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    setMachineHealthIssue({
+      machineId: null,
+      code: HEALTH_CODES.copyFailure,
+      message: `NC Cat jobs watcher error${code ? ` (${code})` : ''}`,
+      severity: 'critical',
+      context: { dir, code }
+    });
+    recordWatcherError(NCCAT_WATCHER_NAME, err, { dir, label: NCCAT_WATCHER_LABEL });
+    logger.error({ err, dir }, 'nccat: watcher error');
+  });
+
+  watcher.on('ready', () => {
+    watcherReady(NCCAT_WATCHER_NAME, NCCAT_WATCHER_LABEL);
+    clearMachineHealthIssue(null, HEALTH_CODES.copyFailure);
+    logger.info({ dir }, 'nccat: jobs watcher ready');
+  });
+
+  logger.info({ dir }, 'nccat: jobs watcher started');
+}
+
+// ---------------------------------------------------------------------------------
+
 async function initWatchers() {
   logger.info('watchers: waiting for database readiness before starting');
   await waitForDbReady();
@@ -2620,6 +2858,9 @@ async function initWatchers() {
   }
   if (cfg.test.useTestDataMode) {
     setupTestDataWatcher(cfg.test.testDataFolderPath);
+  }
+  if (cfg.paths.jobsRoot) {
+    setupNcCatJobsWatcher(cfg.paths.jobsRoot);
   }
   void setupNestpickWatchers();
   startJobsIngestPolling();

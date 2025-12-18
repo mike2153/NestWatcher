@@ -1,5 +1,5 @@
 import { app, BrowserWindow, session, ipcMain } from 'electron';
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, promises as fsp } from 'fs';
 import path, { join, resolve, basename, extname } from 'path';
 import { ok, err } from 'neverthrow';
 import type {
@@ -354,9 +354,8 @@ export function registerNcCatalystIpc() {
 
       const snapshot: SharedSettingsSnapshot = {
         processedJobsRoot: cfg.paths.processedJobsRoot ?? '',
-        // For now, treat jobsRoot as the same as processedJobsRoot; can be split later if needed.
-        jobsRoot: cfg.paths.processedJobsRoot ?? '',
-        quarantineRoot: null,
+        jobsRoot: cfg.paths.jobsRoot ?? '',
+        quarantineRoot: cfg.paths.quarantineRoot ?? null,
         machines: rows.map((m) => ({
           machineId: m.machineId,
           name: m.name,
@@ -661,49 +660,167 @@ export function registerNcCatalystIpc() {
         });
       }
 
-      // Create destination folder
+      // Determine destination folder
       const destFolder = join(processedJobsRoot, req.folderName);
 
       try {
-        if (!existsSync(destFolder)) {
-          mkdirSync(destFolder, { recursive: true });
-        }
+        // Check if we can move the source folder (preferred) or need to write files
+        const canMoveSource = req.sourceFolderPath && existsSync(req.sourceFolderPath);
 
-        // Write all files to destination
-        for (const file of req.files) {
-          // Write NC file
-          const ncPath = join(destFolder, file.filename);
-          writeFileSync(ncPath, file.ncContent, 'utf8');
+        if (canMoveSource) {
+          // MOVE the source folder to processedJobsRoot
+          logger.info(
+            { sourceFolderPath: req.sourceFolderPath, destFolder },
+            'NC-Cat submit-validation: moving source folder'
+          );
 
-          // Write NESTPICK file if provided
-          if (file.nestpickContent) {
-            const nestpickExt = '.nsp'; // Default extension
-            const baseNoExt = basename(file.filename, extname(file.filename));
-            const nestpickPath = join(destFolder, `${baseNoExt}${nestpickExt}`);
-            writeFileSync(nestpickPath, file.nestpickContent, 'utf8');
+          // Check if destination already exists
+          let finalDestFolder = destFolder;
+          if (existsSync(destFolder)) {
+            finalDestFolder = join(processedJobsRoot, `${req.folderName}_${Date.now()}`);
+            logger.warn(
+              { destFolder, finalDestFolder },
+              'NC-Cat submit-validation: destination exists, using timestamped name'
+            );
           }
 
-          // Write label images if provided
-          if (file.labelImages) {
-            for (const [partNumber, dataUrl] of Object.entries(file.labelImages)) {
-              if (!dataUrl) continue;
+          try {
+            // Try atomic rename first
+            await fsp.rename(req.sourceFolderPath!, finalDestFolder);
+            logger.info(
+              { source: req.sourceFolderPath, destination: finalDestFolder },
+              'NC-Cat submit-validation: folder moved (atomic rename)'
+            );
+          } catch (renameErr) {
+            const code = (renameErr as NodeJS.ErrnoException)?.code;
+            if (code === 'EXDEV') {
+              // Cross-device, need to copy then delete
+              logger.info(
+                { source: req.sourceFolderPath, destination: finalDestFolder },
+                'NC-Cat submit-validation: cross-device move, using copy+delete'
+              );
 
-              // Parse data URL: data:image/jpeg;base64,/9j/4AAQ...
-              const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
-              if (match) {
-                const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
-                const base64Data = match[2];
-                const baseNoExt = basename(file.filename, extname(file.filename));
-                const labelPath = join(destFolder, `${baseNoExt}_${partNumber}.${ext}`);
-                writeFileSync(labelPath, Buffer.from(base64Data, 'base64'));
+              // Ensure destination exists
+              if (!existsSync(finalDestFolder)) {
+                mkdirSync(finalDestFolder, { recursive: true });
+              }
+
+              // Copy all files recursively
+              const copyDir = async (src: string, dest: string) => {
+                const entries = await fsp.readdir(src, { withFileTypes: true });
+                for (const entry of entries) {
+                  const srcPath = join(src, entry.name);
+                  const destPath = join(dest, entry.name);
+                  if (entry.isDirectory()) {
+                    if (!existsSync(destPath)) {
+                      mkdirSync(destPath, { recursive: true });
+                    }
+                    await copyDir(srcPath, destPath);
+                  } else if (entry.isFile()) {
+                    await fsp.copyFile(srcPath, destPath);
+                  }
+                }
+              };
+
+              await copyDir(req.sourceFolderPath!, finalDestFolder);
+
+              // Delete source folder
+              const deleteDir = async (dir: string) => {
+                const entries = await fsp.readdir(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                  const fullPath = join(dir, entry.name);
+                  if (entry.isDirectory()) {
+                    await deleteDir(fullPath);
+                  } else {
+                    await fsp.unlink(fullPath);
+                  }
+                }
+                await fsp.rmdir(dir);
+              };
+
+              await deleteDir(req.sourceFolderPath!);
+
+              logger.info(
+                { source: req.sourceFolderPath, destination: finalDestFolder },
+                'NC-Cat submit-validation: folder moved (copy+delete)'
+              );
+            } else {
+              throw renameErr;
+            }
+          }
+
+          // Write any additional generated files (NESTPICK, labels) that weren't in source
+          for (const file of req.files) {
+            // Write NESTPICK file if provided (generated by NC-Cat, not in source)
+            if (file.nestpickContent) {
+              const nestpickExt = '.nsp';
+              const baseNoExt = basename(file.filename, extname(file.filename));
+              const nestpickPath = join(finalDestFolder, `${baseNoExt}${nestpickExt}`);
+              writeFileSync(nestpickPath, file.nestpickContent, 'utf8');
+            }
+
+            // Write label images if provided (generated by NC-Cat)
+            if (file.labelImages) {
+              for (const [partNumber, dataUrl] of Object.entries(file.labelImages)) {
+                if (!dataUrl) continue;
+                const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+                if (match) {
+                  const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
+                  const base64Data = match[2];
+                  const baseNoExt = basename(file.filename, extname(file.filename));
+                  const labelPath = join(finalDestFolder, `${baseNoExt}_${partNumber}.${ext}`);
+                  writeFileSync(labelPath, Buffer.from(base64Data, 'base64'));
+                }
+              }
+            }
+          }
+        } else {
+          // FALLBACK: Write files from content (legacy behavior)
+          logger.info(
+            { destFolder, fileCount: req.files.length, sourceFolderPath: req.sourceFolderPath },
+            'NC-Cat submit-validation: writing files from content (source folder not available)'
+          );
+
+          if (!existsSync(destFolder)) {
+            mkdirSync(destFolder, { recursive: true });
+          }
+
+          // Write all files to destination
+          for (const file of req.files) {
+            // Write NC file
+            const ncPath = join(destFolder, file.filename);
+            writeFileSync(ncPath, file.ncContent, 'utf8');
+
+            // Write NESTPICK file if provided
+            if (file.nestpickContent) {
+              const nestpickExt = '.nsp';
+              const baseNoExt = basename(file.filename, extname(file.filename));
+              const nestpickPath = join(destFolder, `${baseNoExt}${nestpickExt}`);
+              writeFileSync(nestpickPath, file.nestpickContent, 'utf8');
+            }
+
+            // Write label images if provided
+            if (file.labelImages) {
+              for (const [partNumber, dataUrl] of Object.entries(file.labelImages)) {
+                if (!dataUrl) continue;
+                const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+                if (match) {
+                  const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
+                  const base64Data = match[2];
+                  const baseNoExt = basename(file.filename, extname(file.filename));
+                  const labelPath = join(destFolder, `${baseNoExt}_${partNumber}.${ext}`);
+                  writeFileSync(labelPath, Buffer.from(base64Data, 'base64'));
+                }
               }
             }
           }
         }
 
+        const finalDest = canMoveSource ? (existsSync(destFolder) ? join(processedJobsRoot, `${req.folderName}_${Date.now()}`) : destFolder) : destFolder;
+
         logger.info(
-          { destFolder, fileCount: req.files.length },
-          'NC-Cat submit-validation: files written to destination'
+          { destFolder: finalDest, fileCount: req.files.length, moveMode: canMoveSource },
+          'NC-Cat submit-validation: files processed to destination'
         );
 
         // Process each file entry and create job + nc_stats
