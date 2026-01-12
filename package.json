@@ -16,7 +16,7 @@
                    ],
     "scripts":  {
                     "nc": "concurrently -k -n NC-CAT,MAIN,PRELOAD,ELECTRON \"pnpm:nc:vite\" \"pnpm:dev:main\" \"pnpm:dev:preload\" \"pnpm:nc:electron\"",
-                    "nc:vite": "pnpm -C resources/nc_catalyst/nc-catalyst dev",
+                    "nc:vite": "pnpm -C resources/NC_CAT_V3/nc-catalyst dev",
                     "nc:electron": "wait-on http-get://localhost:5174 packages/preload/dist/index.js packages/main/dist/main.js packages/main/dist/workers/watchersWorker.js && cross-env NC_CATALYST_DEV_URL=http://localhost:5174 pnpm exec electron packages/main/dist/main.js",
                     "dev":  "concurrently -k -n RENDERER,MAIN,PRELOAD,ELECTRON \"pnpm:dev:renderer\" \"pnpm:dev:main\" \"pnpm:dev:preload\" \"pnpm:dev:electron\"",
                     "dev:renderer":  "pnpm -C packages/renderer dev",

@@ -765,28 +765,26 @@ export function JobsPage() {
   });
 
   const selectedRowsData = useMemo(() => {
+    if (Object.keys(rowSelection).length === 0) {
+      return {
+        selectedKeys: [] as string[],
+        selectedJobs: [] as JobRow[],
+        anyLocked: false,
+        anyUnlocked: false,
+        isSingleSelection: false
+      };
+    }
     const selectedRows = table.getSelectedRowModel().flatRows;
-
-    console.log('=== Selection Debug ===');
-    console.log('rowSelection state:', rowSelection);
-    console.log('selectedRows from table:', selectedRows.length, selectedRows.map(r => ({ id: r.id, original: r.original })));
 
     const selectedKeys = selectedRows
       .map((row) => row.original)
       .filter(isJobRow)
       .map((r) => r.key);
-    const selectedJobs = selectedRows
-      .map((row) => row.original)
-      .filter(isJobRow);
-
-    console.log('selectedKeys:', selectedKeys);
-    console.log('selectedJobs count:', selectedJobs.length);
+    const selectedJobs = selectedRows.map((row) => row.original).filter(isJobRow);
 
     const anyLocked = selectedJobs.some((job) => job.locked);
     const anyUnlocked = selectedJobs.some((job) => !job.locked);
     const isSingleSelection = selectedKeys.length === 1;
-
-    console.log('Computed values:', { anyLocked, anyUnlocked });
 
     return {
       selectedKeys,

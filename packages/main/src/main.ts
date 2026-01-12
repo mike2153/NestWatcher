@@ -29,7 +29,6 @@ import { applyStoredThemePreference, getStoredWindowState, monitorWindowState } 
 import {
   applyWindowNavigationGuards,
   ensureContentSecurityPolicy,
-  logSecurityConfigurationSummary
 } from './security';
 
 let win: BrowserWindow | null = null;
@@ -81,7 +80,6 @@ app.whenReady().then(async () => {
   applyStoredThemePreference();
 
   ensureContentSecurityPolicy();
-  logSecurityConfigurationSummary();
 
   registerSettingsIpc();
   registerAuthIpc();

@@ -16,23 +16,9 @@ const execAsync = promisify(exec);
 let cachedHardwareId: string | null = null;
 
 /**
- * Get CPU ID on Windows using WMIC
+ * Get CPU ID on Windows using PowerShell
  */
 async function getCpuId(): Promise<string> {
-  try {
-    const { stdout } = await execAsync('wmic cpu get ProcessorId /format:value', {
-      timeout: 10000,
-      windowsHide: true,
-    });
-    const match = stdout.match(/ProcessorId=([A-F0-9]+)/i);
-    if (match && match[1]) {
-      return match[1].trim();
-    }
-  } catch (error) {
-    logger.warn({ error }, 'Failed to get CPU ID via WMIC');
-  }
-
-  // Fallback: Try PowerShell
   try {
     const { stdout } = await execAsync(
       'powershell -Command "(Get-CimInstance Win32_Processor).ProcessorId"',
@@ -40,54 +26,21 @@ async function getCpuId(): Promise<string> {
     );
     const id = stdout.trim();
     if (id && id.length > 0) {
+      logger.info({ cpuId: id }, 'CPU ID collected via PowerShell');
       return id;
     }
   } catch (error) {
     logger.warn({ error }, 'Failed to get CPU ID via PowerShell');
   }
 
+  logger.warn('CPU ID unavailable; using UNKNOWN_CPU');
   return 'UNKNOWN_CPU';
 }
 
 /**
- * Get motherboard serial number on Windows using WMIC
+ * Get motherboard serial number on Windows using PowerShell
  */
 async function getMotherboardSerial(): Promise<string> {
-  try {
-    const { stdout } = await execAsync('wmic baseboard get SerialNumber /format:value', {
-      timeout: 10000,
-      windowsHide: true,
-    });
-    const match = stdout.match(/SerialNumber=(.+)/i);
-    if (match && match[1]) {
-      const serial = match[1].trim();
-      // Some motherboards return "To be filled by O.E.M." or similar
-      if (serial && !serial.toLowerCase().includes('to be filled') && serial !== 'Default string') {
-        return serial;
-      }
-    }
-  } catch (error) {
-    logger.warn({ error }, 'Failed to get motherboard serial via WMIC');
-  }
-
-  // Fallback: Try getting BIOS serial instead
-  try {
-    const { stdout } = await execAsync('wmic bios get SerialNumber /format:value', {
-      timeout: 10000,
-      windowsHide: true,
-    });
-    const match = stdout.match(/SerialNumber=(.+)/i);
-    if (match && match[1]) {
-      const serial = match[1].trim();
-      if (serial && !serial.toLowerCase().includes('to be filled') && serial !== 'Default string') {
-        return serial;
-      }
-    }
-  } catch (error) {
-    logger.warn({ error }, 'Failed to get BIOS serial via WMIC');
-  }
-
-  // Fallback: Try PowerShell for baseboard
   try {
     const { stdout } = await execAsync(
       'powershell -Command "(Get-CimInstance Win32_BaseBoard).SerialNumber"',
@@ -95,27 +48,62 @@ async function getMotherboardSerial(): Promise<string> {
     );
     const serial = stdout.trim();
     if (serial && !serial.toLowerCase().includes('to be filled') && serial !== 'Default string') {
+      logger.info({ motherboardSerial: serial }, 'Motherboard serial collected via PowerShell');
       return serial;
+    }
+    if (serial) {
+      logger.warn({ motherboardSerial: serial }, 'Motherboard serial from PowerShell is not usable');
     }
   } catch (error) {
     logger.warn({ error }, 'Failed to get motherboard serial via PowerShell');
   }
 
+  // Fallback: Try getting BIOS serial instead
+  try {
+    const { stdout } = await execAsync(
+      'powershell -Command "(Get-CimInstance Win32_BIOS).SerialNumber"',
+      { timeout: 10000, windowsHide: true }
+    );
+    const serial = stdout.trim();
+    if (serial && !serial.toLowerCase().includes('to be filled') && serial !== 'Default string') {
+      logger.info({ biosSerial: serial }, 'BIOS serial collected via PowerShell');
+      return serial;
+    }
+    if (serial) {
+      logger.warn({ biosSerial: serial }, 'BIOS serial from PowerShell is not usable');
+    }
+  } catch (error) {
+    logger.warn({ error }, 'Failed to get BIOS serial via PowerShell');
+  }
+
   // Last resort: Use motherboard manufacturer + product
   try {
     const { stdout } = await execAsync(
-      'wmic baseboard get Manufacturer,Product /format:value',
+      'powershell -Command "(Get-CimInstance Win32_BaseBoard | Select-Object Manufacturer, Product | ConvertTo-Csv -NoTypeInformation)"',
       { timeout: 10000, windowsHide: true }
     );
-    const mfgMatch = stdout.match(/Manufacturer=(.+)/i);
-    const prodMatch = stdout.match(/Product=(.+)/i);
-    if (mfgMatch && prodMatch) {
-      return `${mfgMatch[1].trim()}_${prodMatch[1].trim()}`;
+    const lines = stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length >= 2) {
+      const values = lines[1].split(',').map((value) => value.replace(/^\"|\"$/g, '').trim());
+      const manufacturer = values[0] || '';
+      const product = values[1] || '';
+      if (manufacturer || product) {
+        const fallbackSerial = `${manufacturer}_${product}`.replace(/_+$/, '');
+        logger.info(
+          { motherboardSerial: fallbackSerial },
+          'Motherboard serial fallback collected via PowerShell (Manufacturer + Product)'
+        );
+        return fallbackSerial;
+      }
     }
   } catch (error) {
-    logger.warn({ error }, 'Failed to get motherboard info via WMIC');
+    logger.warn({ error }, 'Failed to get motherboard info via PowerShell');
   }
 
+  logger.warn('Motherboard serial unavailable; using UNKNOWN_MOTHERBOARD');
   return 'UNKNOWN_MOTHERBOARD';
 }
 
@@ -145,11 +133,14 @@ export async function getHardwareId(): Promise<string> {
       getMotherboardSerial(),
     ]);
 
-    logger.debug({ cpuId: cpuId.substring(0, 8) + '...', motherboardSerial: motherboardSerial.substring(0, 8) + '...' }, 'Hardware identifiers collected');
+    logger.info(
+      { cpuId, motherboardSerial },
+      'Hardware identifiers collected'
+    );
 
     cachedHardwareId = hashHardwareIds(cpuId, motherboardSerial);
 
-    logger.info({ hardwareIdPrefix: cachedHardwareId.substring(0, 16) + '...' }, 'Hardware ID generated');
+    logger.info({ hardwareId: cachedHardwareId }, 'Hardware ID generated');
 
     return cachedHardwareId;
   } catch (error) {

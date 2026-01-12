@@ -5,6 +5,7 @@ import { createBrowserRouter, createHashRouter, RouterProvider } from 'react-rou
 import './index.css';
 import { installRendererConsoleForwarding } from './setupLogger';
 import { AppLayout } from './shell/AppLayout';
+import { SubscriptionGateLayout } from './shell/SubscriptionGateLayout';
 import { DashboardPage } from './pages/DashboardPage';
 import { JobsPage } from './pages/JobsPage';
 import { RouterPage } from './pages/RouterPage';
@@ -18,25 +19,37 @@ import { MessagesPage } from './pages/MessagesPage';
 import { OrderingPage } from './pages/OrderingPage';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { SubscriptionAuthProvider } from './contexts/SubscriptionAuthContext';
+import { AuthRequiredPage } from './pages/AuthRequiredPage';
 
 // Use BrowserRouter in dev for nicer URLs; HashRouter in production for file:// packaging
 const makeRoutes = () => ([
   {
-    path: '/',
-    element: <AppLayout />,
+    element: <SubscriptionGateLayout />,
     children: [
-      { path: '/dashboard', element: <DashboardPage /> },
-      { path: '/jobs', element: <JobsPage /> },
-      { path: '/router', element: <RouterPage /> },
-      { path: '/history', element: <HistoryPage /> },
-      { path: '/telemetry', element: <TelemetryPage /> },
-      { path: '/cnc-alarms', element: <CncAlarmsPage /> },
-      { path: '/messages', element: <MessagesPage /> },
-      { path: '/grundner', element: <GrundnerPage /> },
-      { path: '/allocated-material', element: <AllocatedMaterialPage /> },
-      { path: '/ordering', element: <OrderingPage /> },
-      { path: '/machines', element: <MachinesPage /> },
-      { index: true, element: <DashboardPage /> }
+      { path: '/auth-required', element: <AuthRequiredPage /> },
+      {
+        path: '/',
+        element: (
+          <AuthProvider>
+            <AppLayout />
+          </AuthProvider>
+        ),
+        children: [
+          { path: '/dashboard', element: <DashboardPage /> },
+          { path: '/jobs', element: <JobsPage /> },
+          { path: '/router', element: <RouterPage /> },
+          { path: '/history', element: <HistoryPage /> },
+          { path: '/telemetry', element: <TelemetryPage /> },
+          { path: '/cnc-alarms', element: <CncAlarmsPage /> },
+          { path: '/messages', element: <MessagesPage /> },
+          { path: '/grundner', element: <GrundnerPage /> },
+          { path: '/allocated-material', element: <AllocatedMaterialPage /> },
+          { path: '/ordering', element: <OrderingPage /> },
+          { path: '/machines', element: <MachinesPage /> },
+          { index: true, element: <DashboardPage /> },
+        ]
+      }
     ]
   }
 ]);
@@ -51,9 +64,9 @@ installRendererConsoleForwarding();
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ThemeProvider>
-      <AuthProvider>
+      <SubscriptionAuthProvider>
         <RouterProvider router={router} />
-      </AuthProvider>
+      </SubscriptionAuthProvider>
     </ThemeProvider>
   </React.StrictMode>
 );

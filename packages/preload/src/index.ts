@@ -71,11 +71,28 @@ import type {
   NcCatSubmitValidationRes,
   OpenJobInSimulatorReq,
   OpenJobInSimulatorRes,
+  SharedSettingsSnapshot,
   SubscriptionAuthState,
   SubscriptionLoginReq,
   SubscriptionLoginRes
 } from '../../shared/src';
 import { type ResultEnvelope } from '../../shared/src/result';
+
+const subscriptionAuthRequestStateHandlers = new Set<() => void>();
+let pendingSubscriptionAuthStateRequest = false;
+ipcRenderer.on('nc-catalyst:auth:requestState', () => {
+  if (subscriptionAuthRequestStateHandlers.size > 0) {
+    for (const handler of subscriptionAuthRequestStateHandlers) {
+      try {
+        handler();
+      } catch {
+        // ignore
+      }
+    }
+  } else {
+    pendingSubscriptionAuthStateRequest = true;
+  }
+});
 
 // Normalize all IPC calls to return a simple { ok, value | error } envelope
 const invokeResult = <T>(channel: string, ...args: unknown[]): Promise<ResultEnvelope<T>> =>
@@ -232,8 +249,8 @@ const api = {
   },
   ncCatalyst: {
     open: () => invokeResult<null>('nc-catalyst:open'),
-    getSharedSettings: () =>
-      invokeResult<import('../../shared/src').SharedSettingsSnapshot>('nc-catalyst:get-shared-settings'),
+    close: () => invokeResult<null>('nc-catalyst:close'),
+    getSharedSettings: () => invokeResult<SharedSettingsSnapshot>('nc-catalyst:get-shared-settings'),
     // Submit validated job data from NC-Cat to NestWatch
     submitValidation: (req: NcCatSubmitValidationReq) =>
       invokeResult<NcCatSubmitValidationRes>('nc-catalyst:submit-validation', req),
@@ -278,10 +295,14 @@ const api = {
       },
       // NC-Cat uses these to respond to NestWatcher requests
       onRequestState: (handler: () => void) => {
-        const channel = 'nc-catalyst:auth:requestState';
-        const listener = () => handler();
-        ipcRenderer.on(channel, listener);
-        return () => ipcRenderer.removeListener(channel, listener);
+        subscriptionAuthRequestStateHandlers.add(handler);
+        if (pendingSubscriptionAuthStateRequest) {
+          pendingSubscriptionAuthStateRequest = false;
+          queueMicrotask(() => handler());
+        }
+        return () => {
+          subscriptionAuthRequestStateHandlers.delete(handler);
+        };
       },
       sendStateResponse: (state: SubscriptionAuthState) => {
         ipcRenderer.send('nc-catalyst:auth:stateResponse', state);

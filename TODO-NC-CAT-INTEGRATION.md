@@ -257,14 +257,14 @@ Goal: Per-machine licensing; NC-Cat handles all Supabase auth (works on Vercel +
 Before continuing with Phase 5, the user (Michael) needs to complete these external setup steps:
 
 **Supabase Setup:**
-- [ ] Create Supabase project at https://supabase.com
-- [ ] Run schema from `docs/SUPABASE-SCHEMA.md` (copy SQL into Supabase SQL Editor)
-- [ ] Note down: `SUPABASE_URL` and `SUPABASE_ANON_KEY` from project settings
-- [ ] Deploy Edge Functions (optional - can be done later):
+- [X ] Create Supabase project at https://supabase.com
+- [X ] Run schema from `docs/SUPABASE-SCHEMA.md` (copy SQL into Supabase SQL Editor)
+- [ X] Note down: `SUPABASE_URL` and `SUPABASE_ANON_KEY` from project settings
+- [ ] Deploy Edge Functions (optional - can be done later): -- ARE THESE THE FUNCTIONS INSIDE THE SUPABASE SCHEMA DOC? IF SO i HAVE DONE THEM.
   - `create-checkout-session` - Creates Stripe checkout URL
   - `create-portal-session` - Creates Stripe billing portal URL
   - `stripe-webhook` - Handles Stripe webhook events
-- [ ] RLS policies are included in the schema - auto-configured
+- [X ] RLS policies are included in the schema - auto-configured
 
 **Stripe Setup:**
 - [ ] Create Stripe account at https://stripe.com

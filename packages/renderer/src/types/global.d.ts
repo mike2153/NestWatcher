@@ -1,5 +1,6 @@
 import type {
   AppError,
+  Result,
   AlarmEntry,
   CopyDiagnosticsResult,
   DbSettings,
@@ -52,13 +53,26 @@ import type {
   ValidationDataRes,
   AggregatedValidationDataReq,
   AggregatedValidationDataRes,
-  OpenJobInSimulatorRes
+  OpenJobInSimulatorRes,
+  SubscriptionAuthState,
+  SubscriptionLoginReq,
+  SubscriptionLoginRes,
+  LogWriteReq
 } from '../../../shared/src';
 import type { TelemetrySummaryReq, TelemetrySummaryRes, AlarmsHistoryReq, AlarmsHistoryRes } from '../../../shared/src';
 
 declare global {
   interface Window {
     api: {
+      log: {
+        write: (req: LogWriteReq) => Promise<Result<null, AppError>>;
+        trace: (msg: string, context?: Record<string, unknown>) => Promise<Result<null, AppError>>;
+        debug: (msg: string, context?: Record<string, unknown>) => Promise<Result<null, AppError>>;
+        info: (msg: string, context?: Record<string, unknown>) => Promise<Result<null, AppError>>;
+        warn: (msg: string, context?: Record<string, unknown>) => Promise<Result<null, AppError>>;
+        error: (msg: string, context?: Record<string, unknown>) => Promise<Result<null, AppError>>;
+        fatal: (msg: string, context?: Record<string, unknown>) => Promise<Result<null, AppError>>;
+      };
       auth: {
         me: () => Promise<Result<AuthStateRes, AppError>>;
         login: (req: AuthLoginReq) => Promise<Result<AuthSuccessRes, AppError>>;
@@ -136,7 +150,16 @@ declare global {
       };
       ncCatalyst: {
         open: () => Promise<Result<null, AppError>>;
+        close: () => Promise<Result<null, AppError>>;
         openJobs: (jobKeys: string[]) => Promise<Result<OpenJobInSimulatorRes, AppError>>;
+        subscriptionAuth: {
+          getState: () => Promise<Result<SubscriptionAuthState | null, AppError>>;
+          login: (req: SubscriptionLoginReq) => Promise<Result<SubscriptionLoginRes, AppError>>;
+          logout: () => Promise<Result<null, AppError>>;
+          isValid: () => Promise<Result<boolean, AppError>>;
+          getHardwareId: () => Promise<Result<string, AppError>>;
+          onStateChange: (listener: (state: SubscriptionAuthState) => void) => () => void;
+        };
       };
       alarms: {
         list: () => Promise<Result<AlarmEntry[], AppError>>;

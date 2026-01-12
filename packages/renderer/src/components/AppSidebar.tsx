@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Router, History, Settings, Layers, BellRing, Gauge, ListCheck, AlignVerticalJustifyEnd, MessageSquare, ShoppingCart, UserRound, LogOut, Sun, Moon } from 'lucide-react';
+import { LayoutDashboard, Router, History, Settings, Layers, BellRing, Gauge, ListCheck, AlignVerticalJustifyEnd, MessageSquare, ShoppingCart, UserRound, LogOut, Sun, Moon, KeyRound } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
   Sidebar,
@@ -13,6 +13,7 @@ import {
 import { cn } from '@/utils/cn';
 import { SettingsModal } from './SettingsModal';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSubscriptionAuth } from '@/contexts/SubscriptionAuthContext';
 
 const nav = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -30,8 +31,43 @@ const nav = [
 export function AppSidebar() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
+  const [closeNcCatAfterSignIn, setCloseNcCatAfterSignIn] = useState(false);
   const { session, requireLogin, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { state: subscriptionState, logout: subscriptionLogout } = useSubscriptionAuth();
+
+  const openNcCatSignIn = useCallback(async () => {
+    const res = await window.api.ncCatalyst.open();
+    if (!res.ok) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to open NC Catalyst:', res.error.message);
+      setCloseNcCatAfterSignIn(false);
+    } else {
+      setCloseNcCatAfterSignIn(true);
+    }
+  }, []);
+
+  const handleSubscriptionSignOut = useCallback(async () => {
+    await subscriptionLogout();
+  }, [subscriptionLogout]);
+
+  const canManageNcCatalystSubscription = useMemo(() => {
+    if (!session) return false;
+    if (session.role === 'admin') return true;
+    if (!subscriptionState?.authenticated) return true;
+    if (!subscriptionState.displayName) return false;
+    const normalize = (v: string) => v.trim().toLowerCase().replace(/\s+/g, ' ');
+    return normalize(session.displayName) === normalize(subscriptionState.displayName);
+  }, [session, subscriptionState?.authenticated, subscriptionState?.displayName]);
+
+  useEffect(() => {
+    if (!closeNcCatAfterSignIn) return;
+    if (!subscriptionState?.authenticated) return;
+    const ok = subscriptionState.isAdmin || subscriptionState.subscriptionStatus === 'active' || subscriptionState.subscriptionStatus === 'grace_period';
+    if (!ok) return;
+    void window.api.ncCatalyst.close();
+    setCloseNcCatAfterSignIn(false);
+  }, [closeNcCatAfterSignIn, subscriptionState]);
 
   useEffect(() => {
     let active = true;
@@ -91,10 +127,47 @@ export function AppSidebar() {
         </SidebarMenu>
       </SidebarContent>
       <SidebarFooter>
-        <div className="px-4 pb-2 text-xs text-muted-foreground">
-          {session ? `Signed in as ${session.displayName}` : 'Not signed in'}
+        {/* Subscription Auth Status */}
+        <div className="px-4 pb-2 text-xs text-muted-foreground space-y-1">
+          <div>
+            Signed in as{' '}
+            <span className="font-medium text-[var(--foreground)]">
+              {session?.displayName || session?.username || 'user'}
+            </span>
+          </div>
+          <div>
+            {subscriptionState?.authenticated
+              ? `NC Catalyst signed in as ${(() => {
+                  const raw = subscriptionState.displayName || subscriptionState.email || 'user';
+                  return raw.length > 15 ? `${raw.slice(0, 14)}…` : raw;
+                })()}`
+              : 'NC Catalyst not signed in'}
+          </div>
         </div>
         <SidebarMenu>
+          {/* Subscription Sign In / Sign Out */}
+          <SidebarMenuItem>
+            {subscriptionState?.authenticated ? (
+              <button
+                onClick={handleSubscriptionSignOut}
+                disabled={!canManageNcCatalystSubscription}
+                className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-base font-medium transition-all duration-150 hover:bg-[var(--accent-blue-subtle)] hover:text-sidebar-accent-foreground hover:border-l-2 hover:border-l-[var(--accent-blue)] hover:pl-[14px] disabled:opacity-60 disabled:hover:bg-transparent disabled:hover:border-l-0 disabled:hover:pl-4 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
+                title={canManageNcCatalystSubscription ? 'Sign out of NC Catalyst subscription' : 'Only the subscription owner or an admin can sign out'}
+              >
+                <LogOut />
+                <span className="ml-2 text-base font-medium">Sign Out</span>
+              </button>
+            ) : (
+              <button
+                onClick={openNcCatSignIn}
+                className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-base font-medium transition-all duration-150 hover:bg-[var(--accent-blue-subtle)] hover:text-sidebar-accent-foreground hover:border-l-2 hover:border-l-[var(--accent-blue)] hover:pl-[14px] [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
+                title="Sign in to NC Catalyst"
+              >
+                <KeyRound />
+                <span className="ml-2 text-base font-medium">Sign In</span>
+              </button>
+            )}
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <button
               onClick={toggleTheme}
@@ -146,6 +219,5 @@ export function AppSidebar() {
     </>
   );
 }
-
 
 

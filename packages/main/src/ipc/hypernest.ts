@@ -19,15 +19,14 @@ import type {
   OpenJobInSimulatorReq,
   OpenJobInSimulatorRes,
   OpenJobDescriptor,
-  SubscriptionAuthState,
-  SUBSCRIPTION_AUTH_CHANNELS
+  SubscriptionAuthState
 } from '../../../shared/src';
 import { PROTOCOL_VERSION } from '../../../shared/src';
 import { applyWindowNavigationGuards, applyCustomContentSecurityPolicy } from '../security';
 import { registerResultHandler } from './result';
 import { loadConfig } from '../services/config';
-import { machines, ncCatProfiles, jobs, ncStats } from '../db/schema';
-import { withDb, withClient } from '../services/db';
+import { machines, ncCatProfiles, jobs } from '../db/schema';
+import { withDb } from '../services/db';
 import { eq, inArray } from 'drizzle-orm';
 import { logger } from '../logger';
 import { pushAppMessage } from '../services/messages';
@@ -40,10 +39,44 @@ let ncCatBackgroundWin: BrowserWindow | null = null;
 
 // Cached subscription auth state from NC-Cat
 let cachedSubscriptionAuthState: SubscriptionAuthState | null = null;
+let authStateRequestInFlight: Promise<SubscriptionAuthState | null> | null = null;
+let consecutiveAuthStateRequestFailures = 0;
 
 // Auth state check interval (30 minutes)
 const AUTH_STATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 let authStateCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+function waitForNcCatLoad(win: BrowserWindow, timeoutMs = 20_000): Promise<void> {
+  if (!win.webContents.isLoading()) return Promise.resolve();
+  return new Promise((resolveWait) => {
+    const done = () => {
+      clearTimeout(timeout);
+      win.webContents.removeListener('did-finish-load', done);
+      win.webContents.removeListener('did-fail-load', done);
+      resolveWait();
+    };
+    const timeout = setTimeout(done, timeoutMs);
+    win.webContents.once('did-finish-load', done);
+    win.webContents.once('did-fail-load', done);
+  });
+}
+
+function waitForCachedAuthState(timeoutMs = 8_000): Promise<SubscriptionAuthState | null> {
+  if (cachedSubscriptionAuthState) return Promise.resolve(cachedSubscriptionAuthState);
+  return new Promise((resolveWait) => {
+    const interval = setInterval(() => {
+      if (cachedSubscriptionAuthState) {
+        clearTimeout(timeout);
+        clearInterval(interval);
+        resolveWait(cachedSubscriptionAuthState);
+      }
+    }, 250);
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+      resolveWait(cachedSubscriptionAuthState);
+    }, timeoutMs);
+  });
+}
 
 /**
  * Returns either a dev server URL (if NC_CATALYST_DEV_URL is set) or a file path.
@@ -172,32 +205,54 @@ function getActiveNcCatWindow(): BrowserWindow | null {
  * Request subscription auth state from NC-Cat
  */
 async function requestAuthStateFromNcCat(): Promise<SubscriptionAuthState | null> {
+  if (authStateRequestInFlight) return authStateRequestInFlight;
   const win = getActiveNcCatWindow();
   if (!win) {
     logger.debug('No NC-Cat window available for auth state request');
     return null;
   }
 
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      logger.warn('Auth state request to NC-Cat timed out');
-      resolve(null);
-    }, 10000); // 10 second timeout
+  authStateRequestInFlight = (async () => {
+    await waitForNcCatLoad(win);
 
-    // Listen for the response
-    const responseChannel = 'nc-catalyst:auth:stateResponse';
-    const handler = (_event: Electron.IpcMainEvent, state: SubscriptionAuthState) => {
-      clearTimeout(timeout);
-      ipcMain.removeListener(responseChannel, handler);
-      cachedSubscriptionAuthState = state;
-      resolve(state);
-    };
+    return new Promise<SubscriptionAuthState | null>((resolve) => {
+      const responseChannel = 'nc-catalyst:auth:stateResponse';
+      const handler = (_event: Electron.IpcMainEvent, state: SubscriptionAuthState) => {
+        clearTimeout(timeout);
+        ipcMain.removeListener(responseChannel, handler);
+        cachedSubscriptionAuthState = state;
+        consecutiveAuthStateRequestFailures = 0;
+        resolve(state);
+      };
 
-    ipcMain.once(responseChannel, handler);
+      const timeout = setTimeout(() => {
+        ipcMain.removeListener(responseChannel, handler);
+        consecutiveAuthStateRequestFailures += 1;
+        if (consecutiveAuthStateRequestFailures >= 3) {
+          logger.warn({ failures: consecutiveAuthStateRequestFailures }, 'Auth state request to NC-Cat timed out');
+        } else {
+          logger.debug({ failures: consecutiveAuthStateRequestFailures }, 'Auth state request to NC-Cat timed out');
+        }
+        resolve(null);
+      }, 15_000);
 
-    // Request the state
-    win.webContents.send('nc-catalyst:auth:requestState');
+      ipcMain.once(responseChannel, handler);
+
+      try {
+        win.webContents.send('nc-catalyst:auth:requestState');
+      } catch (sendErr) {
+        clearTimeout(timeout);
+        ipcMain.removeListener(responseChannel, handler);
+        consecutiveAuthStateRequestFailures += 1;
+        logger.debug({ err: sendErr }, 'Failed to send auth state request to NC-Cat');
+        resolve(null);
+      }
+    });
+  })().finally(() => {
+    authStateRequestInFlight = null;
   });
+
+  return authStateRequestInFlight;
 }
 
 /**
@@ -206,13 +261,26 @@ async function requestAuthStateFromNcCat(): Promise<SubscriptionAuthState | null
 function startAuthStateCheckInterval(): void {
   stopAuthStateCheckInterval();
 
-  // Initial check after a short delay to let NC-Cat initialize
+  // Initial check after NC-Cat has had a chance to load and install its IPC listeners.
   setTimeout(async () => {
-    const state = await requestAuthStateFromNcCat();
+    const cached = await waitForCachedAuthState();
+    const state = cached ?? (await requestAuthStateFromNcCat());
+
     if (state) {
-      logger.info({ authenticated: state.authenticated, status: state.subscriptionStatus }, 'Initial auth state received from NC-Cat');
+      logger.info(
+        { authenticated: state.authenticated, status: state.subscriptionStatus },
+        'Initial auth state received from NC-Cat'
+      );
+      if (!state.authenticated) {
+        // Show NC‑Cat sign-in UI when NestWatcher starts and the user is not authenticated.
+        openNcCatalystWindow();
+      }
+      return;
     }
-  }, 5000);
+
+    // Could not retrieve state (likely NC‑Cat not fully loaded). We'll retry on-demand when the renderer asks for state.
+    logger.debug('Initial auth state not available from NC-Cat');
+  }, 1500);
 
   // Regular checks every 30 minutes
   authStateCheckInterval = setInterval(async () => {
@@ -261,11 +329,19 @@ export function isSubscriptionValid(): boolean {
 
 export function openNcCatalystWindow() {
   if (ncCatWin && !ncCatWin.isDestroyed()) {
+    logger.info('NC-Cat window already open; focusing');
+    try {
+      ncCatWin.show();
+      ncCatWin.focus();
+    } catch (err) {
+      logger.debug({ err }, 'Failed to focus NC-Cat window');
+    }
     ncCatWin.focus();
     return;
   }
 
   const source = resolveNcCatalystSource();
+  logger.info({ source }, 'Opening NC-Cat window');
 
   // Preload script path - same as main window to expose window.api
   const preloadPath = path.join(__dirname, '../../preload/dist/index.js');
@@ -273,7 +349,8 @@ export function openNcCatalystWindow() {
   ncCatWin = new BrowserWindow({
     width: 1400,
     height: 900,
-    show: false,
+    // Show immediately so the user sees something even while loading (and so failures aren't "invisible").
+    show: true,
     webPreferences: {
       // Use a separate session so we can apply a relaxed CSP without affecting the main app
       partition: 'persist:nc-catalyst',
@@ -287,13 +364,38 @@ export function openNcCatalystWindow() {
 
   applyWindowNavigationGuards(ncCatWin.webContents, { allowExternal: false });
 
-  ncCatWin.on('ready-to-show', () => ncCatWin?.show());
+  ncCatWin.on('ready-to-show', () => {
+    logger.debug('NC-Cat window ready-to-show');
+    try {
+      ncCatWin?.show();
+      ncCatWin?.focus();
+    } catch (err) {
+      logger.debug({ err }, 'Failed to show NC-Cat window');
+    }
+  });
   ncCatWin.on('closed', () => {
+    logger.info('NC-Cat window closed');
     ncCatWin = null;
+  });
+  ncCatWin.on('unresponsive', () => {
+    logger.warn('NC-Cat window became unresponsive');
+  });
+  ncCatWin.webContents.on('render-process-gone', (_event, details) => {
+    logger.error({ details }, 'NC-Cat render process gone');
+  });
+  ncCatWin.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    logger.error({ errorCode, errorDescription, validatedURL }, 'NC-Cat did-fail-load');
   });
   ncCatWin.webContents.on('did-finish-load', () => {
     // NC Catalyst UI is designed for a browser viewport; scale slightly for the desktop window
     ncCatWin?.webContents.setZoomFactor(0.9);
+    logger.debug('NC-Cat did-finish-load');
+    try {
+      ncCatWin?.show();
+      ncCatWin?.focus();
+    } catch (err) {
+      logger.debug({ err }, 'Failed to focus NC-Cat window after load');
+    }
   });
 
   // Relaxed CSP for NC Catalyst: allow required CDNs and inline handlers in this session only
@@ -308,8 +410,8 @@ export function openNcCatalystWindow() {
     "font-src 'self' https://fonts.gstatic.com",
     // Images from local and possible https
     "img-src 'self' data: blob: https:",
-    // Allow WebSocket connections for Vite HMR
-    "connect-src 'self' ws: wss: http://localhost:* https://localhost:*",
+    // Allow WebSocket connections for Vite HMR + Supabase auth/API
+    "connect-src 'self' ws: wss: http://localhost:* https://localhost:* https://*.supabase.co https://*.supabase.in",
     "object-src 'none'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
@@ -320,21 +422,35 @@ export function openNcCatalystWindow() {
   if (source.type === 'url') {
     // Hot reload mode: load from Vite dev server
     ncCatWin.loadURL(source.url).catch((err) => {
-      console.error('Failed to load NC Catalyst from dev server', { err, url: source.url });
+      logger.error({ err, url: source.url }, 'Failed to load NC Catalyst from dev server');
     });
   } else {
     // Production mode: load from file
     ncCatWin.loadFile(source.path).catch((err) => {
-      console.error('Failed to load NC Catalyst', { err, path: source.path });
+      logger.error({ err, path: source.path }, 'Failed to load NC Catalyst');
     });
+  }
+}
+
+export function closeNcCatalystWindow(): void {
+  if (ncCatWin && !ncCatWin.isDestroyed()) {
+    logger.info('Closing NC-Cat window');
+    ncCatWin.close();
   }
 }
 
 export function registerNcCatalystIpc() {
   registerResultHandler('nc-catalyst:open', async () => {
+    logger.info('IPC nc-catalyst:open received');
     openNcCatalystWindow();
     return ok<null, AppError>(null);
-  });
+  }, { requiresAuth: false });
+
+  registerResultHandler('nc-catalyst:close', async () => {
+    logger.info('IPC nc-catalyst:close received');
+    closeNcCatalystWindow();
+    return ok<null, AppError>(null);
+  }, { requiresAuth: false });
 
   // Provide shared WE settings (paths + machines) back to NC-Cat when requested.
   registerResultHandler(

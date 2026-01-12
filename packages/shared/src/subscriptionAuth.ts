@@ -22,6 +22,8 @@ export interface SubscriptionAuthState {
   userId?: string;
   /** User's email */
   email?: string;
+  /** Display name from Supabase user metadata (e.g., full_name) */
+  displayName?: string;
   /** Whether user is an admin (kyle@ or michael@woodtron.com.au) */
   isAdmin: boolean;
   /** Machine ID from Supabase machines table (UUID) */

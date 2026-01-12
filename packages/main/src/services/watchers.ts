@@ -23,6 +23,101 @@ let worker: Worker | null = null;
 let shuttingDown = false;
 let restartTimer: NodeJS.Timeout | null = null;
 
+type StartupWatcherState = {
+  name: string;
+  label: string;
+  status: 'idle' | 'watching' | 'error';
+  lastError?: string;
+};
+
+let startupMode = false;
+let startupLogged = false;
+let startupTimer: NodeJS.Timeout | null = null;
+let startupDebounceTimer: NodeJS.Timeout | null = null;
+let startupStartedAt = 0;
+const startupWatchers = new Map<string, StartupWatcherState>();
+const STARTUP_DEBOUNCE_MS = 250;
+const STARTUP_TIMEOUT_MS = 15_000;
+
+function clearStartupTimers() {
+  if (startupTimer) {
+    clearTimeout(startupTimer);
+    startupTimer = null;
+  }
+  if (startupDebounceTimer) {
+    clearTimeout(startupDebounceTimer);
+    startupDebounceTimer = null;
+  }
+}
+
+function endStartupMode() {
+  startupMode = false;
+  startupLogged = false;
+  startupStartedAt = 0;
+  startupWatchers.clear();
+  clearStartupTimers();
+}
+
+function scheduleStartupEvaluation() {
+  if (!startupMode) return;
+  if (!startupStartedAt) {
+    startupStartedAt = Date.now();
+    startupTimer = setTimeout(() => {
+      if (!startupMode || startupLogged) return;
+
+      const idle = Array.from(startupWatchers.values()).filter((w) => w.status === 'idle');
+      const errors = Array.from(startupWatchers.values()).filter((w) => w.status === 'error');
+      const watching = Array.from(startupWatchers.values()).filter((w) => w.status === 'watching');
+
+      if (idle.length === 0 && errors.length === 0 && watching.length > 0) {
+        logger.info({ watcherCount: watching.length }, 'All Watchers Ready');
+        startupLogged = true;
+        endStartupMode();
+        return;
+      }
+
+      logger.warn(
+        {
+          watcherCount: startupWatchers.size,
+          ready: watching.length,
+          idle: idle.length,
+          errors: errors.length
+        },
+        'Watchers not ready'
+      );
+
+      for (const w of errors) {
+        logger.warn({ watcher: w.name, label: w.label }, `Watcher ${w.label} error: ${w.lastError ?? 'unknown error'}`);
+      }
+      for (const w of idle) {
+        logger.warn({ watcher: w.name, label: w.label }, `Watcher ${w.label} not ready: no ready signal received`);
+      }
+
+      startupLogged = true;
+      // Stop suppressing watcher thread logs after timeout so we can troubleshoot.
+      startupMode = false;
+      clearStartupTimers();
+    }, STARTUP_TIMEOUT_MS);
+    if (typeof startupTimer.unref === 'function') startupTimer.unref();
+  }
+
+  if (startupDebounceTimer) clearTimeout(startupDebounceTimer);
+  startupDebounceTimer = setTimeout(() => {
+    if (!startupMode || startupLogged) return;
+
+    const idle = Array.from(startupWatchers.values()).filter((w) => w.status === 'idle');
+    const errors = Array.from(startupWatchers.values()).filter((w) => w.status === 'error');
+    const watching = Array.from(startupWatchers.values()).filter((w) => w.status === 'watching');
+
+    if (idle.length === 0 && errors.length === 0 && watching.length > 0) {
+      logger.info({ watcherCount: watching.length }, 'All Watchers Ready');
+      startupLogged = true;
+      endStartupMode();
+    }
+  }, STARTUP_DEBOUNCE_MS);
+  if (typeof startupDebounceTimer.unref === 'function') startupDebounceTimer.unref();
+}
+
 function resolveWorkerPath() {
   const override = process.env.WOODTRON_WATCHERS_WORKER_PATH?.trim();
   if (override) {
@@ -48,6 +143,9 @@ function toError(serialized: SerializableError): Error {
 function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
   switch (message.type) {
     case 'log': {
+      if (startupMode && message.level === 'info') {
+        break;
+      }
       const base = { ...message.context, proc: 'Watchers' };
       const m = String(message.msg ?? '');
       switch (message.level) {
@@ -75,12 +173,34 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
       break;
     }
     case 'registerWatcher':
+      if (startupMode) {
+        startupWatchers.set(message.name, { name: message.name, label: message.label, status: 'idle' });
+        scheduleStartupEvaluation();
+      }
       registerWatcher(message.name, message.label);
       break;
     case 'watcherReady':
+      if (startupMode) {
+        const existing = startupWatchers.get(message.name);
+        startupWatchers.set(message.name, {
+          name: message.name,
+          label: message.label ?? existing?.label ?? message.name,
+          status: 'watching'
+        });
+        scheduleStartupEvaluation();
+      }
       watcherReady(message.name, message.label ?? message.name);
       break;
     case 'watcherEvent':
+      if (startupMode) {
+        const existing = startupWatchers.get(message.name);
+        startupWatchers.set(message.name, {
+          name: message.name,
+          label: message.label ?? existing?.label ?? message.name,
+          status: 'watching'
+        });
+        scheduleStartupEvaluation();
+      }
       recordWatcherEvent(message.name, {
         label: message.label ?? message.name,
         message: message.message,
@@ -88,6 +208,16 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
       });
       break;
     case 'watcherError': {
+      if (startupMode) {
+        const existing = startupWatchers.get(message.name);
+        startupWatchers.set(message.name, {
+          name: message.name,
+          label: message.label ?? existing?.label ?? message.name,
+          status: 'error',
+          lastError: message.error.message
+        });
+        scheduleStartupEvaluation();
+      }
       const context = {
         ...(message.context ?? {}),
         label: message.label ?? message.name
@@ -180,6 +310,11 @@ function spawnWorker() {
     const script = resolveWorkerPath();
     const instance = new Worker(script);
     worker = instance;
+    startupMode = true;
+    startupLogged = false;
+    startupStartedAt = 0;
+    startupWatchers.clear();
+    clearStartupTimers();
     instance.on('message', handleWorkerMessage);
     instance.on('error', (err) => {
       recordWorkerError('watchers-worker', err);

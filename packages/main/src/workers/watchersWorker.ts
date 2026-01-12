@@ -1178,7 +1178,71 @@ async function moveToArchive(source: string, archiveDir: string) {
   return target;
 }
 
+// Archive queue with backoff to avoid losing files when shares are unavailable
+const archiveQueue: Array<{
+  source: string;
+  archiveDir: string;
+  watcherName: string;
+  watcherLabel: string;
+  machineId: number | null;
+  attempts: number;
+}> = [];
+let archiveQueueRunning = false;
+
+function enqueueArchiveTask(task: {
+  source: string;
+  archiveDir: string;
+  watcherName: string;
+  watcherLabel: string;
+  machineId: number | null;
+  attempts?: number;
+}) {
+  archiveQueue.push({ ...task, attempts: task.attempts ?? 0 });
+  void processArchiveQueue();
+}
+
+async function processArchiveQueue() {
+  if (archiveQueueRunning || shuttingDown) return;
+  archiveQueueRunning = true;
+  try {
+    while (archiveQueue.length && !shuttingDown) {
+      const task = archiveQueue.shift()!;
+      const backoffMs = Math.min(30_000, task.attempts === 0 ? 0 : Math.pow(2, task.attempts) * 1000);
+      if (backoffMs > 0) {
+        await delay(backoffMs);
+      }
+      try {
+        await moveToArchive(task.source, task.archiveDir);
+        clearMachineHealthIssue(task.machineId, HEALTH_CODES.copyFailure);
+        recordWatcherEvent(task.watcherName, {
+          label: task.watcherLabel,
+          message: `Archived ${basename(task.source)}${task.attempts ? ' after retry' : ''}`
+        });
+      } catch (err) {
+        const attempts = task.attempts + 1;
+        setMachineHealthIssue({
+          machineId: task.machineId,
+          code: HEALTH_CODES.copyFailure,
+          message: `Archive failed for ${basename(task.source)} (attempt ${attempts})`,
+          severity: 'warning',
+          context: { file: task.source, archiveDir: task.archiveDir, attempts }
+        });
+        recordWatcherError(task.watcherName, err, {
+          path: task.source,
+          archiveDir: task.archiveDir,
+          label: task.watcherLabel,
+          attempts
+        });
+        archiveQueue.push({ ...task, attempts });
+      }
+    }
+  } finally {
+    archiveQueueRunning = false;
+  }
+}
+
 async function handleNestpickProcessed(machine: Machine, path: string) {
+
   try {
     await waitForStableFile(path);
     const raw = await readFile(path, 'utf8');
@@ -1216,12 +1280,19 @@ async function handleNestpickProcessed(machine: Machine, path: string) {
         }
       }
     }
-    // Check if file still exists before trying to move it (may have been moved by another process)
+    // Queue archive with retry to avoid losing files if share is down
     if (await fileExists(path)) {
-      await moveToArchive(path, join(machine.nestpickFolder, 'archive'));
+      enqueueArchiveTask({
+        source: path,
+        archiveDir: join(machine.nestpickFolder, 'archive'),
+        watcherName: nestpickProcessedWatcherName(machine),
+        watcherLabel: nestpickProcessedWatcherLabel(machine),
+        machineId: machine.machineId ?? null
+      });
     } else {
       logger.warn({ file: path }, 'watcher: processed file already moved/deleted, skipping archive');
     }
+
     recordWatcherEvent(nestpickProcessedWatcherName(machine), {
       label: nestpickProcessedWatcherLabel(machine),
       message: `Processed ${basename(path)}`
@@ -1254,9 +1325,16 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
     const rows = parseCsvContent(raw);
     if (!rows.length) {
       logger.warn({ file: path }, 'watcher: unstack csv empty');
-      await moveToArchive(path, join(machine.nestpickFolder, 'archive'));
+      enqueueArchiveTask({
+        source: path,
+        archiveDir: join(machine.nestpickFolder, 'archive'),
+        watcherName: nestpickUnstackWatcherName(machine),
+        watcherLabel: nestpickUnstackWatcherLabel(machine),
+        machineId: machine.machineId ?? null
+      });
       return;
     }
+
 
     const jobIdx = 0;
     const sourcePlaceIdx = 1;
@@ -1330,13 +1408,20 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
       }
     }
     const archiveDir = join(machine.nestpickFolder, 'archive');
-    // Check if file still exists before trying to move it (may have been moved by another process)
+    // Queue archive with retry to avoid losing files if share is down
     if (await fileExists(path)) {
-      await moveToArchive(path, archiveDir);
+      enqueueArchiveTask({
+        source: path,
+        archiveDir,
+        watcherName: nestpickUnstackWatcherName(machine),
+        watcherLabel: nestpickUnstackWatcherLabel(machine),
+        machineId: machine.machineId ?? null
+      });
       logger.info({ file: path, archiveDir, processedAny }, 'watcher: unstack archived');
     } else {
       logger.warn({ file: path, archiveDir }, 'watcher: unstack file already moved/deleted, skipping archive');
     }
+
 
     if (unmatched.length) {
       postMessageToMain({
@@ -1360,9 +1445,14 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
       severity: 'warning',
       context: { file: path, machineId: machine.machineId }
     });
-    try {
-      await moveToArchive(path, join(machine.nestpickFolder, 'archive'));
-    } catch (e) { void e; }
+    enqueueArchiveTask({
+      source: path,
+      archiveDir: join(machine.nestpickFolder, 'archive'),
+      watcherName: nestpickUnstackWatcherName(machine),
+      watcherLabel: nestpickUnstackWatcherLabel(machine),
+      machineId: machine.machineId ?? null
+    });
+
     recordWatcherError(nestpickUnstackWatcherName(machine), err, {
       path,
       machineId: machine.machineId,
@@ -2768,31 +2858,6 @@ async function handleNcCatJobFile(ncFilePath: string) {
   } catch (ingestErr) {
     logger.warn({ err: ingestErr }, 'nccat: ingest failed after move');
   }
-}
-
-/**
- * Collect existing NC files in jobsRoot for processing on startup
- */
-async function collectExistingNcFiles(dir: string, depth = 0, maxDepth = 3): Promise<string[]> {
-  if (depth > maxDepth) return [];
-  const results: string[] = [];
-
-  try {
-    const entries = await readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        const subFiles = await collectExistingNcFiles(fullPath, depth + 1, maxDepth);
-        results.push(...subFiles);
-      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.nc')) {
-        results.push(fullPath);
-      }
-    }
-  } catch (err) {
-    logger.warn({ err, dir }, 'nccat: failed to scan directory');
-  }
-
-  return results;
 }
 
 function setupNcCatJobsWatcher(dir: string) {

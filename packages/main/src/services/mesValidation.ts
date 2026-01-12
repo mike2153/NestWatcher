@@ -1,7 +1,7 @@
 import { existsSync, promises as fsp } from 'fs';
 import { basename, extname, join, relative } from 'path';
 import { app } from 'electron';
-import { inArray, eq } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import {
   ValidationJsonSchema,
   type ValidationJson,
