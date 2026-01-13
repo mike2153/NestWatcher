@@ -113,7 +113,7 @@ export function CncAlarmsPage() {
   return (
     <div className="p-4 space-y-3">
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 border rounded p-3 bg-[var(--card)]">
         <label className="text-sm flex flex-col gap-1">
           <span>From</span>
           <input

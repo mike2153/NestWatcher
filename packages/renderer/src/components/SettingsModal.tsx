@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Database, FolderOpen, Package, Plus, Trash2, AlertTriangle } from 'lucide-react';
+import { X, Database, FolderOpen, Package, Plus, Trash2, AlertTriangle, ChevronRight } from 'lucide-react';
+import { cn } from '@/utils/cn';
+import { Button } from '@/components/ui/button';
 import type { Machine } from '../../../shared/src';
 import { DatabaseSettings } from './settings/DatabaseSettings';
 import { FolderPathsSettings } from './settings/FolderPathsSettings';
@@ -68,112 +70,103 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-background border border-border rounded-lg shadow-xl w-[90vw] h-[80vh] max-w-6xl flex overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-none animate-in fade-in duration-200">
+      <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl shadow-2xl w-[90vw] h-[85vh] max-w-6xl flex overflow-hidden animate-in zoom-in-95 duration-200">
         {/* Sidebar */}
-        <div className="w-72 bg-sidebar border-r border-sidebar-border flex flex-col">
+        <div className="w-72 bg-[var(--sidebar)] border-r border-[var(--sidebar-border)] flex flex-col shrink-0">
           {/* Sidebar Header */}
-          <div className="px-6 py-4 border-b border-sidebar-border">
-            <h2 className="text-lg font-semibold text-sidebar-foreground">SETTINGS</h2>
+          <div className="px-6 h-[72px] flex items-center border-b border-[var(--sidebar-border)] bg-[var(--sidebar)]">
+            <div>
+              <h2 className="text-lg font-bold text-[var(--sidebar-foreground)] tracking-tight">Settings</h2>
+              <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mt-0.5">Configuration</p>
+            </div>
           </div>
 
           {/* Main Categories */}
-          <div className="flex-1 overflow-y-auto">
-            <nav className="p-3 space-y-1">
-              <button
-                onClick={() => setActiveCategory('database')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  activeCategory === 'database'
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
-                }`}
-              >
-                <Database className="w-4 h-4" />
-                Database
-              </button>
-
-              <button
-                onClick={() => setActiveCategory('folders')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  activeCategory === 'folders'
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
-                }`}
-              >
-                <FolderOpen className="w-4 h-4" />
-                Folder Paths
-              </button>
-
-              <button
-                onClick={() => setActiveCategory('grundner')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  activeCategory === 'grundner'
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
-                }`}
-              >
-                <Package className="w-4 h-4" />
-                Grundner
-              </button>
-
-              <button
-                onClick={() => setActiveCategory('validation')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  activeCategory === 'validation'
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
-                }`}
-              >
-                <AlertTriangle className="w-4 h-4" />
-                Validation
-              </button>
-            </nav>
-
-            {/* Separator */}
-            <div className="mx-6 my-3 border-t border-sidebar-border" />
+          <div className="flex-1 overflow-y-auto py-6 px-4 space-y-8">
+            {/* General Section */}
+            <div className="space-y-1">
+              <div className="px-2 mb-2 text-xs font-bold uppercase text-[var(--muted-foreground)] tracking-wider">General</div>
+              <nav className="space-y-1">
+                {[
+                  { id: 'database', label: 'Database', icon: Database },
+                  { id: 'folders', label: 'Folder Paths', icon: FolderOpen },
+                  { id: 'grundner', label: 'Grundner', icon: Package },
+                  { id: 'validation', label: 'Validation', icon: AlertTriangle },
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveCategory(item.id as SettingsCategory)}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group relative overflow-hidden",
+                      activeCategory === item.id
+                        ? "bg-[var(--sidebar-accent)] text-[var(--sidebar-accent-foreground)] shadow-sm ring-1 ring-black/5"
+                        : "text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-accent)]/50 hover:text-[var(--sidebar-foreground)]"
+                    )}
+                  >
+                    <item.icon className={cn("size-4 transition-colors", activeCategory === item.id ? "text-[var(--primary)]" : "text-[var(--muted-foreground)] group-hover:text-[var(--foreground)]")} />
+                    <span className="flex-1 text-left">{item.label}</span>
+                    {activeCategory === item.id && <ChevronRight className="size-3.5 opacity-50" />}
+                  </button>
+                ))}
+              </nav>
+            </div>
 
             {/* Machines Section */}
-            <div className="p-3">
-              <div className="flex items-center justify-between px-3 mb-2">
-                <span className="text-xs font-semibold text-sidebar-foreground/60 uppercase tracking-wider">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between px-2 mb-2">
+                <span className="text-xs font-bold uppercase text-[var(--muted-foreground)] tracking-wider">
                   Machines
                 </span>
-                <button
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-6 h-6 w-6"
                   onClick={handleAddMachine}
-                  className="p-1 hover:bg-sidebar-accent rounded transition-colors"
                   title="Add Machine"
                 >
-                  <Plus className="w-4 h-4 text-sidebar-foreground" />
-                </button>
+                  <Plus className="size-3.5" />
+                </Button>
               </div>
 
               <div className="space-y-1">
                 {machines.map((machine) => (
                   <div
                     key={machine.machineId}
-                    className={`group flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer ${
+                    className={cn(
+                      "group flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer relative",
                       selectedMachineId === machine.machineId && activeCategory === 'machine'
-                        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                        : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
-                    }`}
+                        ? "bg-[var(--sidebar-accent)] text-[var(--sidebar-accent-foreground)] shadow-sm ring-1 ring-black/5"
+                        : "text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-accent)]/50 hover:text-[var(--sidebar-foreground)]"
+                    )}
                     onClick={() => handleSelectMachine(machine.machineId)}
                   >
-                    <span className="truncate">{machine.name}</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteMachine(machine.machineId);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-destructive/10 rounded transition-all"
-                      title="Delete Machine"
-                    >
-                      <Trash2 className="w-3 h-3 text-destructive" />
-                    </button>
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className={cn("size-2 rounded-full shrink-0", machine.nestpickEnabled ? "bg-emerald-500" : "bg-gray-300")} />
+                      <span className="truncate">{machine.name}</span>
+                    </div>
+                    {selectedMachineId === machine.machineId && activeCategory === 'machine' && <ChevronRight className="size-3.5 opacity-50 mr-2" />}
+
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 bg-[var(--sidebar-accent)] pl-2 shadow-[-8px_0_8px_-4px_var(--sidebar-accent)]">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 h-6 w-6 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteMachine(machine.machineId);
+                        }}
+                        title="Delete Machine"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
                   </div>
                 ))}
                 {machines.length === 0 && (
-                  <div className="px-3 py-2 text-sm text-sidebar-foreground/60">
-                    No machines configured
+                  <div className="px-3 py-4 text-center border-2 border-dashed border-[var(--border)] rounded-lg">
+                    <p className="text-xs text-[var(--muted-foreground)] mb-2">No machines</p>
+                    <Button variant="outline" size="sm" onClick={handleAddMachine} className="text-xs h-7">Add First</Button>
                   </div>
                 )}
               </div>
@@ -182,26 +175,32 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-w-0">
           {/* Content Header */}
-          <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-            <h3 className="text-lg font-semibold">
-              {activeCategory === 'database' && 'Database'}
-              {activeCategory === 'folders' && 'Folder Paths'}
-              {activeCategory === 'grundner' && 'Grundner'}
-              {activeCategory === 'validation' && 'Validation'}
-              {activeCategory === 'machine' && 'Machine Configuration'}
-            </h3>
-            <button
+          <div className="px-10 h-[72px] flex items-center justify-between border-b border-[var(--border)] bg-[var(--card)] shrink-0">
+            <div>
+              <h3 className="text-xl font-bold text-[var(--foreground)] tracking-tight">
+                {activeCategory === 'database' && 'Database Configuration'}
+                {activeCategory === 'folders' && 'Folder Path Management'}
+                {activeCategory === 'grundner' && 'Grundner Integration'}
+                {activeCategory === 'validation' && 'Validation Rules'}
+                {activeCategory === 'machine' && 'Machine Settings'}
+              </h3>
+              <p className="text-sm text-[var(--muted-foreground)]">Manage your preferences and configurations</p>
+            </div>
+
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={onClose}
-              className="p-1 hover:bg-muted rounded-md transition-colors"
+              className="rounded-full hover:bg-[var(--muted)]"
             >
-              <X className="w-5 h-5" />
-            </button>
+              <X className="size-5" />
+            </Button>
           </div>
 
           {/* Content Body */}
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-10 bg-[var(--background-subtle)]">
             {activeCategory === 'database' && <DatabaseSettings />}
             {activeCategory === 'folders' && <FolderPathsSettings />}
             {activeCategory === 'grundner' && <GrundnerSettings />}

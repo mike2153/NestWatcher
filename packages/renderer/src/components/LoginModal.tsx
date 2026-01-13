@@ -216,7 +216,7 @@ export function LoginModal({ isOpen, onClose, onAuthenticated, disableClose }: L
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-[90vw] max-w-lg rounded-xl border border-border bg-background shadow-2xl">
+      <div className="w-[90vw] max-w-lg rounded-xl border border-border bg-[var(--card)] shadow-2xl">
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div className="flex items-center gap-3">
             <div className="rounded-full bg-primary/10 p-2 text-primary">

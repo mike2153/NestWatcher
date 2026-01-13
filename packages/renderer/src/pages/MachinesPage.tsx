@@ -99,7 +99,7 @@ export function MachinesPage() {
 
   return (
     <div className="space-y-4 w-full">
-      <div className="border rounded bg-table text-[var(--table-text)]">
+      <div className="border rounded bg-[var(--table-bg)] text-[var(--table-text)]">
         <Table>
           <TableHeader>
             <TableRow>

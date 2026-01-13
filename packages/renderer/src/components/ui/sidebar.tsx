@@ -6,7 +6,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 
-const SIDEBAR_WIDTH = "12rem"
+const SIDEBAR_WIDTH = "13rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 
 type SidebarContextProps = {
@@ -62,12 +62,12 @@ function Sidebar({ className, children, ...props }: React.ComponentProps<"div">)
   if (isMobile) {
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile}>
-        <SheetContent side="left" className="bg-sidebar text-sidebar-foreground w-(--sidebar-width) p-0 [&>button]:hidden">
+        <SheetContent side="left" className="bg-[var(--sidebar)] text-sidebar-foreground w-(--sidebar-width) p-0 [&>button]:hidden">
           <SheetHeader className="sr-only">
             <SheetTitle>Sidebar</SheetTitle>
             <SheetDescription>Displays the mobile sidebar.</SheetDescription>
           </SheetHeader>
-          <div className="bg-sidebar flex h-full w-full flex-col">
+          <div className="bg-[var(--sidebar)] flex h-full w-full flex-col">
             {children}
           </div>
         </SheetContent>
@@ -78,7 +78,7 @@ function Sidebar({ className, children, ...props }: React.ComponentProps<"div">)
     <aside
       data-slot="sidebar"
       className={cn(
-        "text-sidebar-foreground w-(--sidebar-width) border-r bg-sidebar",
+        "text-sidebar-foreground w-(--sidebar-width) border-r bg-[var(--sidebar)]",
         className
       )}
       {...props}
@@ -89,7 +89,7 @@ function Sidebar({ className, children, ...props }: React.ComponentProps<"div">)
 }
 
 function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
-  return <main data-slot="sidebar-inset" className={cn("flex min-h-svh flex-1 flex-col min-w-0 overflow-x-hidden", className)} {...props} />
+  return <main data-slot="sidebar-inset" className={cn("flex min-h-svh flex-1 flex-col min-w-0 overflow-x-hidden bg-background", className)} {...props} />
 }
 
 function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {

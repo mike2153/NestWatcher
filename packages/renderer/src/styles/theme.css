@@ -1,507 +1,765 @@
 /*
- * Woodtron Dark Theme
- * A sophisticated dark interface with charcoal backgrounds,
- * subtle depth, and excellent contrast for industrial applications
+ * Woodtron Themes
+ * Soft Ocean (Dark/Light) - Default
+ * Sunset Drift - Warm
+ * Nordic Forest - Green/Nature
  */
 
 @layer base {
-  /* === Dark Theme (Default) === */
+
+  /* === Dark Theme (Default / Soft Ocean) === */
   :root,
   .dark {
-    /* === Core Dark Theme Colors === */
-    /* Based on HSL color scheme with deep blue undertones */
+    /* Backgrounds - Deeper Slate for contrast */
+    --background: hsl(200 18% 7%);
+    --background-body: hsl(200 18% 7%);
+    --background-elevated: hsl(200 12% 14%);
+    --background-subtle: hsl(200 15% 9%);
 
-    /* Backgrounds - Deep blue-black */
-    --background: hsl(222 25% 8%);            /* Main app background */
-    --background-body: hsl(222 25% 8%);       /* Body background */
-    --background-elevated: hsl(222 22% 11%);  /* Elevated surfaces */
-    --background-subtle: hsl(222 20% 12%);    /* Subtle background variation */
+    /* Foreground - Warm Off-White */
+    --foreground: hsl(40 20% 96%);
+    --foreground-muted: hsl(200 10% 65%);
+    --foreground-subtle: hsl(200 10% 50%);
 
-    /* Foreground - Warm off-white for comfortable reading */
-    --foreground: hsl(40 15% 95%);            /* Primary text */
-    --foreground-muted: hsl(220 10% 55%);     /* Secondary/muted text */
-    --foreground-subtle: hsl(220 10% 45%);    /* Subtle/disabled text */
+    /* Cards - Elevated surface for contrast */
+    --card: hsl(200 12% 13%);
+    --card-foreground: hsl(40 20% 96%);
+    --card-hover: hsl(200 10% 16%);
 
-    /* Cards & Surfaces */
-    --card: hsl(222 22% 11%);                 /* Card background */
-    --card-foreground: hsl(40 15% 95%);       /* Card text */
-    --card-hover: hsl(222 20% 14%);           /* Card hover state */
+    /* Primary Action - Soft Teal */
+    --primary: hsl(172 66% 50%);
+    --primary-hover: hsl(172 66% 60%);
+    --primary-foreground: hsl(200 18% 10%);
 
-    /* Primary Action Color - Vibrant Blue */
-    --primary: hsl(213 94% 58%);              /* Primary action - vibrant blue */
-    --primary-hover: hsl(213 94% 65%);        /* Primary hover - lighter blue */
-    --primary-foreground: hsl(222 25% 8%);    /* Text on primary */
-
-    /* Blue Accent for Hover Effects */
-    --accent-blue: hsl(213 94% 58%);          /* Main blue accent */
-    --accent-blue-light: hsl(213 94% 65%);    /* Light blue for hover */
-    --accent-blue-glow: rgba(59, 130, 246, 0.5);  /* Blue glow effect */
-    --accent-blue-subtle: rgba(59, 130, 246, 0.15); /* Subtle blue tint */
-    --accent-blue-border: rgba(59, 130, 246, 0.4);  /* Blue border on hover */
+    /* Accents */
+    --accent-blue: hsl(172 66% 50%);
+    --accent-blue-light: hsl(172 66% 60%);
+    --accent-blue-glow: rgba(45, 212, 191, 0.4);
+    --accent-blue-subtle: rgba(45, 212, 191, 0.12);
+    --accent-blue-border: rgba(45, 212, 191, 0.3);
 
     /* Secondary */
-    --secondary: hsl(222 20% 16%);            /* Secondary backgrounds */
-    --secondary-foreground: hsl(40 15% 90%);  /* Secondary text */
-    --secondary-hover: hsl(222 20% 20%);      /* Secondary hover */
+    --secondary: hsl(200 12% 20%);
+    --secondary-foreground: hsl(40 20% 90%);
+    --secondary-hover: hsl(200 12% 24%);
 
     /* Destructive */
-    --destructive: hsl(0 72% 55%);            /* Error/destructive red */
-    --destructive-hover: hsl(0 72% 60%);      /* Destructive hover */
-    --destructive-foreground: #ffffff;        /* Text on destructive */
+    --destructive: hsl(350 70% 60%);
+    --destructive-hover: hsl(350 70% 66%);
+    --destructive-foreground: #ffffff;
 
-    /* Accent - Gold/Amber */
-    --accent: hsl(38 92% 55%);                /* Accent color - gold */
-    --accent-foreground: hsl(222 25% 8%);     /* Accent text */
+    /* Accent - Warm Sand */
+    --accent: hsl(35 60% 70%);
+    --accent-foreground: hsl(200 18% 10%);
 
     /* Muted */
-    --muted: hsl(222 20% 16%);                /* Muted backgrounds */
-    --muted-foreground: hsl(220 10% 55%);     /* Muted text */
+    --muted: hsl(200 12% 20%);
+    --muted-foreground: hsl(200 10% 65%);
 
     /* Borders */
-    --border: hsl(222 18% 18%);               /* Default border */
-    --border-subtle: hsl(222 20% 14%);        /* Subtle border */
-    --border-strong: hsl(222 18% 22%);        /* Strong/focus border */
+    --border: hsl(200 12% 22%);
+    --border-subtle: hsl(200 12% 18%);
+    --border-strong: hsl(200 12% 26%);
 
-    /* Ring (focus) */
-    --ring: hsl(213 94% 58%);                 /* Focus ring color - vibrant blue */
-    --ring-glow: 0 0 0 3px rgba(59, 130, 246, 0.25);  /* Focus ring glow */
+    /* Ring */
+    --ring: hsl(172 66% 50%);
+    --ring-glow: 0 0 0 3px rgba(45, 212, 191, 0.25);
 
-    /* === Status Colors === */
-    --status-success-bg: hsl(152 30% 12%);    /* Success background */
-    --status-success-text: hsl(152 69% 42%);  /* Success text */
-    --status-success-border: hsl(152 50% 25%);/* Success border */
+    /* Sidebar - Elevated surface for contrast */
+    --sidebar: hsl(200 14% 12%);
+    --sidebar-foreground: hsl(40 20% 92%);
+    --sidebar-accent: hsl(200 15% 15%);
+    --sidebar-accent-foreground: hsl(172 66% 60%);
+    --sidebar-border: hsl(200 15% 16%);
 
-    --status-warning-bg: hsl(38 40% 12%);     /* Warning background */
-    --status-warning-text: hsl(38 92% 55%);   /* Warning text - amber */
-    --status-warning-border: hsl(38 60% 30%); /* Warning border */
+    /* Statuses */
+    --status-success-bg: hsl(150 25% 14%);
+    --status-success-text: hsl(150 50% 50%);
+    --status-success-border: hsl(150 30% 25%);
 
-    --status-error-bg: hsl(0 40% 12%);        /* Error background */
-    --status-error-text: hsl(0 72% 55%);      /* Error text - red */
-    --status-error-border: hsl(0 50% 25%);    /* Error border */
+    --status-warning-bg: hsl(35 30% 14%);
+    --status-warning-text: hsl(35 80% 60%);
+    --status-warning-border: hsl(35 40% 30%);
 
-    --status-info-bg: hsl(213 40% 12%);       /* Info background */
-    --status-info-text: hsl(213 94% 65%);     /* Info text - blue */
-    --status-info-border: hsl(213 60% 30%);   /* Info border */
+    --status-error-bg: hsl(350 30% 14%);
+    --status-error-text: hsl(350 70% 65%);
+    --status-error-border: hsl(350 40% 30%);
 
-    /* === Table Colors === */
-    --table-bg: hsl(222 22% 11%);             /* Table background */
-    --table-header-bg: hsl(222 20% 14%);      /* Table header */
-    --table-text: hsl(40 15% 95%);            /* Table text */
-    --table-border: hsl(222 18% 18%);         /* Table border */
-    --table-row-border: hsl(222 20% 14%);     /* Row separator */
-    --table-hover-bg: hsl(222 20% 16%);       /* Row hover */
-    --table-selected-bg: hsl(213 30% 15%);    /* Selected row */
+    --status-info-bg: hsl(190 30% 14%);
+    --status-info-text: hsl(190 80% 60%);
+    --status-info-border: hsl(190 40% 30%);
 
-    /* === Sidebar Colors === */
-    --sidebar: hsl(222 28% 6%);               /* Sidebar background - darkest */
-    --sidebar-foreground: hsl(40 15% 92%);    /* Sidebar text */
-    --sidebar-accent: hsl(222 25% 12%);       /* Sidebar active item */
-    --sidebar-accent-foreground: hsl(213 94% 65%); /* Active item text - blue */
-    --sidebar-border: hsl(222 20% 14%);       /* Sidebar border */
-    --sidebar-hover: hsl(222 25% 12%);        /* Sidebar hover */
+    /* Table - Elevated surface for contrast */
+    --table-bg: hsl(200 12% 13%);
+    --table-header-bg: hsl(200 12% 15%);
+    --table-text: hsl(40 20% 96%);
+    --table-border: hsl(200 12% 18%);
+    --table-row-border: hsl(200 12% 16%);
+    --table-hover-bg: hsl(200 12% 16%);
+    --table-selected-bg: hsl(172 50% 20%);
 
-    /* === Input/Form Colors === */
-    --input-bg: hsl(222 22% 11%);             /* Input background */
-    --input-border: hsl(222 18% 18%);         /* Input border */
-    --input-border-width: 1px;                /* Input border width */
-    --input-focus-border: hsl(213 94% 58%);   /* Input focus border */
-    --input-placeholder: hsl(220 10% 45%);    /* Placeholder text */
+    /* Scrollbar */
+    --scrollbar-track: hsl(200 18% 7%);
+    --scrollbar-thumb: hsl(200 12% 22%);
+    --scrollbar-thumb-hover: hsl(200 12% 28%);
 
-    /* === Popover/Dropdown === */
-    --popover: hsl(222 22% 11%);              /* Popover background */
-    --popover-foreground: hsl(40 15% 95%);    /* Popover text */
-    --popover-border: hsl(222 18% 18%);       /* Popover border */
-
-    /* === Scrollbar === */
-    --scrollbar-track: hsl(222 25% 8%);       /* Scrollbar track */
-    --scrollbar-thumb: hsl(222 18% 18%);      /* Scrollbar thumb */
-    --scrollbar-thumb-hover: hsl(222 18% 22%);/* Scrollbar thumb hover */
-
-    /* === Page Title === */
-    --page-title-gradient: linear-gradient(135deg, hsl(40 15% 95%) 0%, hsl(220 10% 55%) 100%);
-
-    /* === Design Tokens === */
-    --radius: 0.5rem;                         /* Border radius */
-    --radius-sm: 0.375rem;                    /* Small radius */
-    --radius-lg: 0.75rem;                     /* Large radius */
-
-    /* Shadows - subtle for dark theme */
-    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
-    --shadow-base: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px -1px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.3);
-    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
-    --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.25);
-    --shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.35);
-
-    /* Blue Glow Shadows for Hover States */
-    --shadow-blue-sm: 0 0 8px rgba(59, 130, 246, 0.3);
-    --shadow-blue-md: 0 0 12px rgba(59, 130, 246, 0.4);
-    --shadow-blue-lg: 0 0 20px rgba(59, 130, 246, 0.5);
-    --shadow-blue-glow: 0 4px 14px -2px rgba(59, 130, 246, 0.4);
-
-    /* Transitions */
-    --transition-fast: 150ms ease;
-    --transition-normal: 200ms ease;
-    --transition-slow: 300ms ease;
-
-    /* Alpha variants for overlays */
-    --muted-a50: rgba(37, 37, 41, 0.5);
-    --primary-a10: rgba(91, 108, 240, 0.1);
-    --primary-a15: rgba(91, 108, 240, 0.15);
-    --primary-a20: rgba(91, 108, 240, 0.2);
-    --primary-a30: rgba(91, 108, 240, 0.3);
-    --border-a06: rgba(46, 46, 52, 0.06);
-    --border-a08: rgba(46, 46, 52, 0.08);
-    --border-a10: rgba(46, 46, 52, 0.1);
-    --border-a30: rgba(46, 46, 52, 0.3);
+    --radius: 0.5rem;
   }
 
-  /* === Light Theme === */
+  /* === Light Theme (Soft Ocean) === */
   .light {
-    /* Backgrounds - Clean light grays */
-    --background: #f8f9fa;                    /* Main app background */
-    --background-body: #f8f9fa;               /* Body background */
-    --background-elevated: #ffffff;           /* Elevated surfaces */
-    --background-subtle: #f1f3f4;             /* Subtle background variation */
+    /* Background - Tinted for contrast against white components */
+    --background: hsl(200 15% 92%);
+    --background-body: hsl(200 15% 92%);
+    --background-elevated: #ffffff;
+    --background-subtle: hsl(200 12% 94%);
 
-    /* Foreground - Dark text for readability */
-    --foreground: #1a1a1e;                    /* Primary text - near black */
-    --foreground-muted: #6b6b73;              /* Secondary/muted text */
-    --foreground-subtle: #a0a0a8;             /* Subtle/disabled text */
+    --foreground: hsl(200 15% 15%);
+    --foreground-muted: hsl(200 10% 40%);
+    --foreground-subtle: hsl(200 10% 60%);
 
-    /* Cards & Surfaces */
-    --card: #ffffff;                          /* Card background - white */
-    --card-foreground: #1a1a1e;               /* Card text */
-    --card-hover: #f1f3f4;                    /* Card hover state */
+    /* Cards - White for contrast */
+    --card: #ffffff;
+    --card-foreground: hsl(200 15% 15%);
+    --card-hover: hsl(200 10% 98%);
 
-    /* Primary Action Color - Vibrant Blue */
-    --primary: #2563eb;                       /* Primary action - slightly deeper blue */
-    --primary-hover: #3b82f6;                 /* Primary hover */
-    --primary-foreground: #ffffff;            /* Text on primary */
+    --primary: hsl(173 58% 39%);
+    --primary-hover: hsl(173 58% 34%);
+    --primary-foreground: #ffffff;
 
-    /* Blue Accent for Hover Effects */
-    --accent-blue: #2563eb;                   /* Main blue accent */
-    --accent-blue-light: #3b82f6;             /* Light blue for hover */
-    --accent-blue-glow: rgba(37, 99, 235, 0.4);  /* Blue glow effect */
-    --accent-blue-subtle: rgba(37, 99, 235, 0.1); /* Subtle blue tint */
-    --accent-blue-border: rgba(37, 99, 235, 0.3);  /* Blue border on hover */
+    --accent-blue: hsl(173 58% 39%);
+    --accent-blue-light: hsl(173 58% 45%);
+    --accent-blue-glow: rgba(13, 148, 136, 0.3);
+    --accent-blue-subtle: rgba(13, 148, 136, 0.08);
+    --accent-blue-border: rgba(13, 148, 136, 0.2);
+
+    --secondary: hsl(35 20% 92%);
+    --secondary-foreground: hsl(200 15% 15%);
+    --secondary-hover: hsl(35 20% 88%);
+
+    --destructive: hsl(350 70% 50%);
+    --destructive-hover: hsl(350 70% 45%);
+    --destructive-foreground: #ffffff;
+
+    --accent: hsl(35 80% 60%);
+    --accent-foreground: #ffffff;
+
+    --muted: hsl(200 10% 94%);
+    --muted-foreground: hsl(200 10% 40%);
+
+    --border: hsl(200 10% 88%);
+    --border-subtle: hsl(200 10% 92%);
+    --border-strong: hsl(200 10% 80%);
+
+    --ring: hsl(173 58% 39%);
+    --ring-glow: 0 0 0 3px rgba(13, 148, 136, 0.15);
+
+    /* Sidebar - White for contrast */
+    --sidebar: #ffffff;
+    --sidebar-foreground: hsl(200 15% 15%);
+    --sidebar-accent: hsl(173 58% 95%);
+    --sidebar-accent-foreground: hsl(173 58% 39%);
+    --sidebar-border: hsl(200 10% 85%);
+
+    --status-success-bg: hsl(150 40% 95%);
+    --status-success-text: hsl(150 70% 30%);
+    --status-success-border: hsl(150 40% 80%);
+
+    --status-warning-bg: hsl(35 50% 95%);
+    --status-warning-text: hsl(35 80% 40%);
+    --status-warning-border: hsl(35 50% 80%);
+
+    --status-error-bg: hsl(350 40% 95%);
+    --status-error-text: hsl(350 70% 40%);
+    --status-error-border: hsl(350 40% 80%);
+
+    --status-info-bg: hsl(190 40% 95%);
+    --status-info-text: hsl(190 70% 35%);
+    --status-info-border: hsl(190 40% 80%);
+
+    --table-bg: #ffffff;
+    --table-header-bg: hsl(35 30% 97%);
+    --table-text: hsl(200 15% 15%);
+    --table-border: hsl(200 10% 90%);
+    --table-row-border: hsl(200 10% 94%);
+    --table-hover-bg: hsl(35 30% 98%);
+    --table-selected-bg: hsl(173 60% 88%);
+
+    --scrollbar-track: hsl(200 15% 92%);
+    --scrollbar-thumb: hsl(200 10% 75%);
+    --scrollbar-thumb-hover: hsl(200 10% 65%);
+  }
+
+  /* === Classic Light Theme (Vercel Inspired - Clean Minimal) === */
+  .classic {
+    /* Backgrounds: Clean white/near-white like Vercel */
+    --background: #fafafa;
+    --background-body: #fafafa;
+    --background-elevated: #ffffff;
+    --background-subtle: #f5f5f5;
+
+    /* Foreground: Black/Dark grays like Vercel */
+    --foreground: #000000;
+    --foreground-muted: #666666;
+    --foreground-subtle: #888888;
+
+    /* Cards - White to match background aesthetic */
+    --card: #ffffff;
+    --card-foreground: #000000;
+    --card-hover: #fafafa;
+
+    /* Primary: Black like Vercel */
+    --primary: #000000;
+    --primary-hover: #333333;
+    --primary-foreground: #ffffff;
+
+    /* Accents: Subtle gray-based, no blue */
+    --accent-blue: #000000;
+    --accent-blue-light: #333333;
+    --accent-blue-glow: rgba(0, 0, 0, 0.15);
+    --accent-blue-subtle: rgba(0, 0, 0, 0.05);
+    --accent-blue-border: rgba(0, 0, 0, 0.1);
 
     /* Secondary */
-    --secondary: #e5e7eb;                     /* Secondary backgrounds */
-    --secondary-foreground: #1a1a1e;          /* Secondary text */
-    --secondary-hover: #d1d5db;               /* Secondary hover */
+    --secondary: #f5f5f5;
+    --secondary-foreground: #000000;
+    --secondary-hover: #ebebeb;
 
     /* Destructive */
-    --destructive: #dc2626;                   /* Error/destructive red */
-    --destructive-hover: #ef4444;             /* Destructive hover */
-    --destructive-foreground: #ffffff;        /* Text on destructive */
+    --destructive: #e00;
+    --destructive-hover: #c00;
+    --destructive-foreground: #ffffff;
 
     /* Accent */
-    --accent: #e5e7eb;                        /* Accent background */
-    --accent-foreground: #1a1a1e;             /* Accent text */
+    --accent: #666666;
+    --accent-foreground: #ffffff;
 
     /* Muted */
-    --muted: #f1f3f4;                         /* Muted backgrounds */
-    --muted-foreground: #6b6b73;              /* Muted text */
+    --muted: #f5f5f5;
+    --muted-foreground: #666666;
+
+    /* Borders: Subtle gray like Vercel */
+    --border: #eaeaea;
+    --border-subtle: #f5f5f5;
+    --border-strong: #d4d4d4;
+
+    /* Ring */
+    --ring: #000000;
+    --ring-glow: 0 0 0 3px rgba(0, 0, 0, 0.1);
+
+    /* Sidebar: White to match */
+    --sidebar: #ffffff;
+    --sidebar-foreground: #000000;
+    --sidebar-accent: #f5f5f5;
+    --sidebar-accent-foreground: #000000;
+    --sidebar-border: #eaeaea;
+
+    /* Statuses */
+    --status-success-bg: #f0fdf4;
+    --status-success-text: #166534;
+    --status-success-border: #bbf7d0;
+
+    --status-warning-bg: #fffbeb;
+    --status-warning-text: #92400e;
+    --status-warning-border: #fde68a;
+
+    --status-error-bg: #fef2f2;
+    --status-error-text: #991b1b;
+    --status-error-border: #fecaca;
+
+    --status-info-bg: #fafafa;
+    --status-info-text: #000000;
+    --status-info-border: #eaeaea;
+
+    /* Table */
+    --table-bg: #ffffff;
+    --table-header-bg: #fafafa;
+    --table-text: #000000;
+    --table-border: #eaeaea;
+    --table-row-border: #eaeaea;
+    --table-hover-bg: #fafafa;
+    --table-selected-bg: #e5e5e5;
+
+    --scrollbar-track: #fafafa;
+    --scrollbar-thumb: #d4d4d4;
+    --scrollbar-thumb-hover: #a3a3a3;
+  }
+
+  /* === Sunset Drift Theme (Anthropic Inspired - Subtle Warm Tones) === */
+  .sunset {
+    /* Backgrounds: Darker warm page background */
+    --background: #e5e3d8;
+    --background-body: #e5e3d8;
+
+    /* Elevated surfaces */
+    --background-elevated: #eceadf;
+    --background-subtle: #e8e6dc;
+
+    /* Foreground: Soft Charcoal */
+    --foreground: #191919;
+    --foreground-muted: #5a5a5a;
+    --foreground-subtle: #7a7a7a;
+
+    /* Cards - Lighter than page background */
+    --card: #eceadf;
+    --card-foreground: #191919;
+    --card-hover: #eae8dd;
+
+    /* Primary: Burnt Orange / Terracotta */
+    --primary: #d97757;
+    --primary-hover: #c56545;
+    --primary-foreground: #ffffff;
+
+    /* Accents */
+    --accent-blue: #d97757;
+    --accent-blue-light: #e88d6f;
+    --accent-blue-glow: rgba(217, 119, 87, 0.4);
+    --accent-blue-subtle: rgba(217, 119, 87, 0.12);
+    --accent-blue-border: rgba(217, 119, 87, 0.35);
+
+    /* Secondary */
+    --secondary: #eae8dd;
+    --secondary-foreground: #191919;
+    --secondary-hover: #dfddd2;
+
+    /* Destructive */
+    --destructive: #cc4e4e;
+    --destructive-hover: #b53d3d;
+    --destructive-foreground: #ffffff;
+
+    /* Accent: Warm Brown */
+    --accent: #a68a6d;
+    --accent-foreground: #ffffff;
+
+    /* Muted */
+    --muted: #e0ded3;
+    --muted-foreground: #5a5a5a;
+
+    /* Borders - darker for better definition */
+    --border: #b5b2a3;
+    --border-subtle: #c4c1b3;
+    --border-strong: #a5a295;
+
+    /* Ring */
+    --ring: #d97757;
+    --ring-glow: 0 0 0 3px rgba(217, 119, 87, 0.2);
+
+    /* Sidebar: Same as components */
+    --sidebar: #eceadf;
+    --sidebar-foreground: #191919;
+    --sidebar-accent: #eae8dd;
+    --sidebar-accent-foreground: #d97757;
+    --sidebar-border: #b5b2a3;
+
+    /* Statuses - muted warm tones */
+    --status-success-bg: #d8e8dc;
+    --status-success-text: #2d6b45;
+    --status-success-border: #c5d9c9;
+
+    --status-warning-bg: #ebe3d0;
+    --status-warning-text: #8a6b1a;
+    --status-warning-border: #dcd4c0;
+
+    --status-error-bg: #e8d8d8;
+    --status-error-text: #a84444;
+    --status-error-border: #d9c8c8;
+
+    --status-info-bg: #d8e0e8;
+    --status-info-text: #3a6080;
+    --status-info-border: #c8d4dc;
+
+    /* Table - Match card color */
+    --table-bg: #eceadf;
+    --table-header-bg: #eae8dd;
+    --table-text: #191919;
+    --table-border: #b5b2a3;
+    --table-row-border: #c4c1b3;
+    --table-hover-bg: #eae8dd;
+    --table-selected-bg: #ddd0c6;
+
+    /* Scrollbar */
+    --scrollbar-track: #e5e3d8;
+    --scrollbar-thumb: #b5b2a5;
+    --scrollbar-thumb-hover: #a09d91;
+  }
+
+  /* === Nordic Forest Theme === */
+  .forest {
+    /* Backgrounds: Deeper Green for contrast */
+    --background: hsl(150 18% 5%);
+    --background-body: hsl(150 18% 5%);
+    --background-elevated: hsl(150 12% 13%);
+    --background-subtle: hsl(150 15% 7%);
+
+    /* Foreground */
+    --foreground: hsl(150 15% 94%);
+    --foreground-muted: hsl(150 10% 65%);
+    --foreground-subtle: hsl(150 10% 50%);
+
+    /* Cards - Elevated surface for contrast */
+    --card: hsl(150 12% 12%);
+    --card-foreground: hsl(150 15% 94%);
+    --card-hover: hsl(150 10% 15%);
+
+    /* Primary: Sage Green / Moss */
+    --primary: hsl(140 45% 55%);
+    --primary-hover: hsl(140 45% 65%);
+    --primary-foreground: hsl(150 20% 10%);
+
+    /* Accents */
+    --accent-blue: hsl(140 45% 55%);
+    --accent-blue-light: hsl(140 45% 65%);
+    --accent-blue-glow: rgba(100, 180, 130, 0.4);
+    --accent-blue-subtle: rgba(100, 180, 130, 0.15);
+    --accent-blue-border: rgba(100, 180, 130, 0.3);
+
+    /* Secondary */
+    --secondary: hsl(150 12% 18%);
+    --secondary-foreground: hsl(150 15% 90%);
+    --secondary-hover: hsl(150 12% 22%);
+
+    /* Destructive */
+    --destructive: hsl(0 50% 60%);
+    --destructive-hover: hsl(0 50% 66%);
+    --destructive-foreground: #ffffff;
+
+    /* Accent: Fern */
+    --accent: hsl(100 45% 60%);
+    --accent-foreground: #ffffff;
+
+    /* Muted */
+    --muted: hsl(150 12% 18%);
+    --muted-foreground: hsl(150 10% 65%);
 
     /* Borders */
-    --border: #e5e7eb;                        /* Default border */
-    --border-subtle: #f1f3f4;                 /* Subtle border */
-    --border-strong: #d1d5db;                 /* Strong/focus border */
+    --border: hsl(150 12% 20%);
+    --border-subtle: hsl(150 12% 16%);
+    --border-strong: hsl(150 12% 24%);
 
-    /* Ring (focus) */
-    --ring: #2563eb;                          /* Focus ring color */
-    --ring-glow: 0 0 0 3px rgba(37, 99, 235, 0.2);  /* Focus ring glow */
+    /* Ring */
+    --ring: hsl(140 45% 55%);
+    --ring-glow: 0 0 0 3px rgba(100, 180, 130, 0.25);
 
-    /* === Status Colors === */
-    --status-success-bg: #dcfce7;             /* Success background */
-    --status-success-text: #16a34a;           /* Success text */
-    --status-success-border: #86efac;         /* Success border */
+    /* Sidebar - Elevated surface for contrast */
+    --sidebar: hsl(150 14% 11%);
+    --sidebar-foreground: hsl(150 15% 90%);
+    --sidebar-accent: hsl(150 15% 15%);
+    --sidebar-accent-foreground: hsl(140 45% 65%);
+    --sidebar-border: hsl(150 15% 14%);
 
-    --status-warning-bg: #fef3c7;             /* Warning background */
-    --status-warning-text: #d97706;           /* Warning text */
-    --status-warning-border: #fcd34d;         /* Warning border */
+    /* Statuses */
+    --status-success-bg: hsl(140 25% 14%);
+    --status-success-text: hsl(140 50% 50%);
+    --status-success-border: hsl(140 30% 25%);
 
-    --status-error-bg: #fee2e2;               /* Error background */
-    --status-error-text: #dc2626;             /* Error text */
-    --status-error-border: #fca5a5;           /* Error border */
+    --status-warning-bg: hsl(40 30% 14%);
+    --status-warning-text: hsl(40 80% 60%);
+    --status-warning-border: hsl(40 40% 30%);
 
-    --status-info-bg: #dbeafe;                /* Info background */
-    --status-info-text: #2563eb;              /* Info text */
-    --status-info-border: #93c5fd;            /* Info border */
+    --status-error-bg: hsl(0 30% 14%);
+    --status-error-text: hsl(0 70% 65%);
+    --status-error-border: hsl(0 40% 30%);
 
-    /* === Table Colors === */
-    --table-bg: #ffffff;                      /* Table background */
-    --table-header-bg: #f8f9fa;               /* Table header */
-    --table-text: #1a1a1e;                    /* Table text */
-    --table-border: #e5e7eb;                  /* Table border */
-    --table-row-border: #f1f3f4;              /* Row separator */
-    --table-hover-bg: #f8f9fa;                /* Row hover */
-    --table-selected-bg: rgba(37, 99, 235, 0.1); /* Selected row */
+    --status-info-bg: hsl(190 30% 14%);
+    --status-info-text: hsl(190 70% 60%);
+    --status-info-border: hsl(190 40% 30%);
 
-    /* === Sidebar Colors === */
-    --sidebar: #ffffff;                       /* Sidebar background */
-    --sidebar-foreground: #1a1a1e;            /* Sidebar text */
-    --sidebar-accent: #f1f3f4;                /* Sidebar active item */
-    --sidebar-accent-foreground: #1a1a1e;     /* Active item text */
-    --sidebar-border: #e5e7eb;                /* Sidebar border */
-    --sidebar-hover: #f8f9fa;                 /* Sidebar hover */
+    /* Table - Elevated surface for contrast */
+    --table-bg: hsl(150 12% 12%);
+    --table-header-bg: hsl(150 12% 14%);
+    --table-text: hsl(150 15% 94%);
+    --table-border: hsl(150 12% 16%);
+    --table-row-border: hsl(150 12% 14%);
+    --table-hover-bg: hsl(150 12% 15%);
+    --table-selected-bg: hsl(140 40% 18%);
 
-    /* === Input/Form Colors === */
-    --input-bg: #ffffff;                      /* Input background */
-    --input-border: #d1d5db;                  /* Input border */
-    --input-border-width: 1px;                /* Input border width */
-    --input-focus-border: #2563eb;            /* Input focus border */
-    --input-placeholder: #a0a0a8;             /* Placeholder text */
-
-    /* === Popover/Dropdown === */
-    --popover: #ffffff;                       /* Popover background */
-    --popover-foreground: #1a1a1e;            /* Popover text */
-    --popover-border: #e5e7eb;                /* Popover border */
-
-    /* === Scrollbar === */
-    --scrollbar-track: #f1f3f4;               /* Scrollbar track */
-    --scrollbar-thumb: #d1d5db;               /* Scrollbar thumb */
-    --scrollbar-thumb-hover: #9ca3af;         /* Scrollbar thumb hover */
-
-    /* === Page Title === */
-    --page-title-gradient: linear-gradient(135deg, #1a1a1e 0%, #6b6b73 100%);
-
-    /* Shadows - more visible for light theme */
-    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-    --shadow-base: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.06);
-    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.06);
-    --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.08);
-    --shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.12);
-
-    /* Blue Glow Shadows for Hover States */
-    --shadow-blue-sm: 0 0 8px rgba(37, 99, 235, 0.2);
-    --shadow-blue-md: 0 0 12px rgba(37, 99, 235, 0.25);
-    --shadow-blue-lg: 0 0 20px rgba(37, 99, 235, 0.3);
-    --shadow-blue-glow: 0 4px 14px -2px rgba(37, 99, 235, 0.25);
-
-    /* Alpha variants for overlays */
-    --muted-a50: rgba(241, 243, 244, 0.5);
-    --primary-a10: rgba(37, 99, 235, 0.1);
-    --primary-a15: rgba(37, 99, 235, 0.15);
-    --primary-a20: rgba(37, 99, 235, 0.2);
-    --primary-a30: rgba(37, 99, 235, 0.3);
-    --border-a06: rgba(229, 231, 235, 0.06);
-    --border-a08: rgba(229, 231, 235, 0.08);
-    --border-a10: rgba(229, 231, 235, 0.1);
-    --border-a30: rgba(229, 231, 235, 0.3);
-  }
-}
-
-@layer utilities {
-  /* === Background Utilities === */
-  .bg-background {
-    background: var(--background);
+    --scrollbar-track: hsl(150 18% 5%);
+    --scrollbar-thumb: hsl(150 12% 20%);
+    --scrollbar-thumb-hover: hsl(150 12% 28%);
   }
 
-  .bg-card {
-    background: var(--card);
+  /* === Supabase Theme (Dark with Emerald Accent) === */
+  .supabase {
+    /* Backgrounds: Deep charcoal like Supabase */
+    --background: #1c1c1c;
+    --background-body: #1c1c1c;
+    --background-elevated: #2a2a2a;
+    --background-subtle: #222222;
+
+    /* Foreground: Light gray text */
+    --foreground: #ededed;
+    --foreground-muted: #a1a1a1;
+    --foreground-subtle: #6b6b6b;
+
+    /* Cards - Slightly elevated */
+    --card: #2a2a2a;
+    --card-foreground: #ededed;
+    --card-hover: #333333;
+
+    /* Primary: Supabase Emerald Green */
+    --primary: #3ecf8e;
+    --primary-hover: #4ade80;
+    --primary-foreground: #1c1c1c;
+
+    /* Accents: Emerald green */
+    --accent-blue: #3ecf8e;
+    --accent-blue-light: #4ade80;
+    --accent-blue-glow: rgba(62, 207, 142, 0.4);
+    --accent-blue-subtle: rgba(62, 207, 142, 0.12);
+    --accent-blue-border: rgba(62, 207, 142, 0.3);
+
+    /* Secondary */
+    --secondary: #333333;
+    --secondary-foreground: #ededed;
+    --secondary-hover: #3d3d3d;
+
+    /* Destructive */
+    --destructive: #f43f5e;
+    --destructive-hover: #fb7185;
+    --destructive-foreground: #ffffff;
+
+    /* Accent */
+    --accent: #3ecf8e;
+    --accent-foreground: #1c1c1c;
+
+    /* Muted */
+    --muted: #333333;
+    --muted-foreground: #a1a1a1;
+
+    /* Borders: Subtle dark gray like Supabase inputs */
+    --border: #3d3d3d;
+    --border-subtle: #333333;
+    --border-strong: #4a4a4a;
+
+    /* Ring */
+    --ring: #3ecf8e;
+    --ring-glow: 0 0 0 3px rgba(62, 207, 142, 0.25);
+
+    /* Sidebar */
+    --sidebar: #2a2a2a;
+    --sidebar-foreground: #ededed;
+    --sidebar-accent: #333333;
+    --sidebar-accent-foreground: #3ecf8e;
+    --sidebar-border: #3d3d3d;
+
+    /* Statuses */
+    --status-success-bg: rgba(62, 207, 142, 0.1);
+    --status-success-text: #3ecf8e;
+    --status-success-border: rgba(62, 207, 142, 0.3);
+
+    --status-warning-bg: rgba(251, 191, 36, 0.1);
+    --status-warning-text: #fbbf24;
+    --status-warning-border: rgba(251, 191, 36, 0.3);
+
+    --status-error-bg: rgba(244, 63, 94, 0.1);
+    --status-error-text: #f43f5e;
+    --status-error-border: rgba(244, 63, 94, 0.3);
+
+    --status-info-bg: rgba(62, 207, 142, 0.08);
+    --status-info-text: #3ecf8e;
+    --status-info-border: rgba(62, 207, 142, 0.2);
+
+    /* Table */
+    --table-bg: #2a2a2a;
+    --table-header-bg: #333333;
+    --table-text: #ededed;
+    --table-border: #3d3d3d;
+    --table-row-border: #333333;
+    --table-hover-bg: #333333;
+    --table-selected-bg: rgba(62, 207, 142, 0.2);
+
+    --scrollbar-track: #1c1c1c;
+    --scrollbar-thumb: #3d3d3d;
+    --scrollbar-thumb-hover: #4a4a4a;
   }
 
-  .bg-muted {
-    background-color: var(--muted);
+  /* === NC-Cat Theme (Warm Ink with Blue Accents) - Exact NC Catalyst Match === */
+  .nccat {
+    /* Base - Warm Ink (navy-black with warmth) - Exact NC Catalyst colors */
+    --background: hsl(225 20% 10%);
+    --background-body: hsl(225 20% 10%);
+    --background-elevated: hsl(225 18% 14%);
+    --background-subtle: hsl(225 19% 12%);
+
+    /* Foreground: Warm off-white */
+    --foreground: hsl(40 15% 92%);
+    --foreground-muted: hsl(220 12% 55%);
+    --foreground-subtle: hsl(220 10% 45%);
+
+    /* Cards - Layered depth with subtle warmth */
+    --card: hsl(225 18% 13%);
+    --card-foreground: hsl(40 15% 92%);
+    --card-hover: hsl(225 16% 16%);
+
+    /* Primary: Lightened Navy Blue */
+    --primary: hsl(220 65% 60%);
+    --primary-hover: hsl(220 65% 68%);
+    --primary-foreground: hsl(225 20% 10%);
+
+    /* Accents: Bright blue like NC-Cat */
+    --accent-blue: hsl(213 94% 58%);
+    --accent-blue-light: hsl(213 94% 65%);
+    --accent-blue-glow: rgba(59, 130, 246, 0.5);
+    --accent-blue-subtle: rgba(59, 130, 246, 0.15);
+    --accent-blue-border: rgba(59, 130, 246, 0.4);
+
+    /* Secondary: Warm Slate */
+    --secondary: hsl(225 14% 18%);
+    --secondary-foreground: hsl(40 12% 85%);
+    --secondary-hover: hsl(225 14% 22%);
+
+    /* Destructive - Softer for dark backgrounds */
+    --destructive: hsl(0 70% 55%);
+    --destructive-hover: hsl(0 70% 62%);
+    --destructive-foreground: hsl(40 15% 92%);
+
+    /* Accent: Golden Amber - Consistent with NC Catalyst */
+    --accent: hsl(38 92% 55%);
+    --accent-foreground: hsl(225 20% 10%);
+
+    /* Muted - Subtle warmth */
+    --muted: hsl(225 14% 18%);
+    --muted-foreground: hsl(220 12% 55%);
+
+    /* Borders: Subtle definition */
+    --border: hsl(225 15% 22%);
+    --border-subtle: hsl(225 15% 18%);
+    --border-strong: hsl(225 15% 28%);
+
+    /* Ring */
+    --ring: hsl(220 65% 60%);
+    --ring-glow: 0 0 0 3px rgba(102, 140, 204, 0.25);
+
+    /* Sidebar: Deepest layer */
+    --sidebar: hsl(225 22% 8%);
+    --sidebar-foreground: hsl(40 15% 92%);
+    --sidebar-accent: hsl(225 18% 14%);
+    --sidebar-accent-foreground: hsl(213 94% 65%);
+    --sidebar-border: hsl(225 15% 18%);
+
+    /* Statuses: Vibrant but not harsh */
+    --status-success-bg: hsl(152 50% 12%);
+    --status-success-text: hsl(152 60% 55%);
+    --status-success-border: hsl(152 40% 25%);
+
+    --status-warning-bg: hsl(38 70% 12%);
+    --status-warning-text: hsl(38 92% 60%);
+    --status-warning-border: hsl(38 50% 30%);
+
+    --status-error-bg: hsl(0 50% 14%);
+    --status-error-text: hsl(0 70% 60%);
+    --status-error-border: hsl(0 50% 28%);
+
+    --status-info-bg: hsl(213 50% 12%);
+    --status-info-text: hsl(213 94% 65%);
+    --status-info-border: hsl(213 50% 25%);
+
+    /* Table: Layered for readability */
+    --table-bg: hsl(225 18% 13%);
+    --table-header-bg: hsl(225 16% 16%);
+    --table-text: hsl(40 15% 92%);
+    --table-border: hsl(225 15% 22%);
+    --table-row-border: hsl(225 15% 18%);
+    --table-hover-bg: hsl(225 16% 17%);
+    --table-selected-bg: hsl(213 80% 50% / 0.25);
+
+    --scrollbar-track: hsl(225 20% 10%);
+    --scrollbar-thumb: hsl(225 15% 25%);
+    --scrollbar-thumb-hover: hsl(225 15% 32%);
   }
 
-  .bg-muted\/50 {
-    background-color: var(--muted-a50);
-  }
+  /* === NC-Cat Light Theme (Warm Off-White with Navy/Amber Accents) === */
+  .nccat-light {
+    /* Base - Warm off-white background */
+    --background: hsl(40 20% 98%);
+    --background-body: hsl(40 20% 98%);
+    --background-elevated: hsl(0 0% 100%);
+    --background-subtle: hsl(40 10% 94%);
 
-  .bg-accent {
-    background-color: var(--accent);
-  }
+    /* Foreground */
+    --foreground: hsl(220 25% 12%);
+    --foreground-muted: hsl(220 10% 40%);
+    --foreground-subtle: hsl(220 10% 60%);
 
-  .bg-primary {
-    background-color: var(--primary);
-  }
+    /* Cards & Surfaces */
+    --card: hsl(0 0% 100%);
+    --card-foreground: hsl(220 25% 12%);
+    --card-hover: hsl(40 10% 98%);
 
-  .bg-destructive {
-    background-color: var(--destructive);
-  }
+    /* Primary - Deep Navy Blue */
+    --primary: hsl(220 65% 28%);
+    --primary-hover: hsl(220 65% 34%);
+    --primary-foreground: hsl(40 20% 98%);
 
-  .bg-popover {
-    background-color: var(--popover);
-  }
+    /* Accents: Blue (matching dark theme) */
+    --accent-blue: hsl(213 94% 50%);
+    --accent-blue-light: hsl(213 94% 58%);
+    --accent-blue-glow: rgba(37, 99, 235, 0.4);
+    --accent-blue-subtle: rgba(37, 99, 235, 0.1);
+    --accent-blue-border: rgba(37, 99, 235, 0.3);
 
-  /* === Text Utilities === */
-  .text-foreground {
-    color: var(--foreground);
-  }
+    /* Secondary - Warm Muted */
+    --secondary: hsl(40 10% 94%);
+    --secondary-foreground: hsl(220 25% 20%);
+    --secondary-hover: hsl(40 10% 88%);
 
-  .text-card-foreground {
-    color: var(--card-foreground);
-  }
+    /* Destructive */
+    --destructive: hsl(0 72% 51%);
+    --destructive-hover: hsl(0 72% 45%);
+    --destructive-foreground: hsl(0 0% 100%);
 
-  .text-muted-foreground {
-    color: var(--muted-foreground);
-  }
+    /* Accent - Golden Amber */
+    --accent: hsl(38 92% 50%);
+    --accent-foreground: hsl(220 25% 12%);
 
-  .text-accent-foreground {
-    color: var(--accent-foreground);
-  }
+    /* Muted */
+    --muted: hsl(40 10% 94%);
+    --muted-foreground: hsl(220 10% 45%);
 
-  .text-destructive-foreground {
-    color: var(--destructive-foreground);
-  }
+    /* Borders & Inputs - Slightly darker than default for visibility */
+    --border: hsl(220 12% 78%);
+    --border-subtle: hsl(220 12% 85%);
+    --border-strong: hsl(220 12% 70%);
 
-  .text-primary-foreground {
-    color: var(--primary-foreground);
-  }
+    /* Ring */
+    --ring: hsl(220 65% 28%);
+    --ring-glow: 0 0 0 3px rgba(25, 55, 109, 0.15);
 
-  .text-popover-foreground {
-    color: var(--popover-foreground);
-  }
+    /* Sidebar */
+    --sidebar: hsl(0 0% 100%);
+    --sidebar-foreground: hsl(220 25% 20%);
+    --sidebar-accent: hsl(220 30% 94%);
+    --sidebar-accent-foreground: hsl(220 25% 12%);
+    --sidebar-border: hsl(220 12% 82%);
 
-  /* === Border Utilities === */
-  .border-border {
-    border-color: var(--border);
-  }
+    /* Status colors */
+    --status-success-bg: hsl(152 69% 90%);
+    --status-success-text: hsl(152 69% 31%);
+    --status-success-border: hsl(152 40% 80%);
 
-  .border-muted {
-    border-color: var(--muted);
-  }
+    --status-warning-bg: hsl(38 92% 90%);
+    --status-warning-text: hsl(38 80% 35%);
+    --status-warning-border: hsl(38 50% 80%);
 
-  /* === Sidebar Utilities === */
-  .bg-sidebar {
-    background: var(--sidebar);
-  }
+    --status-error-bg: hsl(0 72% 92%);
+    --status-error-text: hsl(0 72% 45%);
+    --status-error-border: hsl(0 40% 80%);
 
-  .text-sidebar-foreground {
-    color: var(--sidebar-foreground);
-  }
+    --status-info-bg: hsl(190 40% 95%);
+    --status-info-text: hsl(190 70% 35%);
+    --status-info-border: hsl(190 40% 80%);
 
-  .text-sidebar-accent-foreground {
-    color: var(--sidebar-accent-foreground);
-  }
+    /* Table colors */
+    --table-bg: hsl(0 0% 100%);
+    --table-header-bg: hsl(40 10% 96%);
+    --table-text: hsl(220 25% 12%);
+    --table-border: hsl(220 12% 78%);
+    --table-row-border: hsl(220 12% 85%);
+    --table-hover-bg: hsl(40 10% 96%);
+    --table-selected-bg: hsl(213 80% 50% / 0.18);
 
-  .hover\:bg-sidebar-accent:hover {
-    background: var(--accent-blue-subtle);
-    border-left: 2px solid var(--accent-blue);
-  }
-
-  .bg-sidebar-accent {
-    background: var(--accent-blue-subtle);
-    border-left: 2px solid var(--accent-blue);
-  }
-
-  /* === Table Utilities === */
-  .bg-table {
-    background: var(--table-bg);
-  }
-
-  .table-text {
-    color: var(--table-text);
-  }
-
-  /* === Input/Form Styling === */
-  input[type="text"],
-  input[type="search"],
-  input[type="number"],
-  input[type="email"],
-  input[type="password"],
-  input[type="date"],
-  input[type="datetime-local"],
-  input[type="time"],
-  input[type="tel"],
-  input[type="url"],
-  select,
-  textarea {
-    border: var(--input-border-width) solid var(--input-border);
-    background: var(--input-bg);
-    background-color: var(--input-bg);
-    color: var(--foreground);
-    border-radius: var(--radius-sm);
-    padding: 0.5rem 0.75rem;
-    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-  }
-
-  input[type="text"]:focus,
-  input[type="search"]:focus,
-  input[type="number"]:focus,
-  input[type="email"]:focus,
-  input[type="password"]:focus,
-  input[type="date"]:focus,
-  input[type="datetime-local"]:focus,
-  input[type="time"]:focus,
-  input[type="tel"]:focus,
-  input[type="url"]:focus,
-  select:focus,
-  textarea:focus {
-    outline: none;
-    border-color: var(--accent-blue);
-    box-shadow: 0 0 0 3px var(--accent-blue-subtle), var(--shadow-blue-sm);
-  }
-
-  /* Hover state for inputs - subtle blue border hint */
-  input[type="text"]:hover:not(:focus),
-  input[type="search"]:hover:not(:focus),
-  input[type="number"]:hover:not(:focus),
-  input[type="email"]:hover:not(:focus),
-  input[type="password"]:hover:not(:focus),
-  input[type="date"]:hover:not(:focus),
-  input[type="datetime-local"]:hover:not(:focus),
-  input[type="time"]:hover:not(:focus),
-  input[type="tel"]:hover:not(:focus),
-  input[type="url"]:hover:not(:focus),
-  select:hover:not(:focus),
-  textarea:hover:not(:focus) {
-    border-color: var(--accent-blue-border);
-  }
-
-  input::placeholder,
-  textarea::placeholder {
-    color: var(--input-placeholder);
-  }
-
-  /* Select dropdown arrow - white for dark theme */
-  select {
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a0a0a8' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 0.75rem center;
-    padding-right: 2.5rem;
-  }
-
-  /* === Page Title === */
-  .page-title-gradient {
-    background: var(--page-title-gradient);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    font-size: 1.5rem;
-    font-weight: 600;
-    font-family: inherit;
-  }
-
-  /* === Scrollbar Styling === */
-  ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-
-  ::-webkit-scrollbar-track {
-    background: var(--scrollbar-track);
-    border-radius: 4px;
-  }
-
-  ::-webkit-scrollbar-thumb {
-    background: var(--scrollbar-thumb);
-    border-radius: 4px;
-  }
-
-  ::-webkit-scrollbar-thumb:hover {
-    background: var(--scrollbar-thumb-hover);
-  }
-
-  /* === Global Font === */
-  body, button, input, select, textarea {
-    font-family: "Geist Variable", Geist, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --scrollbar-track: hsl(40 20% 98%);
+    --scrollbar-thumb: hsl(40 15% 75%);
+    --scrollbar-thumb-hover: hsl(40 15% 65%);
   }
 }

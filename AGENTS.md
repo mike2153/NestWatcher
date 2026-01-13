@@ -24,6 +24,7 @@ Examples:
 - Is this for Nestpick, Grundner, AutoPAC, or general CNC jobs?
 - Is this UI-only, or does it affect watchers / job state?
 - What is the expected “done” behavior?
+- DO NOT ASK WHERE SPECIFIC CODE IS. IT IS YOUR JOB TO GO AND FIND WHERE THE RELIVANT CODE IS.
 
 **Never guess. Never assume.**
 
@@ -277,13 +278,15 @@ IPC responses must follow this shape:
 
 ### Mermaid example
 
+* Strictly no () in the mermaid chart. This is a syntax error if used.
+
 ```mermaid
 flowchart LR
   UI[Renderer Page]
   -->|window.api.jobs.list| PRE[Preload]
   -->|ipc invoke| MAIN[Main IPC]
   --> SVC[Service]
-  --> DB[(Postgres)]
+  --> DB[Postgres]
   --> MAIN --> UI
 ```
 

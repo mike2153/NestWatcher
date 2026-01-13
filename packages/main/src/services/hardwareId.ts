@@ -87,7 +87,7 @@ async function getMotherboardSerial(): Promise<string> {
       .map((line) => line.trim())
       .filter(Boolean);
     if (lines.length >= 2) {
-      const values = lines[1].split(',').map((value) => value.replace(/^\"|\"$/g, '').trim());
+      const values = lines[1].split(',').map((value) => value.replace(/^"|"$/g, '').trim());
       const manufacturer = values[0] || '';
       const product = values[1] || '';
       if (manufacturer || product) {
@@ -141,6 +141,9 @@ export async function getHardwareId(): Promise<string> {
     cachedHardwareId = hashHardwareIds(cpuId, motherboardSerial);
 
     logger.info({ hardwareId: cachedHardwareId }, 'Hardware ID generated');
+    logger.info(
+      `Hardware ID details (CPU + motherboard + hash): cpuId=${cpuId} motherboardSerial=${motherboardSerial} hardwareId=${cachedHardwareId}`
+    );
 
     return cachedHardwareId;
   } catch (error) {

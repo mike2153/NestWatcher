@@ -388,13 +388,13 @@ export function AllocatedMaterialPage() {
       </div>
 
       {hierarchicalData.length === 0 ? (
-        <div className="rounded-lg border border-[var(--table-border)] bg-table px-6 py-10 text-center text-muted-foreground">
+        <div className="rounded-lg border border-[var(--table-border)] bg-[var(--table-bg)] px-6 py-10 text-center text-muted-foreground">
           {loading ? 'Loading allocated material...' : 'No allocated material found.'}
         </div>
       ) : (
         <GlobalTable
           table={table}
-          className="bg-table"
+          className="bg-[var(--table-bg)]"
         />
       )}
     </div>

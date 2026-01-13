@@ -79,7 +79,7 @@ export function DashboardPage() {
         if (cancelled) return;
         if (res.ok) setDiagnostics(res.value);
       })
-      .catch(() => {});
+      .catch(() => { });
     const unsubscribe = window.api.diagnostics.subscribe((snapshot) => {
       if (!cancelled) setDiagnostics(snapshot);
     });
@@ -165,8 +165,8 @@ export function DashboardPage() {
                           issue.severity === 'critical'
                             ? 'bg-red-600'
                             : issue.severity === 'warning'
-                            ? 'bg-amber-600'
-                            : 'bg-slate-500'
+                              ? 'bg-amber-600'
+                              : 'bg-slate-500'
                         )}
                         title={`${healthLabel(issue.code)} — ${issue.message}`}
                       >
@@ -196,7 +196,7 @@ export function DashboardPage() {
   return (
     <div className="space-y-4 w-full">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="border rounded p-4 flex flex-col">
+        <div className="border rounded p-4 flex flex-col bg-card text-card-foreground shadow-sm">
           <div className="font-medium mb-2">Jobs Pending</div>
           {loading ? (
             <div className="text-sm text-muted-foreground flex items-center gap-2">
@@ -215,8 +215,8 @@ export function DashboardPage() {
             </Card>
           )}
         </div>
-        <div className="border rounded p-4">Jobs In Progress</div>
-        <div className="border rounded p-4">Completed Today</div>
+        <div className="border rounded p-4 bg-card text-card-foreground shadow-sm">Jobs In Progress</div>
+        <div className="border rounded p-4 bg-card text-card-foreground shadow-sm">Completed Today</div>
       </div>
     </div>
   );

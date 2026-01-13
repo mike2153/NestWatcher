@@ -12,6 +12,22 @@
     border-color: var(--border);
   }
 
+  /* Form elements with slightly thicker borders (text inputs, dropdowns, textareas) */
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    border-width: 1.5px;
+  }
+
+  /* Focus states - use accent-blue border for blue accent themes */
+  input:not([type="checkbox"]):not([type="radio"]):focus,
+  select:focus,
+  textarea:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 0 2px var(--accent-blue-subtle);
+  }
+
   html, body, #root {
     width: 100%;
     height: 100%;
@@ -23,6 +39,26 @@
   body {
     background: var(--background-body);
     color: var(--foreground);
+  }
+
+  /* Form elements should have elevated background for contrast */
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    background-color: var(--card);
+    color: var(--foreground);
+  }
+
+  /* Form elements - less rounded corners */
+  select,
+  input:not([type="checkbox"]):not([type="radio"]) {
+    border-radius: 4px;
+  }
+
+  /* Buttons with border should have elevated background */
+  button.border,
+  .border.rounded {
+    background-color: var(--card);
   }
 }
 

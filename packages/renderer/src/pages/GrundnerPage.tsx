@@ -296,7 +296,7 @@ export function GrundnerPage() {
 
   return (
     <div className="space-y-2 w-full">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3 border rounded p-3 bg-[var(--card)]">
         <div className="flex flex-wrap gap-3 items-end">
           <label className="flex flex-col gap-1 text-sm">
             <span>Search</span>

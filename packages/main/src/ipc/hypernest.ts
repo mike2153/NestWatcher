@@ -87,6 +87,7 @@ function resolveNcCatalystSource(): { type: 'url'; url: string } | { type: 'file
   // Hot reload: if dev URL is set, use it
   const devUrl = process.env.NC_CATALYST_DEV_URL;
   if (devUrl) {
+    logger.info({ devUrl }, 'NC-Cat source: using dev URL');
     return { type: 'url', url: devUrl };
   }
 
@@ -96,16 +97,50 @@ function resolveNcCatalystSource(): { type: 'url'; url: string } | { type: 'file
   // Prefer a dev working copy when provided
   const devDir = process.env.NC_CATALYST_DEV_DIR;
   if (devDir && existsSync(devDir)) {
-    return { type: 'file', path: join(resolve(devDir), entry) };
+    const candidate = join(resolve(devDir), entry);
+    if (existsSync(candidate)) {
+      logger.info({ devDir, entry, candidate }, 'NC-Cat source: using dev directory');
+      return { type: 'file', path: candidate };
+    }
   }
 
-  // Packaged: <App>/resources/NC_CAT_V3
-  // Dev:      ../../../resources/NC_CAT_V3 relative to compiled dist
-  const base = app.isPackaged
-    ? join(process.resourcesPath, 'NC_CAT_V3')
-    : resolve(__dirname, '../../../resources/NC_CAT_V3');
+  // Try multiple fallbacks so dev and packaged builds both resolve correctly.
+  const appPath = app.getAppPath();
+  const candidates = [
+    // Packaged: <Resources>/NC_CAT_V3
+    join(process.resourcesPath, 'NC_CAT_V3', entry),
+    // Dev: project resources alongside app path
+    join(appPath, 'resources', 'NC_CAT_V3', entry),
+    // Dev: repo root resources (one level above app path)
+    join(resolve(appPath, '..'), 'resources', 'NC_CAT_V3', entry),
+    // Dev: relative to source tree (compiled dist/ipc -> repo/resources)
+    join(resolve(__dirname, '../../../../resources/NC_CAT_V3'), entry),
+    // Legacy fallback
+    join(resolve(__dirname, '../../../resources/NC_CAT_V3'), entry)
+  ].filter((p, idx, arr) => arr.indexOf(p) === idx);
 
-  return { type: 'file', path: join(base, entry) };
+  logger.info(
+    {
+      entry,
+      appPath,
+      resourcesPath: process.resourcesPath,
+      __dirname,
+      candidates: candidates.map((pathTried) => ({ pathTried, exists: existsSync(pathTried) }))
+    },
+    'NC-Cat source: evaluated file candidates'
+  );
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      logger.info({ candidate }, 'NC-Cat source: selected file');
+      return { type: 'file', path: candidate };
+    }
+  }
+
+  // Last resort: use appPath resources even if missing; caller will log the failure.
+  const fallback = join(appPath, 'resources', 'NC_CAT_V3', entry);
+  logger.warn({ fallback }, 'NC-Cat source: no candidate found, using fallback');
+  return { type: 'file', path: fallback };
 }
 
 /**
@@ -120,7 +155,19 @@ export function startNcCatBackgroundWindow(): void {
   }
 
   const source = resolveNcCatalystSource();
-  const preloadPath = path.join(__dirname, '../../preload/dist/index.js');
+
+  // Use NC-Cat specific preload script
+  const ncCatPreloadPath = path.join(__dirname, '../../preload/dist/nc-catalyst-preload.js');
+  const fallbackPreloadPath = path.join(__dirname, '../../preload/dist/index.js');
+  const preloadPath = existsSync(ncCatPreloadPath) ? ncCatPreloadPath : fallbackPreloadPath;
+
+  logger.info({
+    ncCatPreloadPath,
+    fallbackPreloadPath,
+    preloadPath,
+    exists: existsSync(preloadPath),
+    isNcCatPreload: preloadPath === ncCatPreloadPath
+  }, 'Starting NC-Cat background window');
 
   ncCatBackgroundWin = new BrowserWindow({
     width: 800,
@@ -328,6 +375,8 @@ export function isSubscriptionValid(): boolean {
 }
 
 export function openNcCatalystWindow() {
+  logger.info('openNcCatalystWindow called');
+
   if (ncCatWin && !ncCatWin.isDestroyed()) {
     logger.info('NC-Cat window already open; focusing');
     try {
@@ -340,11 +389,44 @@ export function openNcCatalystWindow() {
     return;
   }
 
-  const source = resolveNcCatalystSource();
-  logger.info({ source }, 'Opening NC-Cat window');
+  logger.info({
+    hasBackgroundWin: !!ncCatBackgroundWin,
+    isDestroyed: ncCatBackgroundWin ? ncCatBackgroundWin.isDestroyed() : null
+  }, 'Checking if background NC-Cat window is running');
 
-  // Preload script path - same as main window to expose window.api
-  const preloadPath = path.join(__dirname, '../../preload/dist/index.js');
+  const source = resolveNcCatalystSource();
+  logger.info(
+    {
+      source,
+      env: {
+        NC_CATALYST_DEV_URL: process.env.NC_CATALYST_DEV_URL,
+        NC_CATALYST_ENTRY: process.env.NC_CATALYST_ENTRY,
+        NC_CATALYST_DEV_DIR: process.env.NC_CATALYST_DEV_DIR
+      }
+    },
+    'Opening NC-Cat window'
+  );
+
+  // Use NC-Cat specific preload script that only exposes needed IPC methods
+  // NC-Cat should NOT have access to NestWatcher's window.api
+  const ncCatPreloadPath = path.join(__dirname, '../../preload/dist/nc-catalyst-preload.js');
+  const fallbackPreloadPath = path.join(__dirname, '../../preload/dist/index.js');
+
+  // Use NC-Cat preload if it exists, otherwise fall back to main preload (for dev)
+  const preloadPath = existsSync(ncCatPreloadPath) ? ncCatPreloadPath : fallbackPreloadPath;
+
+  logger.info(
+    {
+      ncCatPreloadPath,
+      fallbackPreloadPath,
+      selectedPreload: preloadPath,
+      exists: existsSync(preloadPath),
+      isNcCatPreload: preloadPath === ncCatPreloadPath
+    },
+    'NC-Cat preload resolved'
+  );
+
+  logger.info('Creating NC-Cat BrowserWindow');
 
   ncCatWin = new BrowserWindow({
     width: 1400,
@@ -362,10 +444,13 @@ export function openNcCatalystWindow() {
     }
   });
 
+  logger.info({ id: ncCatWin.id }, 'NC-Cat BrowserWindow created');
+
   applyWindowNavigationGuards(ncCatWin.webContents, { allowExternal: false });
+  logger.info('Navigation guards applied');
 
   ncCatWin.on('ready-to-show', () => {
-    logger.debug('NC-Cat window ready-to-show');
+    logger.info('NC-Cat window ready-to-show event');
     try {
       ncCatWin?.show();
       ncCatWin?.focus();
@@ -374,8 +459,11 @@ export function openNcCatalystWindow() {
     }
   });
   ncCatWin.on('closed', () => {
-    logger.info('NC-Cat window closed');
+    logger.info('NC-Cat window closed event');
     ncCatWin = null;
+  });
+  ncCatWin.on('close', () => {
+    logger.info('NC-Cat window close event (before closing)');
   });
   ncCatWin.on('unresponsive', () => {
     logger.warn('NC-Cat window became unresponsive');
@@ -384,12 +472,21 @@ export function openNcCatalystWindow() {
     logger.error({ details }, 'NC-Cat render process gone');
   });
   ncCatWin.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    logger.error({ errorCode, errorDescription, validatedURL }, 'NC-Cat did-fail-load');
+    logger.error({ errorCode, errorDescription, validatedURL }, 'NC-Cat did-fail-load event');
+  });
+  ncCatWin.webContents.on('did-start-loading', () => {
+    logger.info('NC-Cat did-start-loading event');
+  });
+  ncCatWin.webContents.on('did-stop-loading', () => {
+    logger.info('NC-Cat did-stop-loading event');
+  });
+  ncCatWin.webContents.on('dom-ready', () => {
+    logger.info('NC-Cat dom-ready event');
   });
   ncCatWin.webContents.on('did-finish-load', () => {
+    logger.info('NC-Cat did-finish-load event');
     // NC Catalyst UI is designed for a browser viewport; scale slightly for the desktop window
     ncCatWin?.webContents.setZoomFactor(0.9);
-    logger.debug('NC-Cat did-finish-load');
     try {
       ncCatWin?.show();
       ncCatWin?.focus();
@@ -399,6 +496,7 @@ export function openNcCatalystWindow() {
   });
 
   // Relaxed CSP for NC Catalyst: allow required CDNs and inline handlers in this session only
+  logger.info('Applying CSP to NC-Cat session');
   const ncSession = session.fromPartition('persist:nc-catalyst');
   const ncPolicy = [
     "default-src 'self' https: data: ws:",
@@ -418,21 +516,46 @@ export function openNcCatalystWindow() {
     "form-action 'self'"
   ].join('; ');
   applyCustomContentSecurityPolicy(ncSession, ncPolicy);
+  logger.info('CSP applied');
 
   if (source.type === 'url') {
     // Hot reload mode: load from Vite dev server
+    logger.info({ url: source.url }, 'NC-Cat loadURL start');
     ncCatWin.loadURL(source.url).catch((err) => {
       logger.error({ err, url: source.url }, 'Failed to load NC Catalyst from dev server');
     });
   } else {
     // Production mode: load from file
-    ncCatWin.loadFile(source.path).catch((err) => {
-      logger.error({ err, path: source.path }, 'Failed to load NC Catalyst');
-    });
+    logger.info({ pathTried: source.path, exists: existsSync(source.path) }, 'NC-Cat loadFile start');
+    ncCatWin.loadFile(source.path)
+      .then(() => {
+        logger.info('NC-Cat loadFile succeeded');
+      })
+      .catch((err) => {
+        const exists = existsSync(source.path);
+        logger.error(
+          {
+            err,
+            errMessage: err?.message,
+            errStack: err?.stack,
+            pathTried: source.path,
+            exists,
+            windowDestroyed: ncCatWin?.isDestroyed()
+          },
+          'Failed to load NC Catalyst from file path'
+        );
+      });
   }
+
+  logger.info('openNcCatalystWindow completed');
 }
 
 export function closeNcCatalystWindow(): void {
+  logger.info({
+    hasWindow: !!ncCatWin,
+    isDestroyed: ncCatWin?.isDestroyed(),
+    stack: new Error().stack
+  }, 'closeNcCatalystWindow called');
   if (ncCatWin && !ncCatWin.isDestroyed()) {
     logger.info('Closing NC-Cat window');
     ncCatWin.close();
@@ -447,7 +570,9 @@ export function registerNcCatalystIpc() {
   }, { requiresAuth: false });
 
   registerResultHandler('nc-catalyst:close', async () => {
-    logger.info('IPC nc-catalyst:close received');
+    // Log with stack trace to see where this is being called from
+    const stack = new Error().stack;
+    logger.info({ stack }, 'IPC nc-catalyst:close received');
     closeNcCatalystWindow();
     return ok<null, AppError>(null);
   }, { requiresAuth: false });
@@ -1259,7 +1384,11 @@ export function registerNcCatalystIpc() {
 
   // Handle auth state updates from NC-Cat (NC-Cat pushes updates)
   ipcMain.on('nc-catalyst:auth:stateUpdate', (_event, state: SubscriptionAuthState) => {
-    logger.debug({ authenticated: state.authenticated, status: state.subscriptionStatus }, 'Auth state update received from NC-Cat');
+    logger.info({
+      authenticated: state.authenticated,
+      status: state.subscriptionStatus,
+      isAdmin: state.isAdmin
+    }, 'Auth state update received from NC-Cat');
     cachedSubscriptionAuthState = state;
 
     // Broadcast to all NestWatcher renderer windows
@@ -1267,16 +1396,26 @@ export function registerNcCatalystIpc() {
       (w) => w !== ncCatWin && w !== ncCatBackgroundWin
     );
 
+    logger.info({
+      mainWindowCount: mainWindows.length,
+      totalWindows: BrowserWindow.getAllWindows().length
+    }, 'Broadcasting auth state to NestWatcher windows');
+
     for (const win of mainWindows) {
       if (!win.isDestroyed()) {
         win.webContents.send('nc-catalyst:auth:stateChanged', state);
+        logger.debug({ windowId: win.id }, 'Sent auth state to window');
       }
     }
   });
 
   // Handle auth state response from NC-Cat (response to our request)
   ipcMain.on('nc-catalyst:auth:stateResponse', (_event, state: SubscriptionAuthState) => {
-    logger.debug({ authenticated: state.authenticated, status: state.subscriptionStatus }, 'Auth state response received from NC-Cat');
+    logger.info({
+      authenticated: state.authenticated,
+      status: state.subscriptionStatus,
+      isAdmin: state.isAdmin
+    }, 'Auth state response received from NC-Cat');
     cachedSubscriptionAuthState = state;
   });
 

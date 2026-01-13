@@ -15,7 +15,7 @@ function Card({ className, children, ...props }: React.ComponentProps<"div">) {
     >
       <GlowingEffect
         // Neon deep purple configuration
-        variant="purple"
+        variant="teal"
         blur={12}
         inactiveZone={0.7}
         proximity={96}
