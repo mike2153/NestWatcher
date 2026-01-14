@@ -72,7 +72,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-none animate-in fade-in duration-200">
-      <div className="border rounded-xl shadow-2xl w-[90vw] h-[85vh] max-w-6xl flex overflow-hidden animate-in zoom-in-95 duration-200" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
+      <div className="border rounded-xl shadow-2xl w-[96vw] h-[85vh] max-w-[90rem] flex overflow-hidden animate-in zoom-in-95 duration-200" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
         {/* Sidebar - matches NC Cat exactly */}
         <div className="w-48 border-r shrink-0 flex flex-col" style={{ backgroundColor: 'var(--sidebar)' }}>
           {/* Sidebar Header */}

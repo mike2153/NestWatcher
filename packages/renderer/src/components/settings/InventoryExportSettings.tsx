@@ -208,7 +208,7 @@ export function InventoryExportSettings() {
         <label className="block text-sm font-medium">Delimiter</label>
         <div className="flex items-center gap-2">
           <select
-            className="w-32 h-8 px-2 border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm"
+            className="w-20 h-8 px-2 border border-border text-center rounded-md bg-background focus:outline-none focus:ring-3 focus:ring-primary/50 text-sm"
             value={draft.template.delimiter}
             onChange={(e) => {
               const delimiter = e.target.value;
@@ -224,122 +224,126 @@ export function InventoryExportSettings() {
             <option value=",">,</option>
             <option value=";">;</option>
             <option value="|">|</option>
+            <option value="/">/</option>
+            <option value="\">\</option>
           </select>
-          <div className="text-xs text-muted-foreground">Used by "Export Custom CSV" and scheduled export.</div>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <h5 className="text-sm font-semibold">Columns</h5>
-        <div className="overflow-x-auto border border-border rounded-md">
-          <table className="min-w-full text-sm">
-            <thead className="bg-muted/40">
-              <tr className="text-left">
-                <th className="p-2 w-16">On</th>
-                <th className="p-2">Column Name</th>
-                <th className="p-2 w-56">Maps To</th>
-                <th className="p-2 w-28">Order</th>
-              </tr>
-            </thead>
-            <tbody>
-              {draft.template.columns.map((col, idx) => (
-                <tr key={`${col.field}-${idx}`} className="border-t border-border">
-                  <td className="p-2">
-                    <input
-                      type="checkbox"
-                      checked={col.enabled}
-                      onChange={(e) => {
-                        const enabled = e.target.checked;
-                        setDraft((prev) => {
-                          const nextCols = [...prev.template.columns];
-                          nextCols[idx] = { ...nextCols[idx], enabled };
-                          return { ...prev, template: { ...prev.template, columns: nextCols } };
-                        });
-                      }}
-                    />
-                  </td>
-                  <td className="p-2">
-                    <input
-                      className="w-full px-2 py-1 border border-border rounded-md bg-background"
-                      value={col.header}
-                      onChange={(e) => {
-                        const header = e.target.value;
-                        setDraft((prev) => {
-                          const nextCols = [...prev.template.columns];
-                          nextCols[idx] = { ...nextCols[idx], header };
-                          return { ...prev, template: { ...prev.template, columns: nextCols } };
-                        });
-                      }}
-                      placeholder="Header"
-                    />
-                  </td>
-                  <td className="p-2">
-                    <select
-                      className="w-full px-2 py-1 border border-border rounded-md bg-background"
-                      value={col.field}
-                      onChange={(e) => {
-                        const field = e.target.value as InventoryExportFieldKey;
-                        setDraft((prev) => {
-                          const nextCols = [...prev.template.columns];
-                          nextCols[idx] = { ...nextCols[idx], field };
-                          return { ...prev, template: { ...prev.template, columns: nextCols } };
-                        });
-                      }}
-                    >
-                      {FIELD_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="p-2">
-                    <div className="flex items-center gap-1">
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="h-8 w-8 p-0"
-                        onClick={() => moveColumn(idx, -1)}
-                        disabled={idx === 0}
-                        title="Move up"
-                      >
-                        <ArrowUp className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="h-8 w-8 p-0"
-                        onClick={() => moveColumn(idx, 1)}
-                        disabled={idx === draft.template.columns.length - 1}
-                        title="Move down"
-                      >
-                        <ArrowDown className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <h5 className="text-sm font-semibold">Preview</h5>
-        <div className="rounded-md border border-border bg-muted/20 p-3">
-          <div className="text-xs text-muted-foreground mb-2">
-            Shows the header row plus the first 10 rows. The UTF-8 BOM is hidden in this preview.
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>Used by "Export Custom CSV" and scheduled export.</span>
           </div>
+        </div>
+      </div>
 
-          {previewLoading ? (
-            <div className="text-sm text-muted-foreground">Generating preview...</div>
-          ) : previewError ? (
-            <div className="text-sm text-destructive">{previewError}</div>
-          ) : (
-            <pre className="whitespace-pre-wrap break-words text-xs font-mono text-foreground/90 max-h-48 overflow-auto">
-              {previewCsv || 'No data to preview yet.'}
-            </pre>
-          )}
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
+        <div className="space-y-3 flex-1 min-w-0">
+          {/*<h5 className="text-sm font-semibold">Columns</h5>*/}
+          <div className="overflow-x-auto border border-border rounded-md">
+            <table className="min-w-full text-sm">
+              <thead className="bg-muted/40">
+                <tr className="text-left">
+                  <th className="p-2 w-16">On</th>
+                  <th className="p-2">Column Name</th>
+                  <th className="p-2 w-56">Maps To</th>
+                  <th className="p-2 w-28">Order</th>
+                </tr>
+              </thead>
+              <tbody>
+                {draft.template.columns.map((col, idx) => (
+                  <tr key={`${col.field}-${idx}`} className="border-t border-border">
+                    <td className="p-2">
+                      <input
+                        type="checkbox"
+                        checked={col.enabled}
+                        onChange={(e) => {
+                          const enabled = e.target.checked;
+                          setDraft((prev) => {
+                            const nextCols = [...prev.template.columns];
+                            nextCols[idx] = { ...nextCols[idx], enabled };
+                            return { ...prev, template: { ...prev.template, columns: nextCols } };
+                          });
+                        }}
+                      />
+                    </td>
+                    <td className="p-2">
+                      <input
+                        className="w-1/2 min-w-50 px-2 py-1 border border-border rounded-md bg-background"
+                        value={col.header}
+                        onChange={(e) => {
+                          const header = e.target.value;
+                          setDraft((prev) => {
+                            const nextCols = [...prev.template.columns];
+                            nextCols[idx] = { ...nextCols[idx], header };
+                            return { ...prev, template: { ...prev.template, columns: nextCols } };
+                          });
+                        }}
+                        placeholder="Header"
+                      />
+                    </td>
+                    <td className="p-2">
+                      <select
+                        className="w-full min-w-50 px-2 py-1 border border-border rounded-md bg-background"
+                        value={col.field}
+                        onChange={(e) => {
+                          const field = e.target.value as InventoryExportFieldKey;
+                          setDraft((prev) => {
+                            const nextCols = [...prev.template.columns];
+                            nextCols[idx] = { ...nextCols[idx], field };
+                            return { ...prev, template: { ...prev.template, columns: nextCols } };
+                          });
+                        }}
+                      >
+                        {FIELD_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="p-2">
+                      <div className="flex items-center gap-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => moveColumn(idx, -1)}
+                          disabled={idx === 0}
+                          title="Move up"
+                        >
+                          <ArrowUp className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => moveColumn(idx, 1)}
+                          disabled={idx === draft.template.columns.length - 1}
+                          title="Move down"
+                        >
+                          <ArrowDown className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="space-y-3 w-full lg:w-[420px] shrink-0">
+          <h5 className="text-sm font-semibold">Preview</h5>
+          <div className="rounded-md border border-border bg-muted/20 p-3">
+
+
+            {previewLoading ? (
+              <div className="text-sm text-muted-foreground">Generating preview...</div>
+            ) : previewError ? (
+              <div className="text-sm text-destructive">{previewError}</div>
+            ) : (
+              <pre className="whitespace-pre-wrap break-words text-xs font-mono text-foreground/90 max-h-48 overflow-auto">
+                {previewCsv || 'No data to preview yet.'}
+              </pre>
+            )}
+          </div>
         </div>
       </div>
  

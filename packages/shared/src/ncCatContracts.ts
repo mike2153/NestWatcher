@@ -156,7 +156,10 @@ export interface NcCatSubmitValidationReq {
       filename: string;
       folderName: string;
       folderPath: string;
-      ncEstRuntime: number;
+      // NestWatcher historically stores this as integer seconds.
+      // The MES spec uses `ncRuntime` (seconds, may be float), so accept either.
+      ncEstRuntime?: number;
+      ncRuntime?: number;
       yieldPercentage: number;
       usableOffcuts: Array<{ x: number; y: number; z: number }>;
       wasteOffcutM2: number;
@@ -209,6 +212,47 @@ export interface NcCatSubmitValidationRes {
   reason?: string | null;
   /** Validation status that caused rejection */
   validationStatus?: 'pass' | 'warnings' | 'errors' | null;
+}
+
+// ---------------------------------------------------------------------------------
+// NC-Cat Headless Validation (NestWatcher-triggered, no validation.json)
+// ---------------------------------------------------------------------------------
+
+export type NcCatHeadlessValidationReason = 'ingest' | 'stage';
+
+export interface NcCatHeadlessValidationFileInput {
+  filename: string;
+  ncContent: string;
+}
+
+export interface NcCatHeadlessValidationFileResult {
+  filename: string;
+  validation: {
+    status: 'pass' | 'warnings' | 'errors';
+    warnings: string[];
+    errors: string[];
+    syntax: string[];
+  };
+}
+
+export interface NcCatHeadlessValidateRequest {
+  requestId: string;
+  reason: NcCatHeadlessValidationReason;
+  folderName: string;
+  files: NcCatHeadlessValidationFileInput[];
+  profileId?: string | null;
+  profileName?: string | null;
+  profileSettings?: unknown | null;
+  machineNameHint?: string | null;
+}
+
+export interface NcCatHeadlessValidateResponse {
+  requestId: string;
+  success: boolean;
+  results?: NcCatHeadlessValidationFileResult[];
+  error?: string | null;
+  profileId?: string | null;
+  profileName?: string | null;
 }
 
 // ---------------------------------------------------------------------------------

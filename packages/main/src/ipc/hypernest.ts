@@ -236,7 +236,7 @@ export function stopNcCatBackgroundWindow(): void {
 /**
  * Get the active NC-Cat window (background or visible)
  */
-function getActiveNcCatWindow(): BrowserWindow | null {
+export function getActiveNcCatWindow(): BrowserWindow | null {
   // Prefer the visible window if it exists
   if (ncCatWin && !ncCatWin.isDestroyed()) {
     return ncCatWin;
@@ -1079,11 +1079,17 @@ export function registerNcCatalystIpc() {
             0
           );
 
+          const runtimeSeconds = Number.isFinite(fileEntry.ncEstRuntime)
+            ? fileEntry.ncEstRuntime
+            : Number.isFinite(fileEntry.ncRuntime)
+              ? fileEntry.ncRuntime
+              : null;
+
           // Upsert nc_stats with MES data
           try {
             await upsertNcStats({
               jobKey,
-              ncEstRuntime: Math.round(fileEntry.ncEstRuntime),
+              ncEstRuntime: runtimeSeconds != null ? Math.round(runtimeSeconds) : null,
               yieldPercentage: fileEntry.yieldPercentage,
               wasteOffcutM2: fileEntry.wasteOffcutM2,
               wasteOffcutDustM3: fileEntry.wasteOffcutDustM3,

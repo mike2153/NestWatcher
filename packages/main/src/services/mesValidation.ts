@@ -121,11 +121,15 @@ export async function processValidationJson(): Promise<void> {
         continue;
       }
       try {
+        const runtimeSeconds = Number.isFinite(entry.ncEstRuntime)
+          ? entry.ncEstRuntime
+          : Number.isFinite(entry.ncRuntime)
+            ? entry.ncRuntime
+            : null;
+
         await upsertNcStats({
           jobKey,
-          ncEstRuntime: Number.isFinite(entry.ncEstRuntime)
-            ? Math.round(entry.ncEstRuntime)
-            : null,
+          ncEstRuntime: runtimeSeconds != null ? Math.round(runtimeSeconds) : null,
           yieldPercentage: entry.yieldPercentage,
           wasteOffcutM2: entry.wasteOffcutM2,
           wasteOffcutDustM3: entry.wasteOffcutDustM3,
