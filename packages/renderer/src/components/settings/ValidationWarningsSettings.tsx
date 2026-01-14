@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Settings } from '../../../../shared/src';
+import { Button } from '@/components/ui/button';
 
 type ValidationWarningsState = Settings['validationWarnings'];
 
@@ -68,13 +69,9 @@ export function ValidationWarningsSettings() {
         </div>
       </div>
 
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
-      >
-        Save Changes
-      </button>
+      <Button size="sm" onClick={handleSave} disabled={saving}>
+        Save Settings
+      </Button>
     </div>
   );
 }

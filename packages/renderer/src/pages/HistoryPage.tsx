@@ -206,9 +206,9 @@ export function HistoryPage() {
     <div className="space-y-4 w-full">
       <div className="flex items-center justify-end gap-3">
         <div className="text-sm text-muted-foreground">{loading ? "Loading..." : `${rows.length} completed jobs`}</div>
-        <button className="border rounded px-3 py-1 text-sm" onClick={fetchHistory} disabled={loading}>
+        <Button size="sm" onClick={fetchHistory} disabled={loading}>
           Refresh
-        </button>
+        </Button>
       </div>
 
       <div className="flex flex-wrap gap-3 items-end border rounded p-3 bg-[var(--card)]">
@@ -341,7 +341,7 @@ export function HistoryPage() {
                   <ul className="space-y-3">
                     {timelineItems.map((item) => (
                       <li key={item.id} className="relative pl-5">
-                        <span className="absolute left-0 top-2 h-2.5 w-2.5 rounded-full bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.5)]" />
+                        <span className="absolute left-0 top-2 size-2 rounded-full bg-emerald-500" />
                         <div className="text-xs text-muted-foreground">{item.at ? formatDate(item.at) : "No timestamp"}</div>
                         <div className="text-sm font-medium">{item.label}</div>
                         {item.description && <div className="text-xs text-muted-foreground">{item.description}</div>}

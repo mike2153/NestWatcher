@@ -5,24 +5,29 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-3 whitespace-nowrap rounded-md text-sm font-medium transition-all duration-200 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)] relative overflow-hidden",
+  "inline-flex items-center justify-center gap-3 whitespace-nowrap rounded-md text-sm font-medium disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)] relative overflow-hidden transform-gpu transition-transform transition-shadow duration-200",
   {
     variants: {
       variant: {
-        default: "bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)] shadow-sm hover:shadow-[var(--shadow-blue-glow)]",
+        // Primary action button style (fixed blue across themes)
+        default: "bg-blue-600 text-slate-100 shadow-sm hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm",
+
+        // Cancel / destructive button style (fixed red across themes)
         destructive:
-          "bg-[var(--destructive)] text-white hover:bg-[var(--destructive-hover)] shadow-sm hover:shadow-md",
+          "bg-red-600 text-slate-100 shadow-sm hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm",
+
+        // Keep other variants available for layout/semantics; they also get the same raise behavior.
         outline:
-          "border border-[var(--border)] bg-transparent text-[var(--foreground)] hover:bg-[var(--accent-blue-subtle)] hover:text-[var(--accent-foreground)] hover:border-[var(--accent-blue-border)]",
+          "border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] shadow-sm hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm",
         secondary:
-          "bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:bg-[var(--secondary-hover)] hover:border-[var(--accent-blue-border)] shadow-sm",
+          "bg-[var(--secondary)] text-[var(--secondary-foreground)] shadow-sm hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm",
         ghost:
-          "text-[var(--foreground)] hover:bg-[var(--accent-blue-subtle)] hover:text-[var(--accent-foreground)]",
-        link: "text-[var(--primary)] underline-offset-4 hover:underline hover:text-[var(--accent-blue-light)]",
+          "text-[var(--foreground)] hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm",
+        link: "text-[var(--primary)] underline-offset-4 hover:underline",
       },
       size: {
         default: "h-10 px-4 py-2",
-        sm: "h-9 rounded-md gap-2 px-3 py-1.5 text-xs",
+        sm: "h-8 rounded-md gap-2 px-3 py-1.5 text-sm",
         lg: "h-11 rounded-md px-6 py-3",
         icon: "size-10 rounded-md",
       },

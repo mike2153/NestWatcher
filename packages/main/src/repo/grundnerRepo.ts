@@ -83,6 +83,39 @@ export async function listGrundner(req: GrundnerListReq) {
   return rows.map(mapRow);
 }
 
+export async function listGrundnerAll(): Promise<GrundnerRow[]> {
+  const sql = `
+    SELECT id, type_data, customer_id, length_mm, width_mm, thickness_mm,
+           stock, stock_available, reserved_stock, pre_reserved, last_updated
+    FROM public.grundner
+    ORDER BY type_data ASC, customer_id ASC NULLS LAST
+  `;
+
+  const rows = await withClient<GrundnerRowDb[]>((c) =>
+    c.query<GrundnerRowDb>(sql).then((r: QueryResult<GrundnerRowDb>) => r.rows)
+  );
+
+  return rows.map(mapRow);
+}
+
+export async function listGrundnerPreview(limit: number): Promise<GrundnerRow[]> {
+  const boundedLimit = Math.min(Math.max(Math.trunc(limit), 1), 50);
+
+  const sql = `
+    SELECT id, type_data, customer_id, length_mm, width_mm, thickness_mm,
+           stock, stock_available, reserved_stock, pre_reserved, last_updated
+    FROM public.grundner
+    ORDER BY type_data ASC, customer_id ASC NULLS LAST
+    LIMIT $1
+  `;
+
+  const rows = await withClient<GrundnerRowDb[]>((c) =>
+    c.query<GrundnerRowDb>(sql, [boundedLimit]).then((r: QueryResult<GrundnerRowDb>) => r.rows)
+  );
+
+  return rows.map(mapRow);
+}
+
 export async function updateGrundnerRow(input: GrundnerUpdateReq) {
   const sets: string[] = [];
   const params: SqlParam[] = [];

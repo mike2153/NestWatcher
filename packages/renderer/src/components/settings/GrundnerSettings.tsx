@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen } from 'lucide-react';
 import type { Settings } from '../../../../shared/src';
+import { Button } from '@/components/ui/button';
+import { FolderBrowseIconButton, InfoTipIcon } from '@/components/ui/icon-buttons';
 
 type TestState = Settings['test'];
 type GrundnerState = Settings['grundner'];
@@ -122,7 +123,10 @@ export function GrundnerSettings() {
         <h4 className="text-sm font-semibold text-foreground/80 uppercase tracking-wide">Test Settings</h4>
 
         <div>
-          <label className="block text-sm font-medium mb-1">Test Data Folder</label>
+          <label className="flex items-center gap-2 text-sm font-medium mb-1">
+            <span>Test Data Folder</span>
+            <InfoTipIcon text="Optional. Used when test data mode is enabled." />
+          </label>
           <div className="flex gap-2">
             <input
               className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 ${getStatusBorder(pathStatus.status)}`}
@@ -130,13 +134,7 @@ export function GrundnerSettings() {
               onChange={(e) => setTestState({ ...testState, testDataFolderPath: e.target.value })}
               placeholder="C:\path\to\test\data"
             />
-            <button
-              onClick={browseFolder}
-              className="px-3 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors"
-              title="Browse for folder"
-            >
-              <FolderOpen className="w-4 h-4" />
-            </button>
+            <FolderBrowseIconButton onClick={browseFolder} tooltip="Pick folder" />
           </div>
           <span className={`text-xs ${getStatusColor(pathStatus.status)}`}>
             {pathStatus.message}
@@ -213,13 +211,9 @@ export function GrundnerSettings() {
       </div>
 
       {/* Save Button */}
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
-      >
-        Save Changes
-      </button>
+      <Button size="sm" onClick={handleSave} disabled={saving}>
+        Save Settings
+      </Button>
     </div>
   );
 }

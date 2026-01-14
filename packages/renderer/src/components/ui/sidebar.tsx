@@ -62,12 +62,12 @@ function Sidebar({ className, children, ...props }: React.ComponentProps<"div">)
   if (isMobile) {
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile}>
-        <SheetContent side="left" className="bg-[var(--sidebar)] text-sidebar-foreground w-(--sidebar-width) p-0 [&>button]:hidden">
+        <SheetContent side="left" className="bg-sidebar text-sidebar-foreground w-[var(--sidebar-width)] p-0 [&>button]:hidden">
           <SheetHeader className="sr-only">
             <SheetTitle>Sidebar</SheetTitle>
             <SheetDescription>Displays the mobile sidebar.</SheetDescription>
           </SheetHeader>
-          <div className="bg-[var(--sidebar)] flex h-full w-full flex-col">
+          <div className="bg-sidebar flex h-full w-full flex-col">
             {children}
           </div>
         </SheetContent>
@@ -78,9 +78,10 @@ function Sidebar({ className, children, ...props }: React.ComponentProps<"div">)
     <aside
       data-slot="sidebar"
       className={cn(
-        "text-sidebar-foreground w-(--sidebar-width) border-r bg-[var(--sidebar)]",
+        "text-sidebar-foreground w-[var(--sidebar-width)] border-r",
         className
       )}
+      style={{ backgroundColor: 'var(--sidebar)' }}
       {...props}
     >
       {children}
@@ -112,6 +113,30 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
   return <li data-slot="sidebar-menu-item" className={cn("", className)} {...props} />
 }
 
+function SidebarMenuButton({
+  className,
+  isActive,
+  children,
+  ...props
+}: React.ComponentProps<"button"> & { isActive?: boolean }) {
+  return (
+    <button
+      data-slot="sidebar-menu-button"
+      data-active={isActive}
+      className={cn(
+        "flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
+        isActive
+          ? "bg-primary text-primary-foreground"
+          : "text-muted-foreground",
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </button>
+  )
+}
+
 export {
   useSidebar,
   SidebarProvider,
@@ -122,4 +147,5 @@ export {
   SidebarContent,
   SidebarMenu,
   SidebarMenuItem,
+  SidebarMenuButton,
 }

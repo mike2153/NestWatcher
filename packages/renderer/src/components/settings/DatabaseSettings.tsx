@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
+import { Button } from '@/components/ui/button';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import type { DbSettings, DbStatus } from '../../../../shared/src';
@@ -197,22 +198,18 @@ export function DatabaseSettings() {
 
       {/* Action Buttons */}
       <div className="flex items-center gap-3">
-        <button
+        <Button
           type="button"
+          size="sm"
           onClick={handleSubmit(onTest)}
           disabled={isSubmitting || testResult.status === 'testing'}
-          className="px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors disabled:opacity-50"
         >
           Test Connection
-        </button>
+        </Button>
 
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
-        >
-          Save Changes
-        </button>
+        <Button type="submit" size="sm" disabled={isSubmitting}>
+          Save Settings
+        </Button>
 
         {testResult.status !== 'idle' && (
           <span className={`text-sm ${

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSubscriptionAuth } from '@/contexts/SubscriptionAuthContext';
+import { Button } from '@/components/ui/button';
 
 function isSubscriptionSatisfied(state: ReturnType<typeof useSubscriptionAuth>['state']): boolean {
   if (!state) return false;
@@ -124,14 +125,14 @@ export function AuthRequiredPage() {
             NestWatcher uses NC Catalyst for authentication. Please sign in there to continue.
           </p>
           <div className="mt-4">{status}</div>
-          <button
+          <Button
             type="button"
             onClick={openNcCat}
             disabled={opening}
-            className="mt-4 w-full rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+            className="mt-4 w-full"
           >
             Open NC Catalyst Sign In
-          </button>
+          </Button>
           <details className="mt-4">
             <summary className="cursor-pointer select-none text-sm text-muted-foreground">Debug</summary>
             <pre className="mt-2 whitespace-pre-wrap rounded-xl border border-border bg-secondary p-3 text-xs text-foreground/80">

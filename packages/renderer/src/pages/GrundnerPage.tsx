@@ -6,6 +6,8 @@ import {
 } from '@tanstack/react-table';
 import type { ColumnDef, SortingState } from '@tanstack/react-table';
 import { GlobalTable } from '@/components/table/GlobalTable';
+import { Button } from '@/components/ui/button';
+
 
 // Percent widths for Grundner table columns
 const GRUNDNER_COL_PCT = {
@@ -125,56 +127,29 @@ export function GrundnerPage() {
 
   // Resync action handler is currently unused; remove to satisfy linter
 
-  const exportCsv = () => {
-    try {
-      const headers = [
-        'Type',
-        'Customer ID',
-        'Length',
-        'Width',
-        'Thickness',
-        'Pre-Reserved',
-        'Stock',
-        'Reserved',
-        'Available',
-        'Last Updated'
-      ];
-      const escape = (val: unknown) => {
-        if (val == null) return '';
-        const s = String(val);
-        if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
-        return s;
-      };
-      const lines = rows.map((r) => [
-        r.typeData ?? '',
-        r.customerId ?? '',
-        r.lengthMm ?? '',
-        r.widthMm ?? '',
-        r.thicknessMm ?? '',
-        r.preReserved ?? '',
-        r.stock ?? '',
-        r.reservedStock ?? '',
-        r.stockAvailable ?? '',
-        r.lastUpdated ? formatTimestamp(r.lastUpdated) : ''
-      ].map(escape).join(','));
-      const csv = [headers.join(','), ...lines].join('\r\n');
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const ts = new Date();
-      const pad = (n: number) => String(n).padStart(2, '0');
-      const fname = `grundner_export_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.csv`;
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fname;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Export failed', err);
-      alert('Failed to export CSV.');
+  const exportStandardCsv = useCallback(async () => {
+    const res = await window.api.grundner.exportCsv();
+    if (!res.ok) {
+      alert(`Failed to export CSV: ${res.error.message}`);
+      return;
     }
-  };
+    if (!res.value.savedPath) {
+      return;
+    }
+    alert(`Saved CSV to ${res.value.savedPath}`);
+  }, []);
+
+  const exportCustomCsv = useCallback(async () => {
+    const res = await window.api.grundner.exportCustomCsv();
+    if (!res.ok) {
+      alert(`Failed to export custom CSV: ${res.error.message}`);
+      return;
+    }
+    if (!res.value.savedPath) {
+      return;
+    }
+    alert(`Saved custom CSV to ${res.value.savedPath}`);
+  }, []);
 
   // Auto-refresh on backend notifications (throttled)
   useEffect(() => {
@@ -320,7 +295,10 @@ export function GrundnerPage() {
           </label>
         </div>
         <div className="flex flex-col items-end gap-1">
-          <button className="border rounded px-3 py-1" onClick={exportCsv}>Export to CSV</button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={exportStandardCsv}>Export to CSV</Button>
+            <Button size="sm" onClick={exportCustomCsv}>Export Custom CSV</Button>
+          </div>
           <p className="mt-2 text-sm text-muted-foreground">Stock {totalStock} • Available {totalAvailable} • Locked {totalReserved}</p>
         </div>
       </div>

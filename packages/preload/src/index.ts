@@ -16,6 +16,9 @@ import type {
   GrundnerListRes,
   GrundnerResyncReq,
   GrundnerUpdateReq,
+  GrundnerExportRes,
+  GrundnerCustomCsvPreviewReq,
+  GrundnerCustomCsvPreviewRes,
   HistoryListReq,
   HistoryListRes,
   JobEventsReq,
@@ -120,7 +123,7 @@ const api = {
   settings: {
     get: () => invokeResult<Settings>('settings:get'),
     getPath: () => invokeResult<string>('settings:path'),
-    save: (next: Settings) => invokeResult<Settings>('settings:save', next),
+    save: (next: Partial<Settings>) => invokeResult<Settings>('settings:save', next),
     validatePath: (input: PathValidationReq) => invokeResult<PathValidationRes>('settings:validatePath', input)
   },
   db: {
@@ -194,6 +197,10 @@ const api = {
     list: (req?: GrundnerListReq) => invokeResult<GrundnerListRes>('grundner:list', req ?? {}),
     update: (input: GrundnerUpdateReq) => invokeResult<{ ok: boolean; updated: number }>('grundner:update', input),
     resync: (input?: GrundnerResyncReq) => invokeResult<{ updated: number }>('grundner:resync', input ?? {}),
+    exportCsv: () => invokeResult<GrundnerExportRes>('grundner:exportCsv'),
+    exportCustomCsv: () => invokeResult<GrundnerExportRes>('grundner:exportCustomCsv'),
+    previewCustomCsv: (input: GrundnerCustomCsvPreviewReq) =>
+      invokeResult<GrundnerCustomCsvPreviewRes>('grundner:previewCustomCsv', input),
     subscribeRefresh: (listener: () => void) => {
       const channel = 'grundner:refresh';
       const handler = () => listener();

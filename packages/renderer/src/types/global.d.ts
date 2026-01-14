@@ -10,6 +10,9 @@ import type {
   GrundnerListRes,
   GrundnerResyncReq,
   GrundnerUpdateReq,
+  GrundnerExportRes,
+  GrundnerCustomCsvPreviewReq,
+  GrundnerCustomCsvPreviewRes,
   AppMessage,
   MessagesListRes,
   HistoryListReq,
@@ -88,7 +91,7 @@ declare global {
       settings: {
         get: () => Promise<Result<Settings, AppError>>;
         getPath: () => Promise<Result<string, AppError>>;
-        save: (s: Settings) => Promise<Result<Settings, AppError>>;
+        save: (next: Partial<Settings>) => Promise<Result<Settings, AppError>>;
         validatePath: (input: PathValidationReq) => Promise<Result<PathValidationRes, AppError>>;
       };
       db: {
@@ -135,6 +138,9 @@ declare global {
         list: (req?: GrundnerListReq) => Promise<Result<GrundnerListRes, AppError>>;
         update: (input: GrundnerUpdateReq) => Promise<Result<{ ok: boolean; updated: number }, AppError>>;
         resync: (input?: GrundnerResyncReq) => Promise<Result<{ updated: number }, AppError>>;
+        exportCsv: () => Promise<Result<GrundnerExportRes, AppError>>;
+        exportCustomCsv: () => Promise<Result<GrundnerExportRes, AppError>>;
+        previewCustomCsv: (input: GrundnerCustomCsvPreviewReq) => Promise<Result<GrundnerCustomCsvPreviewRes, AppError>>;
         subscribeRefresh: (listener: () => void) => () => void;
       };
       allocatedMaterial: {

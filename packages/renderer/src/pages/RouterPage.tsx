@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   DiagnosticsSnapshot,
   Machine,
@@ -9,6 +9,8 @@ import type {
 import { JOB_STATUS_VALUES } from '../../../shared/src';
 import { cn } from '../utils/cn';
 import { GlobalTable } from '@/components/table/GlobalTable';
+import { Button } from '@/components/ui/button';
+
 import type { ColumnDef, RowSelectionState } from '@tanstack/react-table';
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import { ValidationDataModal } from '@/components/ValidationDataModal';
@@ -529,43 +531,43 @@ export function RouterPage() {
             </div>
             <div className="flex gap-2">
               {machineFilter !== 'all' && (
-                <button
-                  className="border rounded px-3 py-1"
-                  onClick={async () => {
-                    setLoading(true);
-                    const res = await window.api.files.listReady(machineFilter as number);
-                    if (res.ok) {
-                      let items = res.value.files as ReadyFile[];
-                      if (statusFilter !== 'all') {
-                        items = items.filter((f) => f.status === statusFilter);
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      setLoading(true);
+                      const res = await window.api.files.listReady(machineFilter as number);
+                      if (res.ok) {
+                        let items = res.value.files as ReadyFile[];
+                        if (statusFilter !== 'all') {
+                          items = items.filter((f) => f.status === statusFilter);
+                        }
+                        items = applyClearedFilter(items, machineFilter as number);
+                        setFiles(items.map((item) => ({ ...item, machineId: machineFilter as number })));
                       }
-                      items = applyClearedFilter(items, machineFilter as number);
-                      setFiles(items.map((item) => ({ ...item, machineId: machineFilter as number })));
-                    }
-                    setLoading(false);
-                  }}
-                  disabled={loading}
-                >
-                  Refresh
-                </button>
+                      setLoading(false);
+                    }}
+                    disabled={loading}
+                  >
+                    Refresh
+                  </Button>
               )}
-              <button
-                className="border rounded px-3 py-1"
+              <Button
+                size="sm"
                 onClick={handleClearProcessed}
                 disabled={!hasClearable || deleting}
               >
                 Clear Processed
-              </button>
-              <button
-                className="border rounded px-3 py-1"
+              </Button>
+              <Button
+                size="sm"
                 onClick={handleDeleteSelected}
                 disabled={deleting || selectedCount === 0}
               >
                 {deleting ? 'Deleting...' : selectedCount > 1 ? `Delete Selected (${selectedCount})` : 'Delete Selected'}
-              </button>
-              <button className="border rounded px-3 py-1" onClick={exportCsv}>
+              </Button>
+              <Button size="sm" onClick={exportCsv}>
                 Export CSV
-              </button>
+              </Button>
             </div>
           </div>
           {banner && (

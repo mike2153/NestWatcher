@@ -30,6 +30,30 @@ const DEFAULT_SETTINGS: Settings = {
   test: { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' },
   grundner: { reservedAdjustmentMode: 'delta' },
   ordering: { includeReserved: false },
+  inventoryExport: {
+    template: {
+      delimiter: ',',
+      columns: [
+        { enabled: true, header: 'Type', field: 'typeData' },
+        { enabled: true, header: 'Customer ID', field: 'customerId' },
+        { enabled: true, header: 'Length', field: 'lengthMm' },
+        { enabled: true, header: 'Width', field: 'widthMm' },
+        { enabled: true, header: 'Thickness', field: 'thicknessMm' },
+        { enabled: true, header: 'Pre-Reserved', field: 'preReserved' },
+        { enabled: true, header: 'Stock', field: 'stock' },
+        { enabled: true, header: 'Reserved', field: 'reservedStock' },
+        { enabled: true, header: 'Available', field: 'stockAvailable' },
+        { enabled: true, header: 'Last Updated', field: 'lastUpdated' }
+      ]
+    },
+    scheduled: {
+      enabled: false,
+      intervalSeconds: 60,
+      onlyOnChange: true,
+      folderPath: '',
+      fileName: 'grundner_inventory.csv'
+    }
+  },
   jobs: { completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] },
   validationWarnings: { showValidationWarnings: false }
 };
@@ -46,6 +70,13 @@ function cloneDefaults(): Settings {
     test: { ...DEFAULT_SETTINGS.test },
     grundner: { ...DEFAULT_SETTINGS.grundner },
     ordering: { ...DEFAULT_SETTINGS.ordering },
+    inventoryExport: {
+      template: {
+        ...DEFAULT_SETTINGS.inventoryExport.template,
+        columns: [...DEFAULT_SETTINGS.inventoryExport.template.columns]
+      },
+      scheduled: { ...DEFAULT_SETTINGS.inventoryExport.scheduled }
+    },
     jobs: { ...DEFAULT_SETTINGS.jobs },
     validationWarnings: { ...DEFAULT_SETTINGS.validationWarnings }
   };
@@ -53,9 +84,26 @@ function cloneDefaults(): Settings {
 
 function normalizeSettings(input: MaybeSettings): Settings {
   const base = (typeof input === 'object' && input !== null ? input : {}) as Partial<Settings>;
+
   const db: Settings['db'] = { ...DEFAULT_SETTINGS.db, ...(base.db ?? {}) } as Settings['db'];
   // Coerce password to a string to avoid pg errors when null/number are provided
   db.password = typeof db.password === 'string' ? db.password : (db.password == null ? '' : String(db.password));
+
+  const inventoryExportBase = (base.inventoryExport ?? {}) as Partial<Settings['inventoryExport']>;
+  const templateBase = (inventoryExportBase.template ?? {}) as Partial<Settings['inventoryExport']['template']>;
+  const scheduledBase = (inventoryExportBase.scheduled ?? {}) as Partial<Settings['inventoryExport']['scheduled']>;
+
+  const template: Settings['inventoryExport']['template'] = {
+    ...DEFAULT_SETTINGS.inventoryExport.template,
+    ...templateBase,
+    columns: Array.isArray(templateBase.columns) ? templateBase.columns : DEFAULT_SETTINGS.inventoryExport.template.columns
+  };
+
+  const scheduled: Settings['inventoryExport']['scheduled'] = {
+    ...DEFAULT_SETTINGS.inventoryExport.scheduled,
+    ...scheduledBase
+  };
+
   return {
     version: typeof base.version === 'number' && base.version > 0 ? base.version : CURRENT_SETTINGS_VERSION,
     db,
@@ -63,6 +111,7 @@ function normalizeSettings(input: MaybeSettings): Settings {
     test: { ...DEFAULT_SETTINGS.test, ...(base.test ?? {}) },
     grundner: { ...DEFAULT_SETTINGS.grundner, ...(base.grundner ?? {}) },
     ordering: { ...DEFAULT_SETTINGS.ordering, ...(base.ordering ?? {}) },
+    inventoryExport: { template, scheduled },
     jobs: { ...DEFAULT_SETTINGS.jobs, ...(base.jobs ?? {}) },
     validationWarnings: { ...DEFAULT_SETTINGS.validationWarnings, ...(base.validationWarnings ?? {}) }
   };
@@ -77,10 +126,15 @@ function mergeSettingsInternal(base: Settings, update: MaybeSettings): Settings 
     test: { ...base.test, ...(partial.test ?? {}) },
     grundner: { ...base.grundner, ...(partial.grundner ?? {}) },
     ordering: { ...base.ordering, ...(partial.ordering ?? {}) },
+    inventoryExport: {
+      template: { ...base.inventoryExport.template, ...((partial.inventoryExport?.template ?? {}) as Partial<Settings['inventoryExport']['template']>) },
+      scheduled: { ...base.inventoryExport.scheduled, ...((partial.inventoryExport?.scheduled ?? {}) as Partial<Settings['inventoryExport']['scheduled']>) }
+    },
     jobs: { ...base.jobs, ...(partial.jobs ?? {}) },
     validationWarnings: { ...base.validationWarnings, ...(partial.validationWarnings ?? {}) }
   });
 }
+
 
 // Strict config path policy:
 // - Dev: settings.json at repo root (relative to compiled main at packages/main/dist)

@@ -8,6 +8,8 @@ import type {
 } from '../../../shared/src';
 import { cn } from '../utils/cn';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+
 
 export function MachinesPage() {
   const [items, setItems] = useState<Machine[]>([]);
@@ -162,7 +164,7 @@ export function MachinesPage() {
                   <TableCell className="px-2 py-1">{m.apJobfolder}</TableCell>
                   <TableCell className="px-2 py-1">{m.nestpickFolder}</TableCell>
                   <TableCell className="px-2 py-1">{m.nestpickEnabled ? 'Yes' : 'No'}</TableCell>
-                  <TableCell className="px-2 py-1"><button className="border rounded px-2 py-0.5" onClick={()=>setEditing(m)}>Edit</button></TableCell>
+                  <TableCell className="px-2 py-1"><Button size="sm" onClick={() => setEditing(m)}>Edit</Button></TableCell>
                 </TableRow>
               );
             })}
@@ -176,13 +178,13 @@ export function MachinesPage() {
           <div className="grid grid-cols-2 gap-2">
             <label className="text-sm">Name<input className="border rounded w-full px-2 py-1" value={editing.name} onChange={e=>setEditing({...editing, name: e.target.value})} /></label>
             <label className="text-sm">PC IP<input className="border rounded w-full px-2 py-1" value={(editing as { pcIp?: string | null; cncIp?: string | null }).pcIp ?? (editing as { pcIp?: string | null; cncIp?: string | null }).cncIp ?? ''} onChange={e=>setEditing({...editing, pcIp: e.target.value})} /></label>
-            <label className="text-sm">AP Job Folder<div className="flex gap-2"><input className="border rounded w-full px-2 py-1" value={editing.apJobfolder} onChange={e=>setEditing({...editing, apJobfolder: e.target.value})} /><button className="border rounded px-2" onClick={async()=>{ const picked = await window.api.dialog.pickFolder(); if (picked.ok && picked.value) setEditing({...editing, apJobfolder: picked.value}); }}>Browse</button></div></label>
-            <label className="text-sm">Nestpick Folder<div className="flex gap-2"><input className="border rounded w-full px-2 py-1" value={editing.nestpickFolder} onChange={e=>setEditing({...editing, nestpickFolder: e.target.value})} /><button className="border rounded px-2" onClick={async()=>{ const picked = await window.api.dialog.pickFolder(); if (picked.ok && picked.value) setEditing({...editing, nestpickFolder: picked.value}); }}>Browse</button></div></label>
+            <label className="text-sm">AP Job Folder<div className="flex gap-2"><input className="border rounded w-full px-2 py-1" value={editing.apJobfolder} onChange={e=>setEditing({...editing, apJobfolder: e.target.value})} /><Button size="sm" onClick={async()=>{ const picked = await window.api.dialog.pickFolder(); if (picked.ok && picked.value) setEditing({...editing, apJobfolder: picked.value}); }}>Browse</Button></div></label>
+            <label className="text-sm">Nestpick Folder<div className="flex gap-2"><input className="border rounded w-full px-2 py-1" value={editing.nestpickFolder} onChange={e=>setEditing({...editing, nestpickFolder: e.target.value})} /><Button size="sm" onClick={async()=>{ const picked = await window.api.dialog.pickFolder(); if (picked.ok && picked.value) setEditing({...editing, nestpickFolder: picked.value}); }}>Browse</Button></div></label>
             <label className="text-sm">Enabled<select className="border rounded w-full px-2 py-1" value={editing.nestpickEnabled ? 'true':'false'} onChange={e=>setEditing({...editing, nestpickEnabled: e.target.value==='true'})}><option value="true">Yes</option><option value="false">No</option></select></label>
           </div>
           <div className="flex gap-2">
-            <button className="border rounded px-3 py-1" onClick={onSave}>Save</button>
-            <button className="border rounded px-3 py-1" onClick={()=>setEditing(null)}>Cancel</button>
+            <Button size="sm" onClick={onSave}>Save</Button>
+            <Button size="sm" variant="destructive" onClick={() => setEditing(null)}>Cancel</Button>
           </div>
         </div>
       )}

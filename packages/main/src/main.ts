@@ -23,6 +23,7 @@ import { registerMesDataIpc } from './ipc/mesData';
 import { initWatchers, shutdownWatchers } from './services/watchers';
 import { startDbWatchdog, stopDbWatchdog } from './services/dbWatchdog';
 import { initMesValidationScanner, stopMesValidationScanner } from './services/mesValidation';
+import { syncInventoryExportScheduler, stopInventoryExportScheduler } from './services/inventoryExportScheduler';
 import { logger } from './logger';
 import { initializeDiagnostics } from './services/diagnostics';
 import { applyStoredThemePreference, getStoredWindowState, monitorWindowState } from './services/uiState';
@@ -117,6 +118,12 @@ app.whenReady().then(async () => {
   initWatchers();
   initMesValidationScanner();
 
+  try {
+    syncInventoryExportScheduler();
+  } catch (error) {
+    logger.warn({ error }, 'Failed to start inventory export scheduler');
+  }
+
   // Start NC-Cat in background mode for subscription auth
   try {
     startNcCatBackgroundWindow();
@@ -157,6 +164,12 @@ app.on('will-quit', async () => {
     stopDbWatchdog();
   } catch (err) {
     logger.error({ err }, 'Failed to stop DB watchdog');
+  }
+
+  try {
+    stopInventoryExportScheduler();
+  } catch (err) {
+    logger.error({ err }, 'Failed to stop inventory export scheduler');
   }
 
   try {
