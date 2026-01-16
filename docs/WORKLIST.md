@@ -31,3 +31,25 @@ When an operator chooses “Add To Worklist”, we copy a job’s files from the
 
 ### Lifecycle and Events
 - On success, lifecycle transitions to `STAGED` and we append a `worklist:staged` job event with details (copied/skipped counts)
+
+### NC Cat validation at staging time
+Before we copy anything to the machine, NestWatcher can validate the job again using NC Cat:
+
+- Reason is `stage`.
+- The machine ID is passed so the correct profile can be selected.
+- If validation returns errors, staging is blocked and the UI shows the validation report.
+
+This is separate from the intake validation that happens when a job first arrives in `jobsRoot`.
+
+### Grundner order saw and locking
+After staging, NestWatcher can request sheet allocation from Grundner:
+
+- NestWatcher writes `order_saw.csv` into the Grundner folder.
+- Grundner replies by writing `order_saw.erl`.
+- If the reply matches the request, NestWatcher locks the job.
+
+Important behavior:
+- If the Grundner step fails, staging still succeeds. NestWatcher shows a warning dialog instead of rolling back the file copies.
+
+For the end to end view, see `docs/JOB-FLOW.md`.
+

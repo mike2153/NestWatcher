@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ResultEnvelope } from './result';
+import type { NcCatValidationReport } from './ncCatContracts';
 
 export const SslMode = z.enum(['disable', 'require', 'verify-ca', 'verify-full']);
 
@@ -210,9 +211,7 @@ export const SettingsSchema = z.object({
     useTestDataMode: z.boolean().default(false),
     sheetIdMode: z.enum(['type_data', 'customer_id']).default('type_data')
   }).default({ testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' }),
-  grundner: z.object({
-    reservedAdjustmentMode: z.enum(['delta', 'absolute']).default('delta')
-  }).default({ reservedAdjustmentMode: 'delta' }),
+  grundner: z.object({}).default({}),
   ordering: z.object({
     includeReserved: z.boolean().default(false)
   }).default({ includeReserved: false }),
@@ -373,6 +372,8 @@ export const WorklistCollisionInfo = z.object({
 });
 export type WorklistCollisionInfo = z.infer<typeof WorklistCollisionInfo>;
 
+const NcCatValidationReportSchema = z.custom<NcCatValidationReport>();
+
 export const WorklistAddSuccess = z.object({
   ok: z.literal(true),
   path: z.string(),
@@ -380,14 +381,16 @@ export const WorklistAddSuccess = z.object({
   skipped: z.array(WorklistSkippedFile),
   stagedAt: z.string().nullable(),
   alreadyStaged: z.boolean(),
-  collision: WorklistCollisionInfo.optional()
+  collision: WorklistCollisionInfo.optional(),
+  validationReport: NcCatValidationReportSchema.optional()
 });
 export type WorklistAddSuccess = z.infer<typeof WorklistAddSuccess>;
 
 export const WorklistAddFailure = z.object({
   ok: z.literal(false),
   error: z.string(),
-  skipped: z.array(WorklistSkippedFile).optional()
+  skipped: z.array(WorklistSkippedFile).optional(),
+  validationReport: NcCatValidationReportSchema.optional()
 });
 export type WorklistAddFailure = z.infer<typeof WorklistAddFailure>;
 

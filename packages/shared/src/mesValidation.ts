@@ -50,10 +50,8 @@ export const ValidationFileEntrySchema = z.object({
   folderName: z.string(),
   folderPath: z.string(),
 
-  // Historic name used by NestWatcher (integer seconds in most cases)
-  ncEstRuntime: z.number().optional(),
-  // Name used by the MES exporter spec (seconds, may be float)
-  ncRuntime: z.number().optional(),
+  // Runtime in seconds (may be float)
+  ncRuntime: z.number(),
   yieldPercentage: z.number(),
 
   usableOffcuts: z.array(OffcutSchema),
@@ -68,14 +66,7 @@ export const ValidationFileEntrySchema = z.object({
 
   validation: ValidationResultSchema,
   nestPick: NestPickResultSchema.nullable()
-}).passthrough().superRefine((entry, ctx) => {
-  if (typeof entry.ncEstRuntime !== 'number' && typeof entry.ncRuntime !== 'number') {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'Expected ncEstRuntime or ncRuntime'
-    });
-  }
-});
+}).passthrough();
 export type ValidationFileEntry = z.infer<typeof ValidationFileEntrySchema>;
 
 export const ExportMetadataSchema = z.object({

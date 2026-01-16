@@ -177,7 +177,7 @@ export function MachineSettings({ machineId, onMachineUpdated }: MachineSettings
         <div>
           <label className="block text-sm font-medium mb-1">Machine Name</label>
           <input
-            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
             value={machine.name}
             onChange={(e) => setMachine({ ...machine, name: e.target.value })}
             placeholder="Machine name"
@@ -187,7 +187,7 @@ export function MachineSettings({ machineId, onMachineUpdated }: MachineSettings
         <div>
           <label className="block text-sm font-medium mb-1">PC IP Address</label>
           <input
-            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
             value={machine.pcIp ?? ''} 
             onChange={(e) => setMachine({ ...machine, pcIp: e.target.value || null })}
             placeholder="192.168.1.100"
@@ -204,7 +204,7 @@ export function MachineSettings({ machineId, onMachineUpdated }: MachineSettings
         </label>
         <div className="flex gap-2">
           <input
-            className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 ${getStatusBorder(pathStatus.machineApJobfolder.status)}`}
+            className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-1 ${getStatusBorder(pathStatus.machineApJobfolder.status)}`}
             value={machine.apJobfolder}
             onChange={(e) => setMachine({ ...machine, apJobfolder: e.target.value })}
             placeholder="C:\path\to\ready-to-run"
@@ -225,7 +225,7 @@ export function MachineSettings({ machineId, onMachineUpdated }: MachineSettings
         </label>
         <div className="flex gap-2">
           <input
-            className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 ${getStatusBorder(pathStatus.machineNestpickFolder.status)}`}
+            className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-1 ${getStatusBorder(pathStatus.machineNestpickFolder.status)}`}
             value={machine.nestpickFolder}
             onChange={(e) => setMachine({ ...machine, nestpickFolder: e.target.value })}
             placeholder="C:\path\to\nestpick"

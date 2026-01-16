@@ -17,7 +17,8 @@ import type {
   JobStatus,
   Machine,
   MachineHealthEntry,
-  MachineHealthCode
+  MachineHealthCode,
+  NcCatValidationReport
 } from '../../../shared/src';
 import { JOB_STATUS_VALUES } from '../../../shared/src';
 import { cn } from '../utils/cn';
@@ -830,6 +831,9 @@ export function JobsPage() {
       let stagedCount = 0;
       const rerunKeys: string[] = [];
       const normalKeys: string[] = [];
+      const dispatchValidationReport = (report: NcCatValidationReport) => {
+        window.dispatchEvent(new CustomEvent<NcCatValidationReport>('nc-cat-validation-results', { detail: report }));
+      };
       for (const key of targetKeys) {
         const job = jobByKey.get(key);
         if (!job) continue;
@@ -858,16 +862,26 @@ export function JobsPage() {
       for (const key of normalKeys) {
         const res = await window.api.jobs.addToWorklist(key, machineId);
         if (!res.ok) failures.push(`${key}: ${res.error.message}`);
-        else if (!res.value.ok) failures.push(`${key}: ${res.value.error}`);
-        else stagedCount += 1;
+        else if (!res.value.ok) {
+          if (res.value.validationReport) dispatchValidationReport(res.value.validationReport);
+          failures.push(`${key}: ${res.value.error}`);
+        } else {
+          if (res.value.validationReport) dispatchValidationReport(res.value.validationReport);
+          stagedCount += 1;
+        }
       }
 
       // Rerun and stage
       for (const key of rerunKeys) {
         const res = await window.api.jobs.rerunAndStage(key, machineId);
         if (!res.ok) failures.push(`${key}: ${res.error.message}`);
-        else if (!res.value.ok) failures.push(`${key}: ${res.value.error}`);
-        else stagedCount += 1;
+        else if (!res.value.ok) {
+          if (res.value.validationReport) dispatchValidationReport(res.value.validationReport);
+          failures.push(`${key}: ${res.value.error}`);
+        } else {
+          if (res.value.validationReport) dispatchValidationReport(res.value.validationReport);
+          stagedCount += 1;
+        }
       }
 
       if (stagedCount) alert(`Staged ${stagedCount} job(s).`);

@@ -3,10 +3,15 @@ import { createHash } from 'crypto';
 import { existsSync, mkdirSync } from 'fs';
 import { promises as fsp } from 'fs';
 import type { Dirent } from 'fs';
-import { basename, extname, join, normalize, relative } from 'path';
+import { basename, dirname, extname, join, normalize, relative, sep } from 'path';
 import type { PoolClient } from 'pg';
 import { parentPort } from 'worker_threads';
-import type { Machine, MachineHealthCode } from '../../../shared/src';
+import type {
+  Machine,
+  MachineHealthCode,
+  NcCatHeadlessValidationFileResult,
+  NcCatValidationReport
+} from '../../../shared/src';
 import { loadConfig } from '../services/config';
 import { logger } from '../logger';
 import { getPool, testConnection, withClient } from '../services/db';
@@ -16,7 +21,11 @@ import { listMachines } from '../repo/machinesRepo';
 import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLifecycle, resyncGrundnerPreReservedForMaterial } from '../repo/jobsRepo';
 import { bulkUpsertCncStats } from '../repo/cncStatsRepo';
 import type { CncStatsUpsert } from '../repo/cncStatsRepo';
-import type { WatcherWorkerToMainMessage, MainToWatcherMessage } from './watchersMessages';
+import type {
+  WatcherWorkerToMainMessage,
+  MainToWatcherMessage,
+  NcCatValidationResponsePayload
+} from './watchersMessages';
 import { ingestProcessedJobsRoot } from '../services/ingest';
 import { appendProductionListDel } from '../services/nestpick';
 import { archiveCompletedJob } from '../services/archive';
@@ -108,6 +117,36 @@ function emitAppMessage(event: string, params?: Record<string, unknown>, source?
     params,
     timestamp: new Date().toISOString(),
     source
+  });
+}
+
+const NCCAT_VALIDATION_TIMEOUT_MS = 90_000;
+const ncCatValidationPending = new Map<
+  string,
+  { resolve: (result: NcCatValidationResponsePayload) => void; timeout: NodeJS.Timeout }
+>();
+
+function requestNcCatHeadlessValidation(payload: {
+  reason: 'ingest' | 'stage';
+  folderName: string;
+  files: { filename: string; ncContent: string }[];
+  machineNameHint?: string | null;
+  machineId?: number | null;
+}): Promise<NcCatValidationResponsePayload> {
+  const requestId = `nccat-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      ncCatValidationPending.delete(requestId);
+      resolve({ ok: false, error: 'Headless validation request timed out' });
+    }, NCCAT_VALIDATION_TIMEOUT_MS);
+
+    ncCatValidationPending.set(requestId, { resolve, timeout });
+    postMessageToMain({
+      type: 'ncCatValidationRequest',
+      requestId,
+      payload
+    });
   });
 }
 
@@ -1462,8 +1501,10 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
   }
 }
 
+type Awaitable<T> = T | Promise<T>;
+
 function stableProcess(
-  fn: (path: string) => Promise<void>,
+  fn: (path: string) => Awaitable<void>,
   delayMs = 1000,
   options?: { watcherName?: string; watcherLabel?: string }
 ) {
@@ -1478,7 +1519,8 @@ function stableProcess(
       normalizedPath,
       setTimeout(() => {
         pending.delete(normalizedPath);
-        fn(normalizedPath)
+        Promise.resolve()
+          .then(() => fn(normalizedPath))
           .then(() => {
             logger.info({ path: normalizedPath, watcher, label }, 'watcher: scan complete');
           })
@@ -2774,96 +2816,578 @@ async function deleteFolderRecursive(path: string): Promise<void> {
   await fsp.rmdir(path);
 }
 
-/**
- * Handle a new NC file detected in jobsRoot.
- * Moves the entire parent folder (job folder) to processedJobsRoot.
- */
-async function handleNcCatJobFile(ncFilePath: string) {
+const NCCAT_STABILITY_THRESHOLD_MS = 10_000;
+const NCCAT_REQUEUE_DELAY_MS = 2_000;
+
+type NcCatJobUnit = {
+  kind: 'folder' | 'loose';
+  sourcePath: string;
+  baseName: string;
+  jobsRoot: string;
+};
+
+const ncCatQueue: NcCatJobUnit[] = [];
+const ncCatQueuedKeys = new Set<string>();
+let ncCatQueueActive = false;
+
+function pad2(value: number): string {
+  return value.toString().padStart(2, '0');
+}
+
+function formatLooseTimestamp(date: Date): string {
+  const day = pad2(date.getDate());
+  const month = pad2(date.getMonth() + 1);
+  const year = date.getFullYear();
+  const hour = pad2(date.getHours());
+  const minute = pad2(date.getMinutes());
+  const second = pad2(date.getSeconds());
+  return `${day}.${month}.${year}_${hour}.${minute}.${second}`;
+}
+
+function buildLooseFolderName(baseNoExt: string): string {
+  return `${baseNoExt}_${formatLooseTimestamp(new Date())}`;
+}
+
+function getNcCatQueueKey(unit: NcCatJobUnit): string {
+  return `${unit.kind}:${unit.sourcePath}`;
+}
+
+async function getLatestMtime(path: string): Promise<number> {
+  try {
+    const stats = await stat(path);
+    if (stats.isFile()) {
+      return stats.mtimeMs;
+    }
+    if (!stats.isDirectory()) return stats.mtimeMs;
+    const entries = await readdir(path, { withFileTypes: true });
+    let latest = stats.mtimeMs;
+    for (const entry of entries) {
+      const childPath = join(path, entry.name);
+      const childMtime = await getLatestMtime(childPath);
+      if (childMtime > latest) latest = childMtime;
+    }
+    return latest;
+  } catch (err) {
+    logger.warn({ err, path }, 'nccat: failed to read mtime');
+    return Date.now();
+  }
+}
+
+async function isFolderStable(path: string): Promise<boolean> {
+  const latest = await getLatestMtime(path);
+  return Date.now() - latest >= NCCAT_STABILITY_THRESHOLD_MS;
+}
+
+type NcFileEntry = { path: string; relativeName: string };
+
+async function collectNcFiles(root: string): Promise<NcFileEntry[]> {
+  const out: NcFileEntry[] = [];
+  const walk = async (dir: string) => {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.isFile()) {
+        if (extname(entry.name).toLowerCase() === '.nc') {
+          const rel = relative(root, fullPath).replace(/\\/g, '/');
+          out.push({ path: fullPath, relativeName: rel });
+        }
+      }
+    }
+  };
+  await walk(root);
+  return out;
+}
+
+async function moveFileToDestination(
+  source: string,
+  destRoot: string
+): Promise<{ ok: boolean; newPath?: string; error?: string }> {
+  try {
+    if (!existsSync(destRoot)) {
+      mkdirSync(destRoot, { recursive: true });
+    }
+    const fileName = basename(source);
+    let destPath = join(destRoot, fileName);
+    if (existsSync(destPath)) {
+      const ext = extname(fileName);
+      const base = basename(fileName, ext);
+      destPath = join(destRoot, `${base}_${Date.now()}${ext}`);
+      logger.warn({ source, destPath }, 'nccat: destination exists, using timestamped name');
+    }
+    try {
+      await rename(source, destPath);
+      return { ok: true, newPath: destPath };
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code === 'EXDEV') {
+        await copyFile(source, destPath);
+        await unlink(source);
+        return { ok: true, newPath: destPath };
+      }
+      throw err;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, error: message };
+  }
+}
+
+function isMatchingLooseName(filename: string, baseNoExt: string): boolean {
+  const base = basename(filename, extname(filename));
+  const baseLower = base.toLowerCase();
+  const target = baseNoExt.toLowerCase();
+  return baseLower === target || baseLower.startsWith(`${target}_`);
+}
+
+async function collectLooseCandidates(jobsRoot: string, baseNoExt: string): Promise<string[]> {
+  const candidates = new Map<string, { path: string; depth: number }>();
+  const dirs = [jobsRoot, join(jobsRoot, baseNoExt)];
+
+  for (const dir of dirs) {
+    try {
+      if (!existsSync(dir)) continue;
+      const stats = await stat(dir);
+      if (!stats.isDirectory()) continue;
+      const entries = await readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        if (!isMatchingLooseName(entry.name, baseNoExt)) continue;
+        const fullPath = join(dir, entry.name);
+        const rel = relative(jobsRoot, fullPath);
+        const depth = rel.split(/[\\/]+/).length;
+        const existing = candidates.get(entry.name);
+        if (!existing || depth < existing.depth) {
+          candidates.set(entry.name, { path: fullPath, depth });
+        }
+      }
+    } catch (err) {
+      logger.warn({ err, dir }, 'nccat: failed to scan loose candidates');
+    }
+  }
+
+  return Array.from(candidates.values()).map((entry) => entry.path);
+}
+
+async function gatherLooseJobFiles(jobsRoot: string, baseNoExt: string, ncFilePath: string): Promise<{
+  files: string[];
+  ncFiles: string[];
+}> {
+  const allFiles = await collectLooseCandidates(jobsRoot, baseNoExt);
+  const fileSet = new Set(allFiles.map((p) => normalize(p)));
+  if (!fileSet.has(normalize(ncFilePath))) {
+    allFiles.unshift(ncFilePath);
+    fileSet.add(normalize(ncFilePath));
+  }
+  const ncFiles = allFiles.filter((filePath) => extname(filePath).toLowerCase() === '.nc');
+  return { files: allFiles, ncFiles };
+}
+
+function findMachineNameSuffix(name: string, machines: Machine[]): string | null {
+  const lower = name.toLowerCase();
+  for (const machine of machines) {
+    const suffix = `_${machine.name}`.toLowerCase();
+    if (lower.endsWith(suffix)) {
+      return machine.name;
+    }
+  }
+  return null;
+}
+
+function buildValidationReport(
+  reason: 'ingest' | 'stage',
+  folderName: string,
+  profileName: string | null | undefined,
+  results: NcCatHeadlessValidationFileResult[]
+): NcCatValidationReport {
+  const files = results.map((result) => ({
+    filename: result.filename,
+    status: result.validation.status,
+    warnings: result.validation.warnings,
+    errors: result.validation.errors,
+    syntax: result.validation.syntax
+  }));
+  const hasErrors = files.some((file) => file.status === 'errors');
+  const hasWarnings = files.some((file) => file.status === 'warnings');
+  const overallStatus = hasErrors ? 'errors' : hasWarnings ? 'warnings' : 'pass';
+
+  return {
+    reason,
+    folderName,
+    profileName: profileName ?? null,
+    processedAt: new Date().toISOString(),
+    overallStatus,
+    files
+  };
+}
+
+function buildValidationSummaryText(report: NcCatValidationReport): string {
+  const lines: string[] = [];
+  lines.push(`Folder: ${report.folderName}`);
+  lines.push(`Status: ${report.overallStatus}`);
+  lines.push(`Processed: ${report.processedAt}`);
+  if (report.profileName) {
+    lines.push(`Profile: ${report.profileName}`);
+  }
+  lines.push('');
+
+  for (const file of report.files) {
+    lines.push(`File: ${file.filename}`);
+    lines.push(`Status: ${file.status}`);
+    if (file.errors.length) {
+      lines.push('Errors:');
+      for (const err of file.errors) {
+        lines.push(`- ${err}`);
+      }
+    }
+    if (file.syntax.length) {
+      lines.push('Syntax:');
+      for (const err of file.syntax) {
+        lines.push(`- ${err}`);
+      }
+    }
+    if (file.warnings.length) {
+      lines.push('Warnings:');
+      for (const warn of file.warnings) {
+        lines.push(`- ${warn}`);
+      }
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+async function writeValidationSummary(folderPath: string, report: NcCatValidationReport): Promise<void> {
+  const summaryPath = join(folderPath, 'validation_summary.txt');
+  try {
+    await fsp.writeFile(summaryPath, buildValidationSummaryText(report), 'utf8');
+  } catch (err) {
+    logger.warn({ err, summaryPath }, 'nccat: failed to write validation summary');
+  }
+}
+
+function getNcCatJobUnit(ncFilePath: string, jobsRoot: string): NcCatJobUnit | null {
+  const normalizedRoot = normalize(jobsRoot);
+  const normalizedFile = normalize(ncFilePath);
+  const rel = relative(normalizedRoot, normalizedFile);
+  if (!rel || rel.startsWith('..') || rel.includes(`..${sep}`)) {
+    return null;
+  }
+  const segments = rel.split(/[\\/]+/).filter(Boolean);
+  if (segments.length <= 1) {
+    const baseNoExt = basename(normalizedFile, extname(normalizedFile));
+    return {
+      kind: 'loose',
+      sourcePath: normalizedFile,
+      baseName: baseNoExt,
+      jobsRoot: normalizedRoot
+    };
+  }
+  const folderName = segments[0];
+  const folderPath = join(normalizedRoot, folderName);
+  return {
+    kind: 'folder',
+    sourcePath: folderPath,
+    baseName: folderName,
+    jobsRoot: normalizedRoot
+  };
+}
+
+async function processNcCatJobUnit(unit: NcCatJobUnit) {
   const cfg = loadConfig();
   const processedJobsRoot = cfg.paths.processedJobsRoot;
   const quarantineRoot = cfg.paths.quarantineRoot;
 
   if (!processedJobsRoot) {
-    logger.warn({ ncFilePath }, 'nccat: processedJobsRoot not configured, skipping');
+    logger.warn({ unit }, 'nccat: processedJobsRoot not configured, skipping');
     return;
   }
 
-  // Get the job folder (parent of NC file)
-  const jobFolder = join(ncFilePath, '..');
-  const normalizedJobFolder = normalize(jobFolder);
-  const folderName = basename(normalizedJobFolder);
-  const ncFileName = basename(ncFilePath);
+  const machines = await listMachines();
 
-  logger.info({ ncFilePath, jobFolder: normalizedJobFolder, folderName }, 'nccat: processing new NC file');
+  if (unit.kind === 'folder') {
+    const jobFolder = normalize(unit.sourcePath);
+    if (!existsSync(jobFolder)) {
+      logger.warn({ jobFolder }, `nccat: job folder missing, skipping | jobFolder=${jobFolder}`);
 
-  recordWatcherEvent(NCCAT_WATCHER_NAME, {
-    label: NCCAT_WATCHER_LABEL,
-    message: `Processing: ${ncFileName}`,
-    context: { ncFilePath, folderName }
-  });
+      return;
+    }
 
-  // For now, move directly to processedJobsRoot without validation
-  // TODO: Add NC Cat validation integration via IPC to main process
-  const destRoot = processedJobsRoot;
+    const folderName = basename(jobFolder);
+    const machineNameHint = findMachineNameSuffix(folderName, machines);
 
-  const moveResult = await moveFolderToDestination(normalizedJobFolder, destRoot);
+    if (!(await isFolderStable(jobFolder))) {
+      logger.info({ folderName }, 'nccat: folder not stable yet, requeueing');
+      setTimeout(() => enqueueNcCatJobUnit(unit), NCCAT_REQUEUE_DELAY_MS);
+      return;
+    }
 
-  if (!moveResult.ok) {
-    logger.error({ ncFilePath, jobFolder: normalizedJobFolder, error: moveResult.error }, 'nccat: failed to move job folder');
-    recordWatcherError(NCCAT_WATCHER_NAME, new Error(moveResult.error ?? 'Move failed'), {
+    const ncFiles = await collectNcFiles(jobFolder);
+    if (!ncFiles.length) {
+      logger.warn({ jobFolder }, 'nccat: no .nc files found, skipping');
+      return;
+    }
+
+    recordWatcherEvent(NCCAT_WATCHER_NAME, {
       label: NCCAT_WATCHER_LABEL,
-      ncFilePath,
-      jobFolder: normalizedJobFolder
+      message: `Validating: ${folderName}`,
+      context: { folderName, ncFiles: ncFiles.length }
     });
 
-    // If move failed and quarantine is configured, try to move to quarantine
-    if (quarantineRoot) {
-      const quarantineResult = await moveFolderToDestination(normalizedJobFolder, quarantineRoot);
-      if (quarantineResult.ok) {
-        emitAppMessage('ncCat.jobQuarantined', {
-          folderName,
-          ncFile: ncFileName,
-          reason: 'move_failed',
-          error: moveResult.error
-        }, 'nc-cat-watcher');
+    const fileInputs = await Promise.all(
+      ncFiles.map(async (file) => ({
+        filename: file.relativeName,
+        ncContent: await readFile(file.path, 'utf8')
+      }))
+    );
+
+    const validationResult = await requestNcCatHeadlessValidation({
+      reason: 'ingest',
+      folderName,
+      files: fileInputs,
+      machineNameHint
+    });
+
+    if (!validationResult.ok) {
+      if (validationResult.skipped) {
+        emitAppMessage(
+          'ncCat.validationSkipped',
+          { folderName, reason: validationResult.reason ?? 'Validation skipped' },
+          'nc-cat-watcher'
+        );
+      } else {
+        emitAppMessage(
+          'ncCat.validationUnavailable',
+          { folderName, error: validationResult.error ?? 'Validation failed' },
+          'nc-cat-watcher'
+        );
       }
+    }
+
+    const report =
+      validationResult.ok
+        ? buildValidationReport('ingest', folderName, validationResult.profileName ?? null, validationResult.results)
+        : null;
+    const shouldQuarantine = report?.overallStatus === 'errors';
+
+    if (shouldQuarantine) {
+      if (!quarantineRoot) {
+        logger.warn({ folderName }, 'nccat: quarantineRoot not configured; leaving job in place');
+        return;
+      }
+      const moveResult = await moveFolderToDestination(jobFolder, quarantineRoot);
+      if (!moveResult.ok) {
+        recordWatcherError(NCCAT_WATCHER_NAME, new Error(moveResult.error ?? 'Move failed'), {
+          label: NCCAT_WATCHER_LABEL,
+          folderName,
+          jobFolder
+        });
+        return;
+      }
+      if (report) {
+        await writeValidationSummary(moveResult.newPath ?? jobFolder, report);
+        postMessageToMain({ type: 'ncCatValidationReport', report });
+      }
+      emitAppMessage(
+        'ncCat.jobQuarantined',
+        { folderName, destination: moveResult.newPath, reason: 'validation_errors' },
+        'nc-cat-watcher'
+      );
+      return;
+    }
+
+    const moveResult = await moveFolderToDestination(jobFolder, processedJobsRoot);
+    if (!moveResult.ok) {
+      recordWatcherError(NCCAT_WATCHER_NAME, new Error(moveResult.error ?? 'Move failed'), {
+        label: NCCAT_WATCHER_LABEL,
+        folderName,
+        jobFolder
+      });
+      return;
+    }
+
+    if (report) {
+      postMessageToMain({ type: 'ncCatValidationReport', report });
+    }
+
+    emitAppMessage(
+      'ncCat.jobMoved',
+      { folderName, destination: moveResult.newPath },
+      'nc-cat-watcher'
+    );
+
+    try {
+      const ingestResult = await ingestProcessedJobsRoot();
+      logger.info({ inserted: ingestResult.inserted, updated: ingestResult.updated }, 'nccat: triggered ingest after move');
+    } catch (ingestErr) {
+      logger.warn({ err: ingestErr }, 'nccat: ingest failed after move');
     }
     return;
   }
 
-  logger.info(
-    { ncFilePath, source: normalizedJobFolder, destination: moveResult.newPath },
-    'nccat: job folder moved successfully'
+  const ncFilePath = normalize(unit.sourcePath);
+  if (!existsSync(ncFilePath)) {
+    logger.warn({ ncFilePath }, 'nccat: loose NC file missing, skipping');
+    return;
+  }
+
+  const baseNoExt = unit.baseName;
+  const machineNameHint = findMachineNameSuffix(baseNoExt, machines);
+  const looseFolderName = buildLooseFolderName(baseNoExt);
+
+  const gathered = await gatherLooseJobFiles(unit.jobsRoot, baseNoExt, ncFilePath);
+  if (!gathered.files.length) {
+    logger.warn({ ncFilePath }, 'nccat: no loose files found for NC file');
+    return;
+  }
+
+  const latestMtime = await Promise.all(gathered.files.map((file) => getLatestMtime(file)));
+  if (latestMtime.some((mtime) => Date.now() - mtime < NCCAT_STABILITY_THRESHOLD_MS)) {
+    logger.info({ baseNoExt }, 'nccat: loose files not stable yet, requeueing');
+    setTimeout(() => enqueueNcCatJobUnit(unit), NCCAT_REQUEUE_DELAY_MS);
+    return;
+  }
+
+  const ncFiles = gathered.ncFiles;
+  if (!ncFiles.length) {
+    logger.warn({ ncFilePath }, 'nccat: no .nc files found for loose job');
+    return;
+  }
+
+  const validationInputs = await Promise.all(
+    ncFiles.map(async (file) => ({
+      filename: basename(file),
+      ncContent: await readFile(file, 'utf8')
+    }))
   );
 
-  recordWatcherEvent(NCCAT_WATCHER_NAME, {
-    label: NCCAT_WATCHER_LABEL,
-    message: `Moved: ${folderName}`,
-    context: { source: normalizedJobFolder, destination: moveResult.newPath }
+  const validationResult = await requestNcCatHeadlessValidation({
+    reason: 'ingest',
+    folderName: looseFolderName,
+    files: validationInputs,
+    machineNameHint
   });
 
-  emitAppMessage('ncCat.jobMoved', {
-    folderName,
-    ncFile: ncFileName,
-    destination: moveResult.newPath
-  }, 'nc-cat-watcher');
+  if (!validationResult.ok) {
+    if (validationResult.skipped) {
+      emitAppMessage(
+        'ncCat.validationSkipped',
+        { folderName: looseFolderName, reason: validationResult.reason ?? 'Validation skipped' },
+        'nc-cat-watcher'
+      );
+    } else {
+      emitAppMessage(
+        'ncCat.validationUnavailable',
+        { folderName: looseFolderName, error: validationResult.error ?? 'Validation failed' },
+        'nc-cat-watcher'
+      );
+    }
+  }
 
-  // Trigger ingest to pick up the new job
+  const report =
+    validationResult.ok
+      ? buildValidationReport('ingest', looseFolderName, validationResult.profileName ?? null, validationResult.results)
+      : null;
+  const shouldQuarantine = report?.overallStatus === 'errors';
+  const destinationRoot = shouldQuarantine ? quarantineRoot : processedJobsRoot;
+
+  if (!destinationRoot) {
+    logger.warn({ looseFolderName }, 'nccat: destination root missing; skipping move');
+    return;
+  }
+
+  const destinationFolder = join(destinationRoot, looseFolderName);
+  if (!existsSync(destinationFolder)) {
+    mkdirSync(destinationFolder, { recursive: true });
+  }
+
+  let moveFailure = false;
+  for (const filePath of gathered.files) {
+    const moveResult = await moveFileToDestination(filePath, destinationFolder);
+    if (!moveResult.ok) {
+      moveFailure = true;
+      recordWatcherError(NCCAT_WATCHER_NAME, new Error(moveResult.error ?? 'Move failed'), {
+        label: NCCAT_WATCHER_LABEL,
+        source: filePath,
+        destination: destinationFolder
+      });
+    }
+  }
+
+  if (moveFailure) {
+    return;
+  }
+
+  if (report) {
+    postMessageToMain({ type: 'ncCatValidationReport', report });
+  }
+
+  if (shouldQuarantine) {
+    if (report) {
+      await writeValidationSummary(destinationFolder, report);
+    }
+    emitAppMessage(
+      'ncCat.jobQuarantined',
+      { folderName: looseFolderName, destination: destinationFolder, reason: 'validation_errors' },
+      'nc-cat-watcher'
+    );
+    return;
+  }
+
+  emitAppMessage(
+    'ncCat.jobMoved',
+    { folderName: looseFolderName, destination: destinationFolder },
+    'nc-cat-watcher'
+  );
+
   try {
     const ingestResult = await ingestProcessedJobsRoot();
-    logger.info(
-      { inserted: ingestResult.inserted, updated: ingestResult.updated },
-      'nccat: triggered ingest after move'
-    );
+    logger.info({ inserted: ingestResult.inserted, updated: ingestResult.updated }, 'nccat: triggered ingest after move');
   } catch (ingestErr) {
     logger.warn({ err: ingestErr }, 'nccat: ingest failed after move');
   }
 }
 
+function enqueueNcCatJobUnit(unit: NcCatJobUnit) {
+  const key = getNcCatQueueKey(unit);
+  if (ncCatQueuedKeys.has(key)) return;
+  ncCatQueuedKeys.add(key);
+  ncCatQueue.push(unit);
+  void processNcCatQueue();
+}
+
+async function processNcCatQueue() {
+  if (ncCatQueueActive) return;
+  ncCatQueueActive = true;
+  while (ncCatQueue.length > 0) {
+    const unit = ncCatQueue.shift();
+    if (!unit) continue;
+    ncCatQueuedKeys.delete(getNcCatQueueKey(unit));
+    try {
+      await processNcCatJobUnit(unit);
+    } catch (err) {
+      recordWatcherError(NCCAT_WATCHER_NAME, err, { label: NCCAT_WATCHER_LABEL });
+      logger.error({ err, unit }, 'nccat: failed to process job unit');
+    }
+  }
+  ncCatQueueActive = false;
+}
+
+function enqueueNcCatJobFile(ncFilePath: string, jobsRoot: string) {
+  const unit = getNcCatJobUnit(ncFilePath, jobsRoot);
+  if (!unit) {
+    logger.debug({ ncFilePath }, 'nccat: ignored file outside jobsRoot');
+    return;
+  }
+  enqueueNcCatJobUnit(unit);
+}
+
 function setupNcCatJobsWatcher(dir: string) {
   registerWatcher(NCCAT_WATCHER_NAME, NCCAT_WATCHER_LABEL);
 
-  const onAdd = stableProcess(handleNcCatJobFile, 2000, {
+  const onAdd = stableProcess((path: string) => enqueueNcCatJobFile(path, dir), 2000, {
     watcherName: NCCAT_WATCHER_NAME,
     watcherLabel: NCCAT_WATCHER_LABEL
   });
@@ -2943,6 +3467,12 @@ if (channel) {
     if (!message || typeof message !== 'object') return;
     if (message.type === 'shutdown') {
       void shutdown(message.reason).finally(() => process.exit(0));
+    } else if (message.type === 'ncCatValidationResponse') {
+      const pending = ncCatValidationPending.get(message.requestId);
+      if (!pending) return;
+      clearTimeout(pending.timeout);
+      ncCatValidationPending.delete(message.requestId);
+      pending.resolve(message.result);
     }
   });
 }

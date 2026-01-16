@@ -37,6 +37,8 @@ import { getHardwareId } from '../services/hardwareId';
 let ncCatWin: BrowserWindow | null = null;
 let ncCatBackgroundWin: BrowserWindow | null = null;
 
+let ncCatLogListenerRegistered = false;
+
 // Cached subscription auth state from NC-Cat
 let cachedSubscriptionAuthState: SubscriptionAuthState | null = null;
 let authStateRequestInFlight: Promise<SubscriptionAuthState | null> | null = null;
@@ -563,6 +565,59 @@ export function closeNcCatalystWindow(): void {
 }
 
 export function registerNcCatalystIpc() {
+  if (!ncCatLogListenerRegistered) {
+    ncCatLogListenerRegistered = true;
+
+    ipcMain.on('nc-catalyst:log', (event: Electron.IpcMainEvent, rawPayload: unknown) => {
+      try {
+        // Only accept logs from our NC-Cat windows (prevents other renderers spoofing this channel)
+        const allowedSenderIds = new Set<number>();
+        if (ncCatWin && !ncCatWin.isDestroyed()) {
+          allowedSenderIds.add(ncCatWin.webContents.id);
+        }
+        if (ncCatBackgroundWin && !ncCatBackgroundWin.isDestroyed()) {
+          allowedSenderIds.add(ncCatBackgroundWin.webContents.id);
+        }
+
+        if (!allowedSenderIds.has(event.sender.id)) {
+          return;
+        }
+
+        const payload = rawPayload as { level?: unknown; message?: unknown; timestamp?: unknown };
+        const level = typeof payload?.level === 'string' ? payload.level.toLowerCase() : 'info';
+        const message = typeof payload?.message === 'string' ? payload.message : '';
+        const timestamp = typeof payload?.timestamp === 'string' ? payload.timestamp : undefined;
+        const prefixed = message ? `[NC Catalyst] ${message}` : '[NC Catalyst]';
+
+        const meta = { source: 'nc-catalyst', senderId: event.sender.id, timestamp };
+
+        switch (level) {
+          case 'fatal':
+            logger.fatal(meta, prefixed);
+            break;
+          case 'error':
+            logger.error(meta, prefixed);
+            break;
+          case 'warn':
+            logger.warn(meta, prefixed);
+            break;
+          case 'debug':
+            logger.debug(meta, prefixed);
+            break;
+          case 'trace':
+            logger.trace(meta, prefixed);
+            break;
+          case 'info':
+          default:
+            logger.info(meta, prefixed);
+            break;
+        }
+      } catch (err) {
+        logger.warn({ err }, 'Failed to forward NC-Cat log');
+      }
+    });
+  }
+
   registerResultHandler('nc-catalyst:open', async () => {
     logger.info('IPC nc-catalyst:open received');
     openNcCatalystWindow();

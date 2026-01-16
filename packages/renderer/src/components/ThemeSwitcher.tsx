@@ -9,14 +9,11 @@ export function ThemeSwitcher() {
 
     // Map theme to readable label
     const themeLabels: Record<string, string> = {
-        'dark': 'Soft Ocean (Dark)',
-        'light': 'Soft Ocean (Light)',
-        'classic': 'Classic Light',
-        'sunset': 'Sunset Drift',
-        'forest': 'Nordic Forest',
-        'supabase': 'Supabase',
-        'nccat': 'NC-Catalyst (Dark)',
-        'nccat-light': 'NC-Catalyst (Light)'
+        'nccat-light': 'Light',
+        'sunset': 'Sunset',
+        'dark': 'Dark (Teal)',
+        'forest': 'Dark (Green)',
+        'supabase': 'Dark (Charcoal)'
     };
 
     return (

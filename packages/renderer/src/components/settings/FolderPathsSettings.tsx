@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Settings } from '../../../../shared/src';
 import { Button } from '@/components/ui/button';
-import { FolderBrowseIconButton, InfoTipIcon } from '@/components/ui/icon-buttons';
+import { FolderBrowseIconButton } from '@/components/ui/icon-buttons';
 
 type PathsState = Settings['paths'];
 type PathFieldKey = 'processedJobsRoot' | 'autoPacCsvDir' | 'grundnerFolderPath' | 'archiveRoot' | 'jobsRoot' | 'quarantineRoot';
@@ -151,127 +151,127 @@ export function FolderPathsSettings() {
   return (
     <div className="space-y-6">
       {/* Path Fields */}
-      <div className="space-y-4">
-        <div>
-          <label className="flex items-center gap-2 text-sm font-medium mb-1">
-            <span>
-              Processed Jobs Root <span className="text-destructive">*</span>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Jobs Root
+            </label>
+            <p className="text-xs text-muted-foreground mb-2">
+              CAM Software Output Path
+            </p>
+            <div className="flex gap-2">
+              <input
+                className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-1 ${getStatusBorder(pathStatus.jobsRoot.status)}`}
+                value={paths.jobsRoot}
+                onChange={(e) => setPaths({ ...paths, jobsRoot: e.target.value })}
+                placeholder="C:\path\to\jobs\input"
+              />
+              <FolderBrowseIconButton onClick={() => browseFolder('jobsRoot')} tooltip="Pick folder" />
+            </div>
+            <span className={`text-xs ${getStatusColor(pathStatus.jobsRoot.status)}`}>
+              {pathStatus.jobsRoot.message}
             </span>
-            <InfoTipIcon text="Main output folder where processed jobs are stored." />
-          </label>
-          <div className="flex gap-2">
-            <input
-              className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 ${getStatusBorder(pathStatus.processedJobsRoot.status)}`}
-              value={paths.processedJobsRoot}
-              onChange={(e) => setPaths({ ...paths, processedJobsRoot: e.target.value })}
-              placeholder="C:\path\to\processed\jobs"
-            />
-            <FolderBrowseIconButton onClick={() => browseFolder('processedJobsRoot')} tooltip="Pick folder" />
           </div>
-          <span className={`text-xs ${getStatusColor(pathStatus.processedJobsRoot.status)}`}>
-            {pathStatus.processedJobsRoot.message}
-          </span>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Processed Jobs Root <span className="text-destructive"></span>
+            </label>
+            <p className="text-xs text-muted-foreground mb-2">
+              Validated Jobs - Database Folder
+            </p>
+            <div className="flex gap-2">
+              <input
+                className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-1 ${getStatusBorder(pathStatus.processedJobsRoot.status)}`}
+                value={paths.processedJobsRoot}
+                onChange={(e) => setPaths({ ...paths, processedJobsRoot: e.target.value })}
+                placeholder="C:\path\to\processed\jobs"
+              />
+              <FolderBrowseIconButton onClick={() => browseFolder('processedJobsRoot')} tooltip="Pick folder" />
+            </div>
+            <span className={`text-xs ${getStatusColor(pathStatus.processedJobsRoot.status)}`}>
+              {pathStatus.processedJobsRoot.message}
+            </span>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Quarantine Root</label>
+            <p className="text-xs text-muted-foreground mb-2">
+              Folder where jobs with validation errors are moved for review.
+            </p>
+            <div className="flex gap-2">
+              <input
+                className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-1 ${getStatusBorder(pathStatus.quarantineRoot.status)}`}
+                value={paths.quarantineRoot}
+                onChange={(e) => setPaths({ ...paths, quarantineRoot: e.target.value })}
+                placeholder="C:\path\to\quarantine"
+              />
+              <FolderBrowseIconButton onClick={() => browseFolder('quarantineRoot')} tooltip="Pick folder" />
+            </div>
+            <span className={`text-xs ${getStatusColor(pathStatus.quarantineRoot.status)}`}>
+              {pathStatus.quarantineRoot.message}
+            </span>
+          </div>
         </div>
 
-        <div>
-          <label className="flex items-center gap-2 text-sm font-medium mb-1">
-            <span>AutoPAC CSV Directory</span>
-            <InfoTipIcon text="Optional. Folder where AutoPAC job status CSV files are read from." />
-          </label>
-          <div className="flex gap-2">
-            <input
-              className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 ${getStatusBorder(pathStatus.autoPacCsvDir.status)}`}
-              value={paths.autoPacCsvDir}
-              onChange={(e) => setPaths({ ...paths, autoPacCsvDir: e.target.value })}
-              placeholder="C:\path\to\autopac\csv"
-            />
-            <FolderBrowseIconButton onClick={() => browseFolder('autoPacCsvDir')} tooltip="Pick folder" />
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">Grundner Folder</label>
+            <p className="text-xs text-muted-foreground mb-2">
+              Grundner Communication Folder
+            </p>
+            <div className="flex gap-2">
+              <input
+                className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-1 ${getStatusBorder(pathStatus.grundnerFolderPath.status)}`}
+                value={paths.grundnerFolderPath}
+                onChange={(e) => setPaths({ ...paths, grundnerFolderPath: e.target.value })}
+                placeholder="C:\path\to\grundner"
+              />
+              <FolderBrowseIconButton onClick={() => browseFolder('grundnerFolderPath')} tooltip="Pick folder" />
+            </div>
+            <span className={`text-xs ${getStatusColor(pathStatus.grundnerFolderPath.status)}`}>
+              {pathStatus.grundnerFolderPath.message}
+            </span>
           </div>
-          <span className={`text-xs ${getStatusColor(pathStatus.autoPacCsvDir.status)}`}>
-            {pathStatus.autoPacCsvDir.message}
-          </span>
-        </div>
 
-        <div>
-          <label className="flex items-center gap-2 text-sm font-medium mb-1">
-            <span>Grundner Folder</span>
-            <InfoTipIcon text="Optional. Folder used for Grundner integration file access." />
-          </label>
-          <div className="flex gap-2">
-            <input
-              className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 ${getStatusBorder(pathStatus.grundnerFolderPath.status)}`}
-              value={paths.grundnerFolderPath}
-              onChange={(e) => setPaths({ ...paths, grundnerFolderPath: e.target.value })}
-              placeholder="C:\path\to\grundner"
-            />
-            <FolderBrowseIconButton onClick={() => browseFolder('grundnerFolderPath')} tooltip="Pick folder" />
+          <div>
+            <label className="block text-sm font-medium mb-1">AutoPAC CSV Directory</label>
+            <p className="text-xs text-muted-foreground mb-2">
+              Shared folder with all AutoPAC instances. Set in AutoPAC Default Parameters.
+            </p>
+            <div className="flex gap-2">
+              <input
+                className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-1 ${getStatusBorder(pathStatus.autoPacCsvDir.status)}`}
+                value={paths.autoPacCsvDir}
+                onChange={(e) => setPaths({ ...paths, autoPacCsvDir: e.target.value })}
+                placeholder="C:\path\to\autopac\csv"
+              />
+              <FolderBrowseIconButton onClick={() => browseFolder('autoPacCsvDir')} tooltip="Pick folder" />
+            </div>
+            <span className={`text-xs ${getStatusColor(pathStatus.autoPacCsvDir.status)}`}>
+              {pathStatus.autoPacCsvDir.message}
+            </span>
           </div>
-          <span className={`text-xs ${getStatusColor(pathStatus.grundnerFolderPath.status)}`}>
-            {pathStatus.grundnerFolderPath.message}
-          </span>
-        </div>
 
-        <div>
-          <label className="flex items-center gap-2 text-sm font-medium mb-1">
-            <span>Archive Root</span>
-            <InfoTipIcon text="Optional. Folder where completed jobs can be archived." />
-          </label>
-          <div className="flex gap-2">
-            <input
-              className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 ${getStatusBorder(pathStatus.archiveRoot.status)}`}
-              value={paths.archiveRoot}
-              onChange={(e) => setPaths({ ...paths, archiveRoot: e.target.value })}
-              placeholder="C:\path\to\archive"
-            />
-            <FolderBrowseIconButton onClick={() => browseFolder('archiveRoot')} tooltip="Pick folder" />
+          <div>
+            <label className="block text-sm font-medium mb-1">Archive Root</label>
+            <p className="text-xs text-muted-foreground mb-2">
+              Optional. Jobs may be moved here after completion to keep the Processed Jobs folder clean.
+            </p>
+            <div className="flex gap-2">
+              <input
+                className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-1 ${getStatusBorder(pathStatus.archiveRoot.status)}`}
+                value={paths.archiveRoot}
+                onChange={(e) => setPaths({ ...paths, archiveRoot: e.target.value })}
+                placeholder="C:\path\to\archive"
+              />
+              <FolderBrowseIconButton onClick={() => browseFolder('archiveRoot')} tooltip="Pick folder" />
+            </div>
+            <span className={`text-xs ${getStatusColor(pathStatus.archiveRoot.status)}`}>
+              {pathStatus.archiveRoot.message}
+            </span>
           </div>
-          <span className={`text-xs ${getStatusColor(pathStatus.archiveRoot.status)}`}>
-            {pathStatus.archiveRoot.message}
-          </span>
-        </div>
-
-        <div>
-          <label className="flex items-center gap-2 text-sm font-medium mb-1">
-            <span>Jobs Root (NC Cat Input)</span>
-            <InfoTipIcon text="Folder where NC files are dropped for automatic validation and processing." />
-          </label>
-          <p className="text-xs text-muted-foreground mb-2">
-            Folder where NC files are dropped for automatic validation and processing
-          </p>
-          <div className="flex gap-2">
-            <input
-              className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 ${getStatusBorder(pathStatus.jobsRoot.status)}`}
-              value={paths.jobsRoot}
-              onChange={(e) => setPaths({ ...paths, jobsRoot: e.target.value })}
-              placeholder="C:\path\to\jobs\input"
-            />
-            <FolderBrowseIconButton onClick={() => browseFolder('jobsRoot')} tooltip="Pick folder" />
-          </div>
-          <span className={`text-xs ${getStatusColor(pathStatus.jobsRoot.status)}`}>
-            {pathStatus.jobsRoot.message}
-          </span>
-        </div>
-
-        <div>
-          <label className="flex items-center gap-2 text-sm font-medium mb-1">
-            <span>Quarantine Root</span>
-            <InfoTipIcon text="Folder where jobs with validation errors are moved for review." />
-          </label>
-          <p className="text-xs text-muted-foreground mb-2">
-            Folder where jobs with validation errors are moved for review
-          </p>
-          <div className="flex gap-2">
-            <input
-              className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 ${getStatusBorder(pathStatus.quarantineRoot.status)}`}
-              value={paths.quarantineRoot}
-              onChange={(e) => setPaths({ ...paths, quarantineRoot: e.target.value })}
-              placeholder="C:\path\to\quarantine"
-            />
-            <FolderBrowseIconButton onClick={() => browseFolder('quarantineRoot')} tooltip="Pick folder" />
-          </div>
-          <span className={`text-xs ${getStatusColor(pathStatus.quarantineRoot.status)}`}>
-            {pathStatus.quarantineRoot.message}
-          </span>
         </div>
       </div>
 

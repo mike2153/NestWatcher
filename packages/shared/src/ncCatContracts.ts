@@ -156,10 +156,8 @@ export interface NcCatSubmitValidationReq {
       filename: string;
       folderName: string;
       folderPath: string;
-      // NestWatcher historically stores this as integer seconds.
-      // The MES spec uses `ncRuntime` (seconds, may be float), so accept either.
-      ncEstRuntime?: number;
-      ncRuntime?: number;
+      // Runtime in seconds (may be float).
+      ncRuntime: number;
       yieldPercentage: number;
       usableOffcuts: Array<{ x: number; y: number; z: number }>;
       wasteOffcutM2: number;
@@ -253,6 +251,27 @@ export interface NcCatHeadlessValidateResponse {
   error?: string | null;
   profileId?: string | null;
   profileName?: string | null;
+}
+
+// ---------------------------------------------------------------------------------
+// Headless Validation Report (NestWatcher -> Renderer)
+// ---------------------------------------------------------------------------------
+
+export interface NcCatValidationReportFile {
+  filename: string;
+  status: 'pass' | 'warnings' | 'errors';
+  warnings: string[];
+  errors: string[];
+  syntax: string[];
+}
+
+export interface NcCatValidationReport {
+  reason: NcCatHeadlessValidationReason;
+  folderName: string;
+  profileName?: string | null;
+  processedAt: string;
+  overallStatus: 'pass' | 'warnings' | 'errors';
+  files: NcCatValidationReportFile[];
 }
 
 // ---------------------------------------------------------------------------------

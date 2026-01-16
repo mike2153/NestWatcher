@@ -2,9 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/AppSidebar';
-import type { AlarmEntry, DiagnosticsLogSummary, DiagnosticsLogTailRes, DiagnosticsSnapshot, MachineHealthEntry } from '../../../shared/src';
+import type {
+  AlarmEntry,
+  DiagnosticsLogSummary,
+  DiagnosticsLogTailRes,
+  DiagnosticsSnapshot,
+  MachineHealthEntry,
+  NcCatValidationReport
+} from '../../../shared/src';
 import { cn } from '../utils/cn';
 import { selectCurrentAlarms } from './alarmUtils';
+import { NcCatValidationResultsModal } from '@/components/NcCatValidationResultsModal';
 
 // Nav is defined in AppSidebar; no local nav here.
 const PAGE_TITLES: Record<string, string> = {
@@ -45,6 +53,8 @@ export function AppLayout() {
   const [logLinesLive, setLogLinesLive] = useState<string[] | null>(null);
   const [logLoading, setLogLoading] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
+  const [validationReports, setValidationReports] = useState<NcCatValidationReport[]>([]);
+  const [validationResultsOpen, setValidationResultsOpen] = useState(false);
 
   const dismissAlarm = useCallback((id: string) => {
     const t = alarmTimers.current.get(id);
@@ -183,6 +193,32 @@ export function AppLayout() {
       unsubscribe?.();
     };
   }, [applyAlarms]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const unsubscribe = window.api.validation.subscribeHeadlessResults((report) => {
+      if (cancelled) return;
+      setValidationReports((prev) => [report, ...prev].slice(0, 50));
+      setValidationResultsOpen(true);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const customEvent = event as CustomEvent<NcCatValidationReport>;
+      if (!customEvent.detail) return;
+      setValidationReports((prev) => [customEvent.detail, ...prev].slice(0, 50));
+      setValidationResultsOpen(true);
+    };
+    window.addEventListener('nc-cat-validation-results', handler);
+    return () => {
+      window.removeEventListener('nc-cat-validation-results', handler);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -341,56 +377,66 @@ export function AppLayout() {
 
   return (
     <SidebarProvider style={{ '--sidebar-width': '12rem', '--header-height': '3rem' } as React.CSSProperties}>
-  <AppSidebar />
-  <SidebarInset>
-    <header className="flex h-12 items-center justify-between gap-2 border-b border-[var(--border)] px-3 bg-[var(--card)] shadow-sm">
-      <div className="flex items-center gap-2">
-        <div className="page-title-gradient">{pageTitle}</div>
-      </div>
-      <div className="flex items-center gap-2">
-        <button
-          className={cn('flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 text-sm text-[var(--foreground)] hover:bg-[var(--accent-blue-subtle)] hover:border-[var(--accent-blue-border)] transition-all duration-150', hasActiveAlarms && 'border-[var(--status-error-text)] text-[var(--status-error-text)]')}
-          onClick={toggleAlarmPanel}
-        >
-          Alarms
-          <span className={alarmBadgeClass}>{activeAlarmCount}</span>
-        </button>
-        <button className={diagnosticsButtonClass} onClick={toggleDiagnosticsPanel}>
-          Diagnostics
-          {diagnosticsAlertCount > 0 && <span className={diagnosticsBadgeClass}>{diagnosticsAlertCount}</span>}
-        </button>
-      </div>
-    </header>
-    <main className={cn(isSettingsPage ? 'overflow-auto' : 'overflow-y-auto overflow-x-hidden', 'p-4 min-w-0')}>
-      <Outlet />
-    </main>{alarms.length > 0 && (
-        <div className="fixed right-8 top-16 z-50 space-y-2">
-          <div className="flex justify-end">
-            <button className="rounded border border-[var(--border)] bg-[var(--status-error-bg)] px-3 py-1.5 text-xs text-[var(--status-error-text)] hover:bg-[var(--accent)] transition-colors" title="Clear all toasts" onClick={clearAllToasts}>
-              Clear All
+      <AppSidebar />
+      <SidebarInset>
+        <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] px-3 bg-[var(--card)] shadow-sm">
+          <div className="flex items-center gap-2">
+            <div className="page-title-gradient">{pageTitle}</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              className={cn('flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 text-sm text-[var(--foreground)] hover:bg-[var(--accent-blue-subtle)] hover:border-[var(--accent-blue-border)] transition-all duration-150', hasActiveAlarms && 'border-[var(--status-error-text)] text-[var(--status-error-text)]')}
+              onClick={toggleAlarmPanel}
+            >
+              Alarms
+              <span className={alarmBadgeClass}>{activeAlarmCount}</span>
+            </button>
+            <button className={diagnosticsButtonClass} onClick={toggleDiagnosticsPanel}>
+              Diagnostics
+              {diagnosticsAlertCount > 0 && <span className={diagnosticsBadgeClass}>{diagnosticsAlertCount}</span>}
             </button>
           </div>
-          {alarms.map((alarm) => (
-            <div
-              key={alarm.id}
-              className="relative w-72 rounded border border-[var(--status-error-border)] bg-[var(--status-error-bg)] p-3 shadow-lg"
-            >
-              <button
-                className="absolute right-1 top-1 rounded px-1 text-xs text-[var(--status-error-text)] hover:bg-[var(--accent)]"
-                title="Dismiss"
-                onClick={() => dismissAlarm(alarm.id)}
-              >
-                X
+        </header>
+
+        <main className={cn(isSettingsPage ? 'flex-1 min-h-0 overflow-auto' : 'flex-1 min-h-0 overflow-y-auto overflow-x-auto', 'p-4 min-w-0')}>
+          <Outlet />
+        </main>
+
+        <NcCatValidationResultsModal
+          open={validationResultsOpen}
+          onOpenChange={setValidationResultsOpen}
+          reports={validationReports}
+          onClear={() => setValidationReports([])}
+        />
+
+        {alarms.length > 0 && (
+          <div className="fixed right-8 top-16 z-50 space-y-2">
+            <div className="flex justify-end">
+              <button className="rounded border border-[var(--border)] bg-[var(--status-error-bg)] px-3 py-1.5 text-xs text-[var(--status-error-text)] hover:bg-[var(--accent)] transition-colors" title="Clear all toasts" onClick={clearAllToasts}>
+                Clear All
               </button>
-              <div className="space-y-1">
-                <div className="text-sm font-semibold text-[var(--status-error-text)]">{alarm.alarm}</div>
-                <div className="text-xs text-[var(--muted-foreground)]">{alarm.key}</div>
-                {alarm.status && <div className="text-xs text-[var(--muted-foreground)]">Status: {alarm.status}</div>}
-              </div>
             </div>
-          ))}
-        </div>
-      )}
+            {alarms.map((alarm) => (
+              <div
+                key={alarm.id}
+                className="relative w-72 rounded border border-[var(--status-error-border)] bg-[var(--status-error-bg)] p-3 shadow-lg"
+              >
+                <button
+                  className="absolute right-1 top-1 rounded px-1 text-xs text-[var(--status-error-text)] hover:bg-[var(--accent)]"
+                  title="Dismiss"
+                  onClick={() => dismissAlarm(alarm.id)}
+                >
+                  X
+                </button>
+                <div className="space-y-1">
+                  <div className="text-sm font-semibold text-[var(--status-error-text)]">{alarm.alarm}</div>
+                  <div className="text-xs text-[var(--muted-foreground)]">{alarm.key}</div>
+                  {alarm.status && <div className="text-xs text-[var(--muted-foreground)]">Status: {alarm.status}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
       {showAlarmPanel && (
         <div className="fixed right-4 top-16 z-40 w-80 rounded border border-[var(--border)] bg-[var(--card)] shadow-lg">

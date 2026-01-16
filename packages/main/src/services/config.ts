@@ -28,7 +28,7 @@ const DEFAULT_SETTINGS: Settings = {
   },
   paths: { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' },
   test: { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' },
-  grundner: { reservedAdjustmentMode: 'delta' },
+  grundner: {},
   ordering: { includeReserved: false },
   inventoryExport: {
     template: {

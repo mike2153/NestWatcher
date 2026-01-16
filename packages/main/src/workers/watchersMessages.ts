@@ -1,4 +1,10 @@
-import type { MachineHealthCode } from '../../../shared/src';
+import type {
+  MachineHealthCode,
+  NcCatHeadlessValidationFileInput,
+  NcCatHeadlessValidationFileResult,
+  NcCatHeadlessValidationReason,
+  NcCatValidationReport
+} from '../../../shared/src';
 
 export type SerializableError = {
   message: string;
@@ -72,6 +78,41 @@ export type WatcherWorkerToMainMessage =
       params?: Record<string, unknown>;
       timestamp?: string;
       source?: string;
+    }
+  | {
+      type: 'ncCatValidationRequest';
+      requestId: string;
+      payload: {
+        reason: NcCatHeadlessValidationReason;
+        folderName: string;
+        files: NcCatHeadlessValidationFileInput[];
+        machineNameHint?: string | null;
+        machineId?: number | null;
+      };
+    }
+  | {
+      type: 'ncCatValidationReport';
+      report: NcCatValidationReport;
     };
 
-export type MainToWatcherMessage = { type: 'shutdown'; reason?: string };
+export type NcCatValidationResponsePayload =
+  | {
+      ok: true;
+      results: NcCatHeadlessValidationFileResult[];
+      profileId?: string | null;
+      profileName?: string | null;
+    }
+  | {
+      ok: false;
+      skipped?: boolean;
+      reason?: string;
+      error?: string;
+    };
+
+export type MainToWatcherMessage =
+  | { type: 'shutdown'; reason?: string }
+  | {
+      type: 'ncCatValidationResponse';
+      requestId: string;
+      result: NcCatValidationResponsePayload;
+    };       

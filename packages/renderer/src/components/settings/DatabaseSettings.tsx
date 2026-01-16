@@ -116,7 +116,10 @@ export function DatabaseSettings() {
       {/* Status Bar */}
       {dbStatus && (
         <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-md">
-          <div className={`w-2 h-2 rounded-full ${dbStatus.online ? 'bg-success' : 'bg-destructive'}`} />
+          <span
+            aria-label={dbStatus.online ? 'Database online' : dbStatus.error ? 'Database offline' : 'Database checking'}
+            className={`inline-block w-2 h-2 rounded-full motion-reduce:animate-none ${dbStatus.online ? 'bg-emerald-500 animate-pulse' : dbStatus.error ? 'bg-red-500 animate-pulse' : 'bg-muted-foreground'}`}
+          />
           <span className={`text-sm font-medium ${statusClass}`}>{statusLabel}</span>
           {dbStatus.online && dbStatus.latencyMs !== undefined && (
             <span className="text-sm text-muted-foreground">({dbStatus.latencyMs}ms)</span>
@@ -128,7 +131,7 @@ export function DatabaseSettings() {
         <div>
           <label className="block text-sm font-medium mb-1">Host</label>
           <input
-            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
             placeholder="localhost"
             {...register('host')}
           />
@@ -137,7 +140,7 @@ export function DatabaseSettings() {
         <div>
           <label className="block text-sm font-medium mb-1">Port</label>
           <input
-            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
             type="number"
             placeholder="5432"
             {...register('port', { valueAsNumber: true })}
@@ -147,7 +150,7 @@ export function DatabaseSettings() {
         <div>
           <label className="block text-sm font-medium mb-1">Database</label>
           <input
-            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
             placeholder="database_name"
             {...register('database')}
           />
@@ -156,7 +159,7 @@ export function DatabaseSettings() {
         <div>
           <label className="block text-sm font-medium mb-1">User</label>
           <input
-            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
             placeholder="username"
             {...register('user')}
           />
@@ -165,7 +168,7 @@ export function DatabaseSettings() {
         <div>
           <label className="block text-sm font-medium mb-1">Password</label>
           <input
-            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
             type="password"
             autoComplete="off"
             {...register('password')}
@@ -175,7 +178,7 @@ export function DatabaseSettings() {
         <div>
           <label className="block text-sm font-medium mb-1">SSL Mode</label>
           <select
-            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
             {...register('sslMode')}
           >
             <option value="disable">Disable</option>
@@ -185,10 +188,10 @@ export function DatabaseSettings() {
           </select>
         </div>
 
-        <div className="col-span-2">
+        <div>
           <label className="block text-sm font-medium mb-1">Statement Timeout (ms)</label>
           <input
-            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
             type="number"
             placeholder="30000"
             {...register('statementTimeoutMs', { valueAsNumber: true })}

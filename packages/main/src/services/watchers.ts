@@ -4,6 +4,8 @@ import { BrowserWindow, dialog } from 'electron';
 import { Worker } from 'worker_threads';
 import { logger } from '../logger';
 import { pushAppMessage } from './messages';
+import { runHeadlessValidationWithRetry } from './ncCatHeadless';
+import { broadcastNcCatValidationReport } from './ncCatValidationResults';
 import {
   registerWatcher,
   watcherReady,
@@ -288,8 +290,56 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
       }
       break;
     }
+    case 'ncCatValidationReport': {
+      broadcastNcCatValidationReport(message.report);
+      break;
+    }
+    case 'ncCatValidationRequest': {
+      void handleNcCatValidationRequest(message.requestId, message.payload);
+      break;
+    }
     default:
-      logger.warn({ message }, 'watchers: received unknown worker message');
+      logger.warn({ message }, 'watchers: received unknown worker message');    
+  }
+}
+
+async function handleNcCatValidationRequest(
+  requestId: string,
+  payload: {
+    reason: 'ingest' | 'stage';
+    folderName: string;
+    files: { filename: string; ncContent: string }[];
+    machineNameHint?: string | null;
+    machineId?: number | null;
+  }
+) {
+  const outcome = await runHeadlessValidationWithRetry({
+    reason: payload.reason,
+    folderName: payload.folderName,
+    files: payload.files,
+    machineNameHint: payload.machineNameHint ?? null,
+    machineId: payload.machineId ?? null
+  });
+
+  const response: MainToWatcherMessage = {
+    type: 'ncCatValidationResponse',
+    requestId,
+    result: outcome.ok
+      ? {
+          ok: true,
+          results: outcome.results,
+          profileId: outcome.profileId ?? null,
+          profileName: outcome.profileName ?? null
+        }
+      : outcome.skipped
+        ? { ok: false, skipped: true, reason: outcome.reason }
+        : { ok: false, error: outcome.error }
+  };
+
+  try {
+    worker?.postMessage(response);
+  } catch (err) {
+    logger.warn({ err, requestId }, 'watchers: failed to respond to NC-Cat validation request');
   }
 }
 

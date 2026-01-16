@@ -62,8 +62,8 @@ export function ValidationWarningsSettings() {
               Show Validation Warnings
             </label>
             <p className="text-xs text-muted-foreground mt-1">
-              When enabled, a &quot;Validations&quot; button will appear in the header next to Alarms.
-              This displays jobs from NC-Cat that have validation warnings or errors.
+              When enabled, validation results from NC-Cat will pop up after jobs are ingested.
+              Staging will always show the validation results to the user who staged the job.
             </p>
           </div>
         </div>

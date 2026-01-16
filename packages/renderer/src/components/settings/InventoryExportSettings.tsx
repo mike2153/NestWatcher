@@ -40,6 +40,58 @@ function getDefaultInventoryExportSettings(): InventoryExportSettings {
   return InventoryExportSettingsSchema.parse(undefined);
 }
 
+type PreviewTableState =
+  | { kind: 'empty' }
+  | { kind: 'table'; header: string[]; rows: string[][] }
+  | { kind: 'error'; message: string };
+
+function parseCsvLine(line: string, delimiter: string): string[] {
+  const cells: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+
+    if (inQuotes) {
+      if (ch === '"') {
+        const next = line[i + 1];
+        if (next === '"') {
+          current += '"';
+          i++;
+          continue;
+        }
+        inQuotes = false;
+        continue;
+      }
+
+      current += ch;
+      continue;
+    }
+
+    if (ch === '"') {
+      inQuotes = true;
+      continue;
+    }
+
+    if (ch === delimiter) {
+      cells.push(current);
+      current = '';
+      continue;
+    }
+
+    current += ch;
+  }
+
+  cells.push(current);
+  return cells;
+}
+
+function parseCsvText(text: string, delimiter: string): string[][] {
+  const lines = text.split(/\r?\n/).filter((line) => line.length > 0);
+  return lines.map((line) => parseCsvLine(line, delimiter));
+}
+
 export function InventoryExportSettings() {
   const [loadState, setLoadState] = useState<LoadState>({ status: 'loading' });
   const [draft, setDraft] = useState<InventoryExportSettings>(getDefaultInventoryExportSettings());
@@ -68,6 +120,44 @@ export function InventoryExportSettings() {
   const validation = useMemo(() => InventoryExportSettingsSchema.safeParse(draft), [draft]);
   const templateValidation = useMemo(() => InventoryExportTemplateSchema.safeParse(draft.template), [draft.template]);
 
+  const previewTable = useMemo<PreviewTableState>(() => {
+    if (!previewCsv.trim()) return { kind: 'empty' };
+
+    try {
+      const rows = parseCsvText(previewCsv, draft.template.delimiter);
+      if (rows.length === 0) return { kind: 'empty' };
+      const [header, ...body] = rows;
+      return { kind: 'table', header, rows: body };
+    } catch (err) {
+      return { kind: 'error', message: err instanceof Error ? err.message : String(err) };
+    }
+  }, [previewCsv, draft.template.delimiter]);
+
+  const previewColWidths = useMemo(() => {
+    if (previewTable.kind !== 'table') return [] as number[];
+
+    const minPx = 30;
+    const maxPx = 150;
+    const paddingPx = 24;
+    const approxCharPx = 6;
+
+    const colCount = previewTable.header.length;
+    const widths: number[] = [];
+
+    for (let col = 0; col < colCount; col++) {
+      let maxLen = previewTable.header[col]?.length ?? 0;
+      for (const row of previewTable.rows) {
+        const len = row[col]?.length ?? 0;
+        if (len > maxLen) maxLen = len;
+      }
+
+      const estimate = maxLen * approxCharPx + paddingPx;
+      widths[col] = Math.max(minPx, Math.min(maxPx, estimate));
+    }
+
+    return widths;
+  }, [previewTable]);
+
   const validationIssues = useMemo(() => {
     if (validation.success) return [];
     return validation.error.issues.map((issue) => {
@@ -95,7 +185,7 @@ export function InventoryExportSettings() {
 
         const res = await window.api.grundner.previewCustomCsv({
           template: templateValidation.data,
-          limit: 10
+          limit: 5
         });
 
         if (cancelled) return;
@@ -189,7 +279,7 @@ export function InventoryExportSettings() {
       <div className="space-y-2">
         <h4 className="text-sm font-semibold text-foreground/80 uppercase tracking-wide">Custom CSV Template</h4>
         <p className="text-xs text-muted-foreground">
-          This template controls the columns used by scheduled exports and by the "Export Custom CSV" button.
+          This template controls the columns used by scheduled exports and by the &quot;Export Custom CSV&quot; button.
         </p>
       </div>
 
@@ -228,22 +318,22 @@ export function InventoryExportSettings() {
             <option value="\">\</option>
           </select>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>Used by "Export Custom CSV" and scheduled export.</span>
+            <span>Used by &quot;Export Custom CSV&quot; and scheduled export.</span>
           </div>
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-6 items-start">
-        <div className="space-y-3 flex-1 min-w-0">
+      <div className="space-y-6">
+        <div className="space-y-3">
           {/*<h5 className="text-sm font-semibold">Columns</h5>*/}
           <div className="overflow-x-auto border border-border rounded-md">
             <table className="min-w-full text-sm">
               <thead className="bg-muted/40">
                 <tr className="text-left">
-                  <th className="p-2 w-16">On</th>
-                  <th className="p-2">Column Name</th>
-                  <th className="p-2 w-56">Maps To</th>
-                  <th className="p-2 w-28">Order</th>
+                  <th className="p-2 w-8">On</th>
+                  <th className="p-2 w-45">Column Name</th>
+                  <th className="p-2 w-20">Maps To</th>
+                  <th className="p-2 w-10">Order</th>
                 </tr>
               </thead>
               <tbody>
@@ -265,7 +355,7 @@ export function InventoryExportSettings() {
                     </td>
                     <td className="p-2">
                       <input
-                        className="w-1/2 min-w-50 px-2 py-1 border border-border rounded-md bg-background"
+                        className="w-1/2 min-w-45 px-2 py-1 border border-border rounded-md bg-background"
                         value={col.header}
                         onChange={(e) => {
                           const header = e.target.value;
@@ -280,7 +370,7 @@ export function InventoryExportSettings() {
                     </td>
                     <td className="p-2">
                       <select
-                        className="w-full min-w-50 px-2 py-1 border border-border rounded-md bg-background"
+                        className="w-full min-w-20 px-2 py-1 border border-border rounded-md bg-background"
                         value={col.field}
                         onChange={(e) => {
                           const field = e.target.value as InventoryExportFieldKey;
@@ -303,7 +393,7 @@ export function InventoryExportSettings() {
                         <Button
                           type="button"
                           size="sm"
-                          className="h-8 w-8 p-0"
+                          className="h-7 w-7 p-0"
                           onClick={() => moveColumn(idx, -1)}
                           disabled={idx === 0}
                           title="Move up"
@@ -313,7 +403,7 @@ export function InventoryExportSettings() {
                         <Button
                           type="button"
                           size="sm"
-                          className="h-8 w-8 p-0"
+                          className="h-7 w-7 p-0"
                           onClick={() => moveColumn(idx, 1)}
                           disabled={idx === draft.template.columns.length - 1}
                           title="Move down"
@@ -329,19 +419,52 @@ export function InventoryExportSettings() {
           </div>
         </div>
 
-        <div className="space-y-3 w-full lg:w-[420px] shrink-0">
+        <div className="space-y-3 w-full">
           <h5 className="text-sm font-semibold">Preview</h5>
           <div className="rounded-md border border-border bg-muted/20 p-3">
-
-
             {previewLoading ? (
               <div className="text-sm text-muted-foreground">Generating preview...</div>
             ) : previewError ? (
               <div className="text-sm text-destructive">{previewError}</div>
+            ) : previewTable.kind === 'error' ? (
+              <div className="text-sm text-destructive">{previewTable.message}</div>
+            ) : previewTable.kind === 'empty' ? (
+              <div className="text-sm text-muted-foreground">No data to preview yet.</div>
             ) : (
-              <pre className="whitespace-pre-wrap break-words text-xs font-mono text-foreground/90 max-h-48 overflow-auto">
-                {previewCsv || 'No data to preview yet.'}
-              </pre>
+              <div className="max-h-48 overflow-auto">
+                <table className="w-full text-sm text-foreground/90 border-separate border-spacing-0">
+                  <thead className="bg-muted/40 sticky top-0">
+                    <tr>
+                      {previewTable.header.map((cell, idx) => (
+                        <th
+                          key={idx}
+                          title={cell}
+                          style={{ width: previewColWidths[idx], maxWidth: previewColWidths[idx] }}
+                          className="px-2 py-1 text-left font-medium border-b border-border truncate"
+                        >
+                          {cell}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewTable.rows.map((row, rowIdx) => (
+                      <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-background' : 'bg-muted/10'}>
+                        {row.map((cell, cellIdx) => (
+                          <td
+                            key={cellIdx}
+                            title={cell}
+                            style={{ width: previewColWidths[cellIdx], maxWidth: previewColWidths[cellIdx] }}
+                            className="px-2 py-1 border-b border-border align-top truncate"
+                          >
+                            {cell}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </div>
@@ -350,7 +473,7 @@ export function InventoryExportSettings() {
        <div className="space-y-2 pt-2">
         <h4 className="text-sm font-semibold text-foreground/80 uppercase tracking-wide">Scheduled Export</h4>
         <p className="text-xs text-muted-foreground">
-          When enabled, the app exports the custom template on a timer for other software to ingest.
+          When enabled, the app exports the custom template on a timer.
         </p>
       </div>
 
@@ -381,7 +504,7 @@ export function InventoryExportSettings() {
           <input
             type="number"
             min={30}
-            className="mt-1 w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="mt-1 w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
             value={draft.scheduled.intervalSeconds}
             onChange={(e) => {
               const intervalSeconds = Number(e.target.value);
@@ -432,7 +555,7 @@ export function InventoryExportSettings() {
           </label>
           <div className="flex gap-2">
             <input
-              className="flex-1 px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="flex-1 px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
               value={draft.scheduled.folderPath}
               onChange={(e) =>
                 setDraft((prev) => ({
@@ -455,7 +578,7 @@ export function InventoryExportSettings() {
           File Name
             <input
               type="text"
-              className="mt-1 w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="mt-1 w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
               value={fileNameUi}
               onChange={(e) => {
                 const nextValue = e.target.value;

@@ -383,7 +383,7 @@ export interface MesFileData {
   folderName: string;
   folderPath: string;
 
-  ncEstRuntime: number;        // seconds
+  ncRuntime: number;           // seconds
   yieldPercentage: number;     // %
 
   usableOffcuts: MesOffcut[];
@@ -504,7 +504,8 @@ We also need to share a subset of WE settings with NC‑Cat so that:
 ```ts
 export interface SharedSettingsSnapshot {
   processedJobsRoot: string; // Root folder where WE expects processed jobs.
-  jobsRoot: string;          // Root folder where NC‑Cat watches for new jobs (currently same as processedJobsRoot).
+  jobsRoot: string;          // Root folder where new jobs land for intake validation.
+
   quarantineRoot?: string;   // Optional root folder for quarantined jobs.
 
   // Minimal machine view exposed from WE to NC-Cat
@@ -532,7 +533,8 @@ Rules:
 Implementation status:
 
 - WE exposes `SharedSettingsSnapshot` over IPC as `nc-catalyst:get-shared-settings` (see `packages/main/src/ipc/hypernest.ts`), backed by:
-  - `Settings.paths.processedJobsRoot` for `processedJobsRoot`/`jobsRoot`.
+  - `Settings.paths.jobsRoot` for `jobsRoot` and `Settings.paths.processedJobsRoot` for `processedJobsRoot`.
+
   - `public.machines` for the minimal `machines` list (`machine_id`, `name`, `nc_cat_machine_id`).
 - The preload bridge (`packages/preload/src/index.ts`) exposes `window.electronApi.ncCatalyst.getSharedSettings()` to NC‑Cat when running inside NestWatcher Electron.
 - NC‑Cat calls this via `SettingsOperationsManager.fetchSharedSettingsFromHost()` when the operator ticks the “NestWatcher installed on this PC” toggle in the Settings modal. For now this logs the snapshot and shows a brief status message; future work can hook this into automatic path/machine ID binding inside NC‑Cat.

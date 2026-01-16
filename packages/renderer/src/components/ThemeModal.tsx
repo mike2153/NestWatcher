@@ -10,53 +10,35 @@ interface ThemeModalProps {
 
 const themes: { value: Theme; label: string; color: string; description: string }[] = [
     {
-        value: 'dark',
-        label: 'Soft Ocean (Dark)',
-        color: 'bg-slate-900',
-        description: 'Deep teal and calming dark tones.'
-    },
-    {
-        value: 'light',
-        label: 'Soft Ocean (Light)',
-        color: 'bg-slate-100',
-        description: 'Bright and airy with soft teal accents.'
-    },
-    {
-        value: 'classic',
-        label: 'Classic Light',
-        color: 'bg-blue-600',
-        description: 'The original crisp white and vibrant blue theme.'
+        value: 'nccat-light',
+        label: 'Light',
+        color: 'bg-[hsl(40,20%,98%)]',
+        description: 'NC-Catalyst light theme.'
     },
     {
         value: 'sunset',
-        label: 'Sunset Drift',
+        label: 'Sunset',
         color: 'bg-[#d6d3c4]',
-        description: 'High contrast warm stone with floating white cards.'
+        description: 'Warm stone background with high contrast cards.'
+    },
+    {
+        value: 'dark',
+        label: 'Dark (Teal)',
+        color: 'bg-slate-900',
+        description: 'Soft Ocean dark theme with teal accents.'
     },
     {
         value: 'forest',
-        label: 'Nordic Forest',
+        label: 'Dark (Green)',
         color: 'bg-emerald-900',
-        description: 'Natural sage and evergreen shades.'
+        description: 'Nordic Forest dark theme with natural greens.'
     },
     {
         value: 'supabase',
-        label: 'Supabase',
+        label: 'Dark (Charcoal)',
         color: 'bg-[#1c1c1c]',
-        description: 'Dark charcoal with emerald green accents.'
-    },
-    {
-        value: 'nccat',
-        label: 'NC-Catalyst (Dark)',
-        color: 'bg-[hsl(225,20%,10%)]',
-        description: 'Warm ink with navy blue and golden amber accents.'
-    },
-    {
-        value: 'nccat-light',
-        label: 'NC-Catalyst (Light)',
-        color: 'bg-[hsl(40,20%,98%)]',
-        description: 'Warm off-white with deep navy and golden amber.'
-    },
+        description: 'Supabase dark theme with charcoal + emerald accents.'
+    }
 ];
 
 export function ThemeModal({ isOpen, onClose }: ThemeModalProps) {

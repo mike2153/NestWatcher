@@ -56,6 +56,7 @@ import type {
   AggregatedValidationDataReq,
   AggregatedValidationDataRes,
   ValidationWarningsListRes,
+  NcCatValidationReport,
   AuthStateRes,
   AuthSuccessRes,
   AuthLoginReq,
@@ -118,7 +119,17 @@ const api = {
   validation: {
     getData: (input: ValidationDataReq) => invokeResult<ValidationDataRes>('validation:getData', input),
     getAggregatedData: (input: AggregatedValidationDataReq) => invokeResult<AggregatedValidationDataRes>('validation:getAggregatedData', input),
-    getWarnings: () => invokeResult<ValidationWarningsListRes>('validation:getWarnings')
+    getWarnings: () => invokeResult<ValidationWarningsListRes>('validation:getWarnings'),
+    subscribeHeadlessResults: (listener: (payload: NcCatValidationReport) => void) => {
+      const channel = 'nc-catalyst:validation-results';
+      const handler = (_event: Electron.IpcRendererEvent, payload: NcCatValidationReport) => {
+        listener(payload);
+      };
+      ipcRenderer.on(channel, handler);
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+      };
+    }
   },
   settings: {
     get: () => invokeResult<Settings>('settings:get'),

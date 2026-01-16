@@ -7,6 +7,30 @@
 
 The MES (Manufacturing Execution System) JSON export provides comprehensive data about processed NC files for integration with external manufacturing systems. This document describes each field in the export format.
 
+## How NestWatcher consumes `validation.json`
+
+In this repo, NestWatcher imports MES metrics from a `validation.json` file.
+
+- **Where the file is expected**: NestWatcher looks for `validation.json` inside Electron `userData`.
+- **How it links back to jobs**: It only trusts entries that point inside `processedJobsRoot` and turns each entry into a `job key` using the folder path plus NC filename.
+- **What gets updated**: It upserts a row in `public.nc_stats` keyed by `jobKey`.
+- **Cleanup**: The file is deleted after processing.
+
+```mermaid
+flowchart TD
+  NcCat[NC Cat] -->|Writes validation.json| UserData[NestWatcher userData folder]
+  UserData --> Scanner[NestWatcher MES scanner]
+  Scanner --> Parse[Parse and validate JSON]
+  Parse --> Key[Build job key from processedJobsRoot folderPath and filename]
+  Key --> Exists{Job exists in jobs table}
+  Exists -->|Yes| Upsert[Upsert metrics into nc_stats]
+  Upsert --> UI[UI reads nc_stats for the MES modal]
+  Exists -->|No| Skip[Skip entry and report missing]
+  Scanner --> Delete[Delete validation.json]
+```
+
+A matching `.mmd` copy exists in `docs/charts/MES-JSON-SPECIFICATION.mmd`.
+
 ---
 
 ## Top-Level Structure

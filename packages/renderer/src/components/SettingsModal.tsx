@@ -1,16 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Database, FolderOpen, Package, FileDown, Plus, Trash2, AlertTriangle, ChevronRight } from 'lucide-react';
+import { X, Database, FolderOpen, Package, FileDown, Plus, Trash2, AlertTriangle, FlaskConical } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { Button } from '@/components/ui/button';
 import type { Machine } from '../../../shared/src';
 import { DatabaseSettings } from './settings/DatabaseSettings';
 import { FolderPathsSettings } from './settings/FolderPathsSettings';
 import { GrundnerSettings } from './settings/GrundnerSettings';
+import { TestDataSettings } from './settings/TestDataSettings';
 import { InventoryExportSettings } from './settings/InventoryExportSettings';
 import { MachineSettings } from './settings/MachineSettings';
 import { ValidationWarningsSettings } from './settings/ValidationWarningsSettings';
 
-type SettingsCategory = 'database' | 'folders' | 'grundner' | 'inventoryExport' | 'validation' | 'machine';
+type SettingsCategory = 'database' | 'folders' | 'grundner' | 'testData' | 'inventoryExport' | 'validation' | 'machine';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -72,12 +73,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-none animate-in fade-in duration-200">
-      <div className="border rounded-xl shadow-2xl w-[96vw] h-[85vh] max-w-[90rem] flex overflow-hidden animate-in zoom-in-95 duration-200" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
-        {/* Sidebar - matches NC Cat exactly */}
+      <div className="border rounded-lg shadow-2xl w-[96vw] h-[85vh] max-w-[90rem] flex overflow-hidden animate-in zoom-in-95 duration-200" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
         <div className="w-48 border-r shrink-0 flex flex-col" style={{ backgroundColor: 'var(--sidebar)' }}>
           {/* Sidebar Header */}
-          <div className="flex items-center h-12 px-3">
-            <span className="px-2 font-semibold text-lg">Settings</span>
+          <div className="flex items-center h-13 px-5" style={{ borderBottom: '1px solid var(--border)' }}>
+          <span className="px-2 font-semibold text-lg">Settings</span>
           </div>
 
           {/* Main Categories */}
@@ -91,6 +91,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   { id: 'grundner', label: 'Grundner', icon: Package },
                   { id: 'inventoryExport', label: 'Inventory Export', icon: FileDown },
                   { id: 'validation', label: 'Validation', icon: AlertTriangle },
+                  { id: 'testData', label: 'Test Data', icon: FlaskConical }
                 ].map((item) => (
                   <button
                     key={item.id}
@@ -111,7 +112,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             {/* Machines Section */}
             <div className="space-y-1">
               <div className="flex items-center justify-between px-2 mb-1">
-                <span className="text-xs font-medium text-muted-foreground">
+                <span className="text-sm font-medium text-muted-foreground">
                   Machines
                 </span>
                 <Button
@@ -169,12 +170,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         {/* Content Area - matches NC Cat structure */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Content Header - matches NC Cat header style */}
-          <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4 bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
+          <div className="flex h-13 shrink-0 items-center justify-between gap-2 border-b px-4 bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
             <div className="flex items-center gap-3">
               <h1 className="text-lg font-semibold">
                 {activeCategory === 'database' && 'Database Configuration'}
                 {activeCategory === 'folders' && 'Folder Path Management'}
                 {activeCategory === 'grundner' && 'Grundner Integration'}
+                {activeCategory === 'testData' && 'Test Data'}
                 {activeCategory === 'inventoryExport' && 'Inventory Export'}
                 {activeCategory === 'validation' && 'Validation Rules'}
                 {activeCategory === 'machine' && 'Machine Settings'}
@@ -196,6 +198,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             {activeCategory === 'database' && <DatabaseSettings />}
             {activeCategory === 'folders' && <FolderPathsSettings />}
             {activeCategory === 'grundner' && <GrundnerSettings />}
+            {activeCategory === 'testData' && <TestDataSettings />}
             {activeCategory === 'inventoryExport' && <InventoryExportSettings />}
             {activeCategory === 'validation' && <ValidationWarningsSettings />}
             {activeCategory === 'machine' && (

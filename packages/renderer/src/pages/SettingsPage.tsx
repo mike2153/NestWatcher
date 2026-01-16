@@ -36,9 +36,10 @@ type InventoryExportState = Settings['inventoryExport'];
 
 const DEFAULT_PATHS: PathsState = { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' };
 const DEFAULT_TEST: TestState = { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' };
-const DEFAULT_GRUNDNER: GrundnerState = { reservedAdjustmentMode: 'delta' };
+const DEFAULT_GRUNDNER: GrundnerState = {};
 const DEFAULT_ORDERING: OrderingState = { includeReserved: false };
 const DEFAULT_INVENTORY_EXPORT: InventoryExportState = InventoryExportSettingsSchema.parse(undefined);
+
 
 
 type PathFieldKey = 'processedJobsRoot' | 'autoPacCsvDir' | 'grundnerFolderPath' | 'archiveRoot' | 'testDataFolderPath';
@@ -815,17 +816,7 @@ export function SettingsPage() {
               <option value="customer_id">customer_id</option>
             </select>
           </label>
-          <label className="form-label">
-            <span>Grundner Reserved Mode</span>
-            <select
-              className="form-input"
-              value={grundnerState.reservedAdjustmentMode}
-              onChange={(e) => setGrundnerState({ reservedAdjustmentMode: e.target.value as GrundnerState['reservedAdjustmentMode'] })}
-            >
-              <option value="delta">delta</option>
-              <option value="absolute">absolute</option>
-            </select>
-          </label>
+
           <div className="flex flex-col gap-1">
             <label className="flex items-center gap-2 text-sm">
               <input

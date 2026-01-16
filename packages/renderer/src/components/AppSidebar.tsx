@@ -176,16 +176,6 @@ export function AppSidebar() {
             <SidebarMenuItem>
               <ThemeSwitcher />
             </SidebarMenuItem>
-            <SidebarMenuItem>
-              <button
-                onClick={() => (session ? logout() : requireLogin())}
-                className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
-                style={{ color: 'var(--muted-foreground)' }}
-              >
-                {session ? <LogOut /> : <UserRound />}
-                <span className="truncate">{session ? 'Logout' : 'Login'}</span>
-              </button>
-            </SidebarMenuItem>
             {session?.role === 'admin' ? (
               <SidebarMenuItem>
                 <button
@@ -198,6 +188,17 @@ export function AppSidebar() {
                 </button>
               </SidebarMenuItem>
             ) : null}
+
+            <SidebarMenuItem>
+              <button
+                onClick={() => (session ? logout() : requireLogin())}
+                className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
+                style={{ color: 'var(--muted-foreground)' }}
+              >
+                {session ? <LogOut /> : <UserRound />}
+                <span className="truncate">{session ? 'Logout' : 'Login'}</span>
+              </button>
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarFooter>
       </Sidebar>

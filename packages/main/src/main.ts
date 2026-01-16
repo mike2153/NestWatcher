@@ -22,7 +22,6 @@ import { registerAuthIpc } from './ipc/auth';
 import { registerMesDataIpc } from './ipc/mesData';
 import { initWatchers, shutdownWatchers } from './services/watchers';
 import { startDbWatchdog, stopDbWatchdog } from './services/dbWatchdog';
-import { initMesValidationScanner, stopMesValidationScanner } from './services/mesValidation';
 import { syncInventoryExportScheduler, stopInventoryExportScheduler } from './services/inventoryExportScheduler';
 import { logger } from './logger';
 import { initializeDiagnostics } from './services/diagnostics';
@@ -116,7 +115,6 @@ app.whenReady().then(async () => {
   }
 
   initWatchers();
-  initMesValidationScanner();
 
   try {
     syncInventoryExportScheduler();
@@ -152,12 +150,6 @@ app.on('will-quit', async () => {
     await shutdownWatchers();
   } catch (err) {
     logger.error({ err }, 'Failed to stop watchers worker');
-  }
-
-  try {
-    stopMesValidationScanner();
-  } catch (err) {
-    logger.error({ err }, 'Failed to stop MES validation scanner');
   }
 
   try {

@@ -4,176 +4,181 @@ Quick reference for how jobs move through the system from ingestion to completio
 
 ## Flow Diagram
 
+This is the "whiteboard" version: folders, files, watchers, and status updates.
+
+```mermaid
+flowchart TD
+  Programmer[Programmer] -->|Copies job folder| JobsRoot[Jobs folder jobsRoot]
+
+  JobsRoot --> JobsWatcher[NestWatcher watches jobsRoot]
+  JobsWatcher --> Stable[Wait for copy to finish]
+  Stable --> Validate[Validate NC files with NC Cat]
+
+  Validate --> Decision{Validation result}
+  Decision -->|Errors| QuarantineRoot[Quarantine folder quarantineRoot]
+  Decision -->|Pass or warnings| ProcessedRoot[Processed Jobs folder processedJobsRoot]
+
+  ProcessedRoot --> Ingest[Ingest scans processedJobsRoot]
+  Ingest --> DBPending[Create or update job rows in Postgres]
+  DBPending --> Pending[Job status is Pending]
+
+  Pending -->|Operator clicks Add To Worklist| Stage[Stage job to machine]
+  Stage --> R2R[Copy files to Machine Ready To Run ap_jobfolder]
+  Stage --> Staged[Update job status to Staged]
+
+  Stage --> GrundnerRequest[Write order_saw.csv]
+  GrundnerRequest --> GrundnerFolder[Grundner folder grundnerFolderPath]
+  GrundnerFolder --> GrundnerReply[Grundner writes order_saw.erl]
+  GrundnerReply --> LockDecision{Reply matches request}
+  LockDecision -->|Yes| Locked[Lock job and clear Pre reserve]
+  LockDecision -->|No| LockFailed[Show warning and do not lock]
+
+  R2R --> AutoPAC[AutoPAC runs job]
+
+  AutoPAC -->|Drops load finish CSV| AutoPacCsvDir[AutoPAC CSV folder autoPacCsvDir]
+  AutoPAC -->|Drops label finish CSV| AutoPacCsvDir
+  AutoPAC -->|Drops cnc finish CSV| AutoPacCsvDir
+
+  AutoPacCsvDir --> AutoPacWatcher[NestWatcher watches autoPacCsvDir]
+  AutoPacWatcher --> Parse[Read CSV and find job base names]
+
+  Parse --> LoadFinish[Update status to Load finished]
+  LoadFinish --> Unlock[Clear lock on Load finished]
+
+  Parse --> LabelFinish[Update status to Label finished]
+
+  Parse --> CncFinish[Update status to CNC finished]
+
+  CncFinish -->|If Nestpick enabled| NestpickForward[Write Nestpick.csv]
+  NestpickForward --> NestpickInbox[Nestpick inbox nestpickFolder]
+
+  NestpickInbox --> NestpickRobot[Nestpick robot]
+  NestpickRobot -->|Drops processed CSV| NestpickProcessed[nestpickFolder processed]
+  NestpickProcessed --> NestpickWatcher[NestWatcher watches processed]
+  NestpickWatcher --> Complete[Update status to Nestpick complete]
+  Complete --> NestpickArchive[nestpickFolder archive]
+
+  Complete -->|Optional| Archive[Archive files archiveRoot]
 ```
-1. PENDING       → Job ingested from processedJobsRoot folder
-                   (ingest.ts scans .nc files, reads metadata)
 
-2. STAGED        → Operator adds job to worklist for a machine
-                   (worklist.ts copies files to machine's ap_jobfolder)
+## Folder and setting names
 
-3. LOAD_FINISH   → AutoPAC signals material loaded
-                   (load_finish<machine>.csv → autoPacCsvDir)
+These are the path settings that drive the job flow:
 
-4. LABEL_FINISH  → AutoPAC signals labeling complete
-                   (label_finish<machine>.csv → autoPacCsvDir)
+- `jobsRoot` is where jobs are dropped first for validation.
+- `processedJobsRoot` is where validated jobs live and where ingestion happens.
+- `quarantineRoot` is where jobs with validation errors are moved.
+- `autoPacCsvDir` is where AutoPAC drops status CSVs.
+- `grundnerFolderPath` is where NestWatcher drops and reads Grundner request and reply files.
+- `archiveRoot` is where completed jobs can be archived.
+- `machines[].apJobfolder` is the per machine Ready To Run folder.
+- `machines[].nestpickFolder` is the per machine Nestpick folder.
 
-5. CNC_FINISH    → AutoPAC signals CNC cutting complete
-                   (cnc_finish<machine>.csv → autoPacCsvDir)
-                   → Auto-forwards CSV to Nestpick folder
+## Job key format
 
-6. FORWARDED_TO_NESTPICK → CSV written to Nestpick.csv
-                           (watchersWorker forwards parts CSV)
+Every job has a stable string key stored in `public.jobs.key`.
 
-7. NESTPICK_COMPLETE → Nestpick writes "processed" CSV
-                       (nestpickFolder/processed/*.csv detected)
-```
+In the current code, the key is built like this:
+
+- Take the folder that contains the `.nc` file.
+- Compute its path relative to `processedJobsRoot`.
+- Take the NC file name without the `.nc` extension.
+- Combine them as `relativeFolder/baseName`.
+
+Example:
+- File on disk: `processedJobsRoot\\Kitchen\\Run1\\ABC123.nc`
+- Key becomes: `Kitchen/Run1/ABC123`
+
+This key is what links everything together: watchers, job events, and MES metrics.
+
+## Status and what causes it
+
+Job status is stored in Postgres in `public.jobs.status`.
+
+- `PENDING` is created by ingestion when a job exists in `processedJobsRoot`.
+- `STAGED` is set when an operator stages the job to a machine.
+- `LOAD_FINISH`, `LABEL_FINISH`, `CNC_FINISH` come from AutoPAC CSV files.
+- `FORWARDED_TO_NESTPICK` is set when NestWatcher successfully writes `Nestpick.csv`.
+- `NESTPICK_COMPLETE` is set when NestWatcher processes a CSV in `nestpickFolder/processed`.
 
 ## File Structure Requirements
 
-### 1. Ingestion (PENDING)
+### 0. Intake validation
+
+**Location**: `jobsRoot`
+
+**What happens here**:
+- A watcher in `watchersWorker.ts` detects new `.nc` files under `jobsRoot`.
+- NestWatcher validates all NC files in the folder using NC Cat.
+- If there are validation errors, the folder is moved to `quarantineRoot`.
+- Otherwise, the folder is moved to `processedJobsRoot`.
+
+### 1. Ingestion and Pending jobs
+
 **Location**: `processedJobsRoot` (configured in Settings)
 
 **Structure**:
+
 ```
 processedJobsRoot/
-  └─ JobFolderName/
-      ├─ JobName.nc        (required - CNC program)
-      ├─ JobName.lpt       (optional - Planit label file)
-      ├─ JobName.pts       (optional - Alphacam parts file)
-      ├─ JobName.csv       (optional - per-file parts CSV)
-      ├─ RJT.csv           (optional - Planit family CSV, first 3 chars)
-      └─ images/           (optional - .bmp, .jpg, .jpeg files)
+  JobFolderName/
+    JobName.nc        required
+    JobName.lpt       optional
+    JobName.pts       optional
+    JobName.csv       optional
+    RJT.csv           optional
+    images            optional
 ```
 
-**Metadata Extracted** from `.nc` file:
-- `ID=<material>` → material field
-- `G100 X<x> Y<y> Z<z>` → size (XxY), thickness (Z)
-- Parts count from `.lpt` or `.pts` file
+**Metadata extracted from the NC file**
+- `ID=<material>` becomes the `material` field.
+- `G100 X<x> Y<y> Z<z>` becomes:
+  - `size` stored as `XxY`
+  - `thickness` stored as `Z`
+- `parts` count is derived from `.lpt` or `.pts` line count.
 
-### 2. Staging (STAGED)
-**Trigger**: Operator clicks "Add To Worklist" in Jobs page
+**Important behavior**
+- Ingestion sets `pre_reserved = true` on newly ingested jobs. This drives the planning and shortage views.
 
-**Destination**: Machine's `ap_jobfolder` (e.g., `\\Machine1\ReadyToRun`)
+### 2. Staging to a machine
 
-**Files Copied**:
-- **Always**: `.nc`, `.lpt`, `.pts`, exact-match `.csv` (JobName.csv)
-- **Planit mode** (has `.lpt`, no `.pts`): Also copy family CSV (`RJT.csv`)
-- **Alphacam mode** (has `.pts`): Copy all `JobName*.bmp|jpg|jpeg`
-- **Images**: Resolved via Planit family CSV or Alphacam wildcard
+**Trigger**: Operator clicks "Add To Worklist" in the Jobs page.
 
-**CSV Rules**:
-- `JobName.csv` = per-file parts CSV (forwarded to Nestpick later)
-- `RJT.csv` = family CSV (first 3 letters, Planit only, for image mapping)
+**Destination**: Machine `ap_jobfolder`.
 
-### 3. Processing Events (LOAD_FINISH, LABEL_FINISH, CNC_FINISH)
+**What happens**:
+- NestWatcher re validates the job again using the selected machine profile.
+  - If validation errors exist, staging is blocked.
+- Files are copied to the machine Ready To Run folder.
+- Job lifecycle is updated to `STAGED`.
+- NestWatcher drops `order_saw.csv` into the Grundner folder and waits for an `.erl` confirmation.
+  - If confirmed, it locks the job and clears `pre_reserved`.
+
+### 3. AutoPAC status CSVs
+
 **Location**: `autoPacCsvDir` (configured in Settings)
 
-**File Naming** (strict):
+**File naming**
 - `load_finish<machine>.csv`
 - `label_finish<machine>.csv`
 - `cnc_finish<machine>.csv`
 
-Where `<machine>` = machine name or ID (e.g., `load_finish_Machine1.csv` or `load_finish_1.csv`)
+**What happens**
+- The watcher reads the CSV, verifies the machine token matches the filename, then extracts base job names.
+- For each job name, it updates the matching job status.
+- On success the CSV is deleted.
 
-**CSV Format**:
-```csv
-JobName1
-JobName2
-Machine1
-```
-- First column = NC base name (with or without `.nc` extension)
-- CSV must contain matching machine identifier somewhere in content
+### 4. Nestpick forwarding and completion
 
-**Processing**:
-- Watcher detects file in `autoPacCsvDir`
-- Updates job status to `LOAD_FINISH`, `LABEL_FINISH`, or `CNC_FINISH`
-- On `CNC_FINISH`: Auto-forwards parts CSV to Nestpick folder
-- Deletes source CSV after successful processing
+- When a job hits `CNC_FINISH` and the machine has Nestpick enabled:
+  - NestWatcher finds the staged parts CSV.
+  - Rewrites it into `Nestpick.csv` inside `machine.nestpickFolder`.
+  - Updates status to `FORWARDED_TO_NESTPICK`.
+- Nestpick produces processed CSVs.
+  - NestWatcher watches `machine.nestpickFolder/processed`.
+  - When a CSV arrives, jobs inside are updated to `NESTPICK_COMPLETE`.
+  - The processed CSV is moved into `machine.nestpickFolder/archive`.
 
-### 4. Nestpick Forwarding (FORWARDED_TO_NESTPICK)
-**Automatic** after `CNC_FINISH` if machine has Nestpick enabled
+## Status transitions
 
-**Process**:
-1. Finds `JobName.csv` in staged folder (`ap_jobfolder/JobFolderName/`)
-2. Rewrites CSV with machine columns (destination=99, source=machineId)
-3. Waits for `Nestpick.csv` slot to be available (5min timeout)
-4. Writes to `machine.nestpickFolder/Nestpick.csv`
-5. Deletes source CSV from staged folder
-
-### 5. Nestpick Completion (NESTPICK_COMPLETE)
-**Location**: `machine.nestpickFolder/processed/`
-
-**Trigger**: Watcher detects any `.csv` file in processed folder
-
-**Processing**:
-- Reads CSV, extracts NC base names
-- Updates job status to `NESTPICK_COMPLETE`
-- Archives CSV to `machine.nestpickFolder/archive/`
-
-### 6. Pallet Assignment (Optional)
-**Location**: `machine.nestpickFolder/Report_FullNestpickUnstack.csv`
-
-**Format**:
-```csv
-JobName,SourcePlace,Dest,...
-RJT123,Pallet_A05,...
-```
-- Column 0 = Job name
-- Column 1 = Pallet (e.g., `Pallet_A05`)
-
-**Processing**:
-- Updates `pallet` field on job record
-- Archives CSV after processing
-
-## Status Transitions
-
-**Allowed Transitions** (enforced in `jobsRepo.ts`):
-- `PENDING` → `PENDING` only (reingestion)
-- `STAGED` → from `PENDING`, `STAGED`
-- `LOAD_FINISH` → from `PENDING`, `STAGED`, `LOAD_FINISH`
-- `LABEL_FINISH` → from `STAGED`, `LOAD_FINISH`, `LABEL_FINISH`
-- `CNC_FINISH` → from `STAGED`, `LOAD_FINISH`, `LABEL_FINISH`, `CNC_FINISH`
-- `FORWARDED_TO_NESTPICK` → from `CNC_FINISH`, `FORWARDED_TO_NESTPICK`
-- `NESTPICK_COMPLETE` → from `FORWARDED_TO_NESTPICK`, `NESTPICK_COMPLETE`
-
-Invalid transitions are rejected (e.g., cannot jump from `PENDING` to `CNC_FINISH`).
-
-## Key Configuration Paths
-
-Set these in **Settings** page:
-
-| Setting | Purpose | Example |
-|---------|---------|---------|
-| `processedJobsRoot` | Source folder for job ingestion | `C:\Jobs\Processed` |
-| `autoPacCsvDir` | Where AutoPAC writes status CSVs | `C:\AutoPAC\CSV` |
-| `machines[].apJobfolder` | Machine's ready-to-run folder | `\\Machine1\ReadyToRun` |
-| `machines[].nestpickFolder` | Nestpick input/output folder | `\\Machine1\Nestpick` |
-| `machines[].nestpickEnabled` | Enable Nestpick forwarding | `true` |
-| `machines[].pcIp` | PC IP Address for telemetry mapping (optional) | `192.168.1.100` |
-
-## Quick Troubleshooting
-
-**Job stuck in PENDING?**
-- Check if `processedJobsRoot` is set and folder exists
-- Verify `.nc` file is present
-- Check Diagnostics panel for watcher errors
-
-**Job not staging?**
-- Verify `ap_jobfolder` is accessible (network share permissions)
-- Existing destination folders are reused; files merge into the existing job folder
-
-**AutoPAC CSV not processing?**
-- File must be named `load_finish<machine>.csv` (exact format)
-- CSV must contain machine identifier in content
-- Check `autoPacCsvDir` setting and file permissions
-
-**Nestpick not forwarding?**
-- Machine must have `nestpickEnabled=true`
-- `nestpickFolder` must be set and accessible
-- `JobName.csv` must exist in staged folder
-- Check for `Nestpick.csv` lock/busy timeout (5min)
-
-**Nestpick completion not detected?**
-- Check watcher is running (Diagnostics panel)
-- Verify files appear in `nestpickFolder/processed/`
-- CSV must contain recognizable NC base names
+Allowed transitions are enforced in `packages/main/src/repo/jobsRepo.ts`.

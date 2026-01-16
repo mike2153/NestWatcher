@@ -196,6 +196,48 @@ const definitions: Record<string, MessageDefinition> = {
     body: 'Message history trimmed to {{limit}} entries.',
     tone: 'info'
   },
+  'ncCat.jobMoved': {
+    key: 'ncCat.jobMoved',
+    title: 'NC-Cat Job Moved',
+    body: 'Moved {{folderName}} to processed jobs.',
+    tone: 'success'
+  },
+  'ncCat.jobQuarantined': {
+    key: 'ncCat.jobQuarantined',
+    title: 'NC-Cat Quarantined',
+    body: 'Quarantined {{folderName}} ({{reason}}).',
+    tone: 'warning'
+  },
+  'ncCat.validationSkipped': {
+    key: 'ncCat.validationSkipped',
+    title: 'NC-Cat Validation Skipped',
+    body: 'Validation skipped for {{folderName}}: {{reason}}.',
+    tone: 'warning'
+  },
+  'ncCat.validationUnavailable': {
+    key: 'ncCat.validationUnavailable',
+    title: 'NC-Cat Validation Unavailable',
+    body: 'Validation failed for {{folderName}}: {{error}}.',
+    tone: 'error'
+  },
+  'ncCat.validationBlocked': {
+    key: 'ncCat.validationBlocked',
+    title: 'NC-Cat Validation Blocked',
+    body: 'Validation errors blocked {{folderName}} ({{errorCount}} file(s)).',
+    tone: 'error'
+  },
+  'ncCat.validationWarnings': {
+    key: 'ncCat.validationWarnings',
+    title: 'NC-Cat Validation Warnings',
+    body: 'Validation warnings for {{folderName}} ({{warningCount}} file(s)).',
+    tone: 'warning'
+  },
+  'ncCat.jobsImported': {
+    key: 'ncCat.jobsImported',
+    title: 'NC-Cat Jobs Imported',
+    body: 'Imported {{fileCount}} file(s) from {{folderName}}.',
+    tone: 'success'
+  },
   'mes.parseError': {
     key: 'mes.parseError',
     title: 'MES JSON Parse Failed',

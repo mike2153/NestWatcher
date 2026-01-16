@@ -42,15 +42,15 @@ function SidebarProvider({ className, style, children, ...props }: React.Compone
 
   return (
     <SidebarContext.Provider value={{ open, setOpen, openMobile, setOpenMobile, isMobile, toggleSidebar }}>
-      <div
-        data-collapsible={open ? "full" : "icon"}
-        className={cn("group/sidebar-wrapper flex min-h-svh w-full max-w-full overflow-x-hidden", className)}
-        style={{
-          ...(style as React.CSSProperties),
-          ...sidebarVars,
-        }}
-        {...props}
-      >
+        <div
+          data-collapsible={open ? "full" : "icon"}
+          className={cn("group/sidebar-wrapper flex h-svh w-full max-w-full overflow-hidden", className)}
+          style={{
+            ...(style as React.CSSProperties),
+            ...sidebarVars,
+          }}
+          {...props}
+        >
         {children}
       </div>
     </SidebarContext.Provider>
@@ -67,7 +67,7 @@ function Sidebar({ className, children, ...props }: React.ComponentProps<"div">)
             <SheetTitle>Sidebar</SheetTitle>
             <SheetDescription>Displays the mobile sidebar.</SheetDescription>
           </SheetHeader>
-          <div className="bg-sidebar flex h-full w-full flex-col">
+          <div className="bg-sidebar flex h-full w-full flex-col overflow-hidden">
             {children}
           </div>
         </SheetContent>
@@ -78,7 +78,7 @@ function Sidebar({ className, children, ...props }: React.ComponentProps<"div">)
     <aside
       data-slot="sidebar"
       className={cn(
-        "text-sidebar-foreground w-[var(--sidebar-width)] border-r",
+        "flex h-svh flex-col overflow-hidden text-sidebar-foreground w-[var(--sidebar-width)] border-r",
         className
       )}
       style={{ backgroundColor: 'var(--sidebar)' }}
@@ -90,7 +90,7 @@ function Sidebar({ className, children, ...props }: React.ComponentProps<"div">)
 }
 
 function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
-  return <main data-slot="sidebar-inset" className={cn("flex min-h-svh flex-1 flex-col min-w-0 overflow-x-hidden bg-background", className)} {...props} />
+  return <main data-slot="sidebar-inset" className={cn("flex h-svh flex-1 flex-col min-w-0 overflow-hidden bg-background", className)} {...props} />
 }
 
 function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {
@@ -98,7 +98,7 @@ function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
-  return <div data-slot="sidebar-content" className={cn("flex-1 p-2", className)} {...props} />
+  return <div data-slot="sidebar-content" className={cn("flex-1 min-h-0 overflow-y-auto p-2", className)} {...props} />
 }
 
 function SidebarFooter({ className, ...props }: React.ComponentProps<"div">) {

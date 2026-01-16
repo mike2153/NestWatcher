@@ -121,11 +121,9 @@ export async function processValidationJson(): Promise<void> {
         continue;
       }
       try {
-        const runtimeSeconds = Number.isFinite(entry.ncEstRuntime)
-          ? entry.ncEstRuntime
-          : Number.isFinite(entry.ncRuntime)
-            ? entry.ncRuntime
-            : null;
+        const runtimeSeconds = Number.isFinite(entry.ncRuntime)
+          ? entry.ncRuntime
+          : null;
 
         await upsertNcStats({
           jobKey,

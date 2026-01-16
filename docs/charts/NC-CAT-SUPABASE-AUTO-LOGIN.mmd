@@ -1,0 +1,39 @@
+flowchart TD
+  subgraph Renderer[NestWatcher renderer]
+    UI[Subscription gate and login page]
+    UI -->|window.api.ncCatalyst.subscriptionAuth.getState| Preload[Preload window api]
+    UI -->|window.api.ncCatalyst.subscriptionAuth.login| Preload
+  end
+
+  subgraph Main[NestWatcher main process]
+    Proxy[hypernest subscription auth proxy]
+    Cache[Cached SubscriptionAuthState]
+  end
+
+  subgraph NCCat[NC Cat window]
+    NcUi[NC Cat UI]
+    NcAuth[NC Cat auth logic]
+  end
+
+  subgraph Cloud[Supabase and Stripe]
+    Supa[Supabase]
+    Stripe[Stripe]
+  end
+
+  Preload -->|ipc invoke nc catalyst auth channels| Proxy
+
+  Proxy -->|requestState| NcUi
+  NcUi -->|stateResponse| Proxy
+  Proxy --> Cache
+  Cache --> Proxy
+  Proxy -->|stateChanged broadcast| UI
+
+  Proxy -->|loginRequest| NcUi
+  NcUi --> NcAuth
+  NcAuth --> Supa
+  Supa --> Stripe
+  Stripe --> Supa
+  Supa --> NcAuth
+  NcAuth -->|loginResponse| Proxy
+  Proxy --> Cache
+  Proxy -->|stateChanged broadcast| UI

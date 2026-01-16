@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X, UserCircle2, ShieldCheck, RefreshCcw } from 'lucide-react';
+import { X, UserCircle2, ShieldCheck, RefreshCcw, KeyRound } from 'lucide-react';
 import type { AuthSession } from '../../../shared/src';
+import { Button } from '@/components/ui/button';
 
 type AuthMode = 'login' | 'register' | 'reset';
 
@@ -215,35 +216,46 @@ export function LoginModal({ isOpen, onClose, onAuthenticated, disableClose }: L
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-[90vw] max-w-lg rounded-xl border border-border bg-[var(--card)] shadow-2xl">
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="w-[92vw] max-w-md rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] shadow-lg animate-in zoom-in-95 duration-200">
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
           <div className="flex items-center gap-3">
-            <div className="rounded-full bg-primary/10 p-2 text-primary">
-              {mode === 'register' ? <ShieldCheck className="h-5 w-5" /> : <UserCircle2 className="h-5 w-5" />}
+            <div className="rounded-md bg-[var(--muted)] p-2 text-[var(--foreground)]">
+              {mode === 'register' ? (
+                <ShieldCheck className="h-5 w-5" />
+              ) : mode === 'reset' ? (
+                <KeyRound className="h-5 w-5" />
+              ) : (
+                <UserCircle2 className="h-5 w-5" />
+              )}
             </div>
             <div>
+              <p className="text-xs font-medium text-[var(--muted-foreground)]">NestWatcher</p>
               <p className="text-base font-semibold">{header}</p>
-              <p className="text-xs text-muted-foreground">Accounts sync across every workstation.</p>
             </div>
           </div>
-          <button
-            className="rounded-md p-1 hover:bg-muted disabled:opacity-50"
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 rounded-md"
             onClick={onClose}
             disabled={disableClose}
+            type="button"
           >
             <X className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-4 px-6 py-6">
+
+        <form onSubmit={handleSubmit} className="space-y-4 px-5 py-5">
           {status ? (
             <div
-              className={`rounded border px-3 py-2 text-sm ${
+              className={`rounded-md border px-3 py-2 text-sm ${
                 status.variant === 'error'
-                  ? 'border-destructive/50 bg-destructive/10 text-destructive'
+                  ? 'border-[var(--status-error-border)] bg-[var(--status-error-bg)] text-[var(--status-error-text)]'
                   : status.variant === 'success'
-                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600'
-                    : 'border-primary/40 bg-primary/5 text-primary'
+                    ? 'border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-text)]'
+                    : 'border-[var(--status-info-border)] bg-[var(--status-info-bg)] text-[var(--status-info-text)]'
               }`}
             >
               {status.text}
@@ -252,9 +264,9 @@ export function LoginModal({ isOpen, onClose, onAuthenticated, disableClose }: L
 
           {mode === 'register' ? (
             <label className="block text-sm">
-              <span className="mb-1 block font-medium text-muted-foreground">Display name</span>
+              <span className="mb-1 block text-sm font-medium text-[var(--foreground)]">Display name</span>
               <input
-                className="w-full rounded border px-3 py-2"
+                className="h-9 w-full rounded-md border border-[var(--border)] bg-transparent px-3 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
                 value={form.displayName}
                 onChange={(e) => setForm((prev) => ({ ...prev, displayName: e.target.value }))}
                 placeholder="Jane Smith"
@@ -263,36 +275,39 @@ export function LoginModal({ isOpen, onClose, onAuthenticated, disableClose }: L
           ) : null}
 
           <label className="block text-sm">
-            <span className="mb-1 block font-medium text-muted-foreground">Username</span>
+            <span className="mb-1 block text-sm font-medium text-[var(--foreground)]">Username</span>
             <input
-              className="w-full rounded border px-3 py-2"
+              className="h-9 w-full rounded-md border border-[var(--border)] bg-transparent px-3 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
               value={form.username}
               onChange={(e) => setForm((prev) => ({ ...prev, username: e.target.value }))}
               placeholder="e.g. jsmith"
+              autoComplete="username"
             />
           </label>
 
           {(mode === 'login' || mode === 'register') && (
             <>
               <label className="block text-sm">
-                <span className="mb-1 block font-medium text-muted-foreground">Password</span>
+                <span className="mb-1 block text-sm font-medium text-[var(--foreground)]">Password</span>
                 <input
                   type="password"
-                  className="w-full rounded border px-3 py-2"
+                  className="h-9 w-full rounded-md border border-[var(--border)] bg-transparent px-3 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
                   value={form.password}
                   onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
                   placeholder="••••••••"
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                 />
               </label>
               {mode === 'register' ? (
                 <label className="block text-sm">
-                  <span className="mb-1 block font-medium text-muted-foreground">Confirm password</span>
+                  <span className="mb-1 block text-sm font-medium text-[var(--foreground)]">Confirm password</span>
                   <input
                     type="password"
-                    className="w-full rounded border px-3 py-2"
+                    className="h-9 w-full rounded-md border border-[var(--border)] bg-transparent px-3 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
                     value={form.confirmPassword}
                     onChange={(e) => setForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
                     placeholder="Repeat password"
+                    autoComplete="new-password"
                   />
                 </label>
               ) : null}
@@ -301,33 +316,33 @@ export function LoginModal({ isOpen, onClose, onAuthenticated, disableClose }: L
 
           {(mode === 'register' || mode === 'reset') && (
             <>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-[var(--muted-foreground)]">
                 {mode === 'reset'
                   ? 'Answer any two of the security questions below to reset your password.'
                   : 'Set your security answers (required for password resets).'}
               </p>
               <label className="block text-sm">
-                <span className="mb-1 block font-medium text-muted-foreground">First pet&apos;s name</span>
+                <span className="mb-1 block text-sm font-medium text-[var(--foreground)]">First pet&apos;s name</span>
                 <input
-                  className="w-full rounded border px-3 py-2"
+                  className="h-9 w-full rounded-md border border-[var(--border)] bg-transparent px-3 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
                   value={form.firstPet}
                   onChange={(e) => setForm((prev) => ({ ...prev, firstPet: e.target.value }))}
                   placeholder="e.g. Milo"
                 />
               </label>
               <label className="block text-sm">
-                <span className="mb-1 block font-medium text-muted-foreground">Mother&apos;s maiden name</span>
+                <span className="mb-1 block text-sm font-medium text-[var(--foreground)]">Mother&apos;s maiden name</span>
                 <input
-                  className="w-full rounded border px-3 py-2"
+                  className="h-9 w-full rounded-md border border-[var(--border)] bg-transparent px-3 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
                   value={form.motherMaiden}
                   onChange={(e) => setForm((prev) => ({ ...prev, motherMaiden: e.target.value }))}
                   placeholder="e.g. Williams"
                 />
               </label>
               <label className="block text-sm">
-                <span className="mb-1 block font-medium text-muted-foreground">First school attended</span>
+                <span className="mb-1 block text-sm font-medium text-[var(--foreground)]">First school attended</span>
                 <input
-                  className="w-full rounded border px-3 py-2"
+                  className="h-9 w-full rounded-md border border-[var(--border)] bg-transparent px-3 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
                   value={form.firstSchool}
                   onChange={(e) => setForm((prev) => ({ ...prev, firstSchool: e.target.value }))}
                   placeholder="e.g. Central Primary"
@@ -339,23 +354,25 @@ export function LoginModal({ isOpen, onClose, onAuthenticated, disableClose }: L
           {mode === 'reset' ? (
             <>
               <label className="block text-sm">
-                <span className="mb-1 block font-medium text-muted-foreground">New password</span>
+                <span className="mb-1 block text-sm font-medium text-[var(--foreground)]">New password</span>
                 <input
                   type="password"
-                  className="w-full rounded border px-3 py-2"
+                  className="h-9 w-full rounded-md border border-[var(--border)] bg-transparent px-3 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
                   value={form.password}
                   onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
                   placeholder="••••••••"
+                  autoComplete="new-password"
                 />
               </label>
               <label className="block text-sm">
-                <span className="mb-1 block font-medium text-muted-foreground">Confirm new password</span>
+                <span className="mb-1 block text-sm font-medium text-[var(--foreground)]">Confirm new password</span>
                 <input
                   type="password"
-                  className="w-full rounded border px-3 py-2"
+                  className="h-9 w-full rounded-md border border-[var(--border)] bg-transparent px-3 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
                   value={form.confirmPassword}
                   onChange={(e) => setForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
                   placeholder="Repeat new password"
+                  autoComplete="new-password"
                 />
               </label>
             </>
@@ -364,42 +381,40 @@ export function LoginModal({ isOpen, onClose, onAuthenticated, disableClose }: L
           {mode === 'login' ? (
             <button
               type="button"
-              className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+              className="text-sm font-medium text-[var(--primary)] hover:underline underline-offset-4"
               onClick={() => setMode('reset')}
             >
               Forgot password?
             </button>
           ) : null}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
-          >
-            {submitting ? <RefreshCcw className="h-4 w-4 animate-spin" /> : null}
+          <Button type="submit" disabled={submitting} className="h-9 w-full rounded-md text-sm font-medium">
+            {submitting ? <RefreshCcw className="mr-2 h-4 w-4 animate-spin" /> : null}
             {cta}
-          </button>
+          </Button>
+
           {mode === 'login' && canForceLogin ? (
-            <button
+            <Button
               type="button"
+              variant="outline"
               disabled={submitting}
-              className="mt-2 w-full rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-60"
+              className="h-9 w-full rounded-md text-sm font-medium"
               onClick={handleForceLogin}
             >
               Sign in here anyway
-            </button>
+            </Button>
           ) : null}
           {mode === 'login' ? (
-            <p className="text-center text-xs text-muted-foreground">
+            <p className="text-center text-xs text-[var(--muted-foreground)]">
               Five failed attempts will require a security reset.
             </p>
           ) : null}
 
-          <div className="text-center text-sm text-muted-foreground">
+          <div className="text-center text-sm text-[var(--muted-foreground)]">
             {hint.text}{' '}
             <button
               type="button"
-              className="font-medium text-primary underline-offset-4 hover:underline"
+              className="font-medium text-[var(--primary)] underline-offset-4 hover:underline"
               onClick={() => {
                 setMode(hint.mode);
                 setStatus(null);

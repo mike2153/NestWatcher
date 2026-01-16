@@ -6,11 +6,124 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   SharedSettingsSnapshot,
+  NcCatHeadlessValidateRequest,
+  NcCatHeadlessValidateResponse,
   NcCatSubmitValidationReq,
   NcCatSubmitValidationRes,
   SubscriptionAuthState
 } from '../../shared/src';
 import { type ResultEnvelope } from '../../shared/src/result';
+
+type NcCatLogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+type NcCatLogPayload = { level: NcCatLogLevel; message: string; timestamp: string };
+
+const NC_CAT_LOG_FORWARDER_KEY = '__nestWatcherNcCatLogForwarderInstalled__';
+const NC_CAT_LOG_CHANNEL = 'nc-catalyst:log';
+
+function formatLogArg(arg: unknown): string {
+  if (arg instanceof Error) return arg.stack || arg.message;
+  if (typeof arg === 'string') return arg;
+  if (typeof arg === 'number' || typeof arg === 'boolean' || typeof arg === 'bigint') return String(arg);
+  if (arg == null) return String(arg);
+
+  try {
+    const seen = new WeakSet<object>();
+    return JSON.stringify(
+      arg,
+      (_key, value) => {
+        if (typeof value === 'object' && value !== null) {
+          if (seen.has(value)) return '[Circular]';
+          seen.add(value);
+        }
+        return value;
+      },
+      2
+    );
+  } catch {
+    try {
+      return String(arg);
+    } catch {
+      return '[Unserializable]';
+    }
+  }
+}
+
+function formatLogMessage(args: unknown[]): string {
+  const joined = args.map(formatLogArg).join(' ');
+  const maxLen = 8_000;
+  return joined.length > maxLen ? `${joined.slice(0, maxLen)}…` : joined;
+}
+
+function sendNcCatLog(level: NcCatLogLevel, args: unknown[]) {
+  try {
+    const payload: NcCatLogPayload = {
+      level,
+      message: formatLogMessage(args),
+      timestamp: new Date().toISOString()
+    };
+    ipcRenderer.send(NC_CAT_LOG_CHANNEL, payload);
+  } catch {
+    // never let logging break NC-Cat
+  }
+}
+
+function installNcCatConsoleForwarding() {
+  const consoleAny = console as unknown as Record<string, unknown>;
+  if (consoleAny[NC_CAT_LOG_FORWARDER_KEY]) return;
+  consoleAny[NC_CAT_LOG_FORWARDER_KEY] = true;
+
+  const original = {
+    log: console.log.bind(console),
+    info: console.info.bind(console),
+    warn: console.warn.bind(console),
+    error: console.error.bind(console),
+    debug: console.debug.bind(console),
+    trace: console.trace.bind(console)
+  };
+
+  console.log = (...args: unknown[]) => {
+    original.log(...args);
+    sendNcCatLog('info', args);
+  };
+
+  console.info = (...args: unknown[]) => {
+    original.info(...args);
+    sendNcCatLog('info', args);
+  };
+
+  console.warn = (...args: unknown[]) => {
+    original.warn(...args);
+    sendNcCatLog('warn', args);
+  };
+
+  console.error = (...args: unknown[]) => {
+    original.error(...args);
+    sendNcCatLog('error', args);
+  };
+
+  console.debug = (...args: unknown[]) => {
+    original.debug(...args);
+    sendNcCatLog('debug', args);
+  };
+
+  console.trace = (...args: unknown[]) => {
+    original.trace(...args);
+    sendNcCatLog('trace', args);
+  };
+
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('error', (event) => {
+      // event.error is often the most useful thing here
+      sendNcCatLog('error', ['window:error', (event as ErrorEvent).message, (event as ErrorEvent).error]);
+    });
+
+    window.addEventListener('unhandledrejection', (event) => {
+      sendNcCatLog('error', ['window:unhandledrejection', (event as PromiseRejectionEvent).reason]);
+    });
+  }
+}
+
+installNcCatConsoleForwarding();
 
 const subscriptionAuthRequestStateHandlers = new Set<() => void>();
 let pendingSubscriptionAuthStateRequest = false;
@@ -42,6 +155,20 @@ const ncCatApi = {
   // Submit validation results to NestWatcher
   submitValidation: (req: NcCatSubmitValidationReq) =>
     invokeResult<NcCatSubmitValidationRes>('nc-catalyst:submit-validation', req),
+
+  // Listen for headless validation requests (NestWatcher -> NC-Cat)
+  onValidationRequest: (listener: (payload: NcCatHeadlessValidateRequest) => void) => {
+    const channel = 'nc-catalyst:validation:request';
+    const handler = (_event: Electron.IpcRendererEvent, payload: NcCatHeadlessValidateRequest) =>
+      listener(payload);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+
+  // Send headless validation response back to NestWatcher
+  sendValidationResponse: (response: NcCatHeadlessValidateResponse) => {
+    ipcRenderer.send('nc-catalyst:validation:response', response);
+  },
 
   // Listen for jobs being opened in NC-Cat
   onOpenJobs: (listener: (payload: any) => void) => {
