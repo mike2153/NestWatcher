@@ -2760,21 +2760,52 @@ async function moveFolderToDestination(source: string, destRoot: string): Promis
       mkdirSync(destRoot, { recursive: true });
     }
 
-    // Check if destination already exists - add timestamp suffix
+    // Check if destination already exists - add random suffix
     let finalDest = destination;
     if (existsSync(destination)) {
-      finalDest = join(destRoot, `${folderName}_${Date.now()}`);
-      logger.warn({ source, destination, finalDest }, 'nccat: destination exists, using timestamped name');
+      const maxAttempts = 200;
+      let candidate: string | null = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const suffix = randomFourDigits();
+        const next = join(destRoot, `${folderName}_${suffix}`);
+        if (!existsSync(next)) {
+          candidate = next;
+          break;
+        }
+      }
+      if (!candidate) {
+        return { ok: false, error: `Destination collision: unable to allocate unique folder name for ${folderName}` };
+      }
+      finalDest = candidate;
+      logger.warn({ source, destination, finalDest }, 'nccat: destination exists, using random suffix');
     }
 
+    const tryRename = async (): Promise<void> => {
+      let lastErr: unknown = null;
+      for (let attempt = 1; attempt <= 8; attempt++) {
+        try {
+          await rename(source, finalDest);
+          return;
+        } catch (err) {
+          lastErr = err;
+          const code = (err as NodeJS.ErrnoException)?.code;
+          if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') {
+            throw err;
+          }
+          await delay(150 * attempt);
+        }
+      }
+      throw lastErr;
+    };
+
     try {
-      // Try atomic rename first
-      await rename(source, finalDest);
+      // Prefer atomic rename.
+      await tryRename();
       return { ok: true, newPath: finalDest };
     } catch (err) {
       const code = (err as NodeJS.ErrnoException)?.code;
-      if (code === 'EXDEV') {
-        // Cross-device, need to copy then delete
+      if (code === 'EXDEV' || code === 'EPERM' || code === 'EACCES' || code === 'EBUSY') {
+        // Cross-device or Windows file-lock edge cases: copy then delete.
         await copyFolderRecursive(source, finalDest);
         await deleteFolderRecursive(source);
         return { ok: true, newPath: finalDest };
@@ -2786,6 +2817,7 @@ async function moveFolderToDestination(source: string, destRoot: string): Promis
     return { ok: false, error: message };
   }
 }
+
 
 async function copyFolderRecursive(src: string, dest: string): Promise<void> {
   if (!existsSync(dest)) {
@@ -2810,11 +2842,31 @@ async function deleteFolderRecursive(path: string): Promise<void> {
     if (entry.isDirectory()) {
       await deleteFolderRecursive(fullPath);
     } else {
-      await unlink(fullPath);
+      const ok = await unlinkWithRetry(fullPath, 6, 150);
+      if (!ok) {
+        throw new Error(`Failed to delete file during folder cleanup: ${fullPath}`);
+      }
     }
   }
-  await fsp.rmdir(path);
+
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    try {
+      await fsp.rmdir(path);
+      return;
+    } catch (err) {
+      lastErr = err;
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY' && code !== 'ENOTEMPTY') {
+        throw err;
+      }
+      await delay(150 * attempt);
+    }
+  }
+
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
+
 
 const NCCAT_STABILITY_THRESHOLD_MS = 10_000;
 const NCCAT_REQUEUE_DELAY_MS = 2_000;
@@ -2830,22 +2882,12 @@ const ncCatQueue: NcCatJobUnit[] = [];
 const ncCatQueuedKeys = new Set<string>();
 let ncCatQueueActive = false;
 
-function pad2(value: number): string {
-  return value.toString().padStart(2, '0');
-}
-
-function formatLooseTimestamp(date: Date): string {
-  const day = pad2(date.getDate());
-  const month = pad2(date.getMonth() + 1);
-  const year = date.getFullYear();
-  const hour = pad2(date.getHours());
-  const minute = pad2(date.getMinutes());
-  const second = pad2(date.getSeconds());
-  return `${day}.${month}.${year}_${hour}.${minute}.${second}`;
+function randomFourDigits(): string {
+  return String(Math.floor(1000 + Math.random() * 9000));
 }
 
 function buildLooseFolderName(baseNoExt: string): string {
-  return `${baseNoExt}_${formatLooseTimestamp(new Date())}`;
+  return `${baseNoExt}_${randomFourDigits()}`;
 }
 
 function getNcCatQueueKey(unit: NcCatJobUnit): string {
@@ -2913,17 +2955,48 @@ async function moveFileToDestination(
     if (existsSync(destPath)) {
       const ext = extname(fileName);
       const base = basename(fileName, ext);
-      destPath = join(destRoot, `${base}_${Date.now()}${ext}`);
-      logger.warn({ source, destPath }, 'nccat: destination exists, using timestamped name');
+      const maxAttempts = 200;
+      let candidate: string | null = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const suffix = randomFourDigits();
+        const next = join(destRoot, `${base}_${suffix}${ext}`);
+        if (!existsSync(next)) {
+          candidate = next;
+          break;
+        }
+      }
+      if (!candidate) {
+        return { ok: false, error: `Destination collision: unable to allocate unique file name for ${fileName}` };
+      }
+      destPath = candidate;
+      logger.warn({ source, destPath }, 'nccat: destination exists, using random suffix');
     }
+    const tryRename = async (): Promise<void> => {
+      let lastErr: unknown = null;
+      for (let attempt = 1; attempt <= 8; attempt++) {
+        try {
+          await rename(source, destPath);
+          return;
+        } catch (err) {
+          lastErr = err;
+          const code = (err as NodeJS.ErrnoException)?.code;
+          if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') {
+            throw err;
+          }
+          await delay(150 * attempt);
+        }
+      }
+      throw lastErr;
+    };
+
     try {
-      await rename(source, destPath);
+      await tryRename();
       return { ok: true, newPath: destPath };
     } catch (err) {
       const code = (err as NodeJS.ErrnoException)?.code;
-      if (code === 'EXDEV') {
+      if (code === 'EXDEV' || code === 'EPERM' || code === 'EACCES' || code === 'EBUSY') {
         await copyFile(source, destPath);
-        await unlink(source);
+        await unlinkWithRetry(source, 6, 150);
         return { ok: true, newPath: destPath };
       }
       throw err;
@@ -3110,7 +3183,7 @@ async function processNcCatJobUnit(unit: NcCatJobUnit) {
   if (unit.kind === 'folder') {
     const jobFolder = normalize(unit.sourcePath);
     if (!existsSync(jobFolder)) {
-      logger.warn({ jobFolder }, `nccat: job folder missing, skipping | jobFolder=${jobFolder}`);
+      logger.warn({ jobFolder }, 'nccat: job folder missing, skipping');
 
       return;
     }
@@ -3235,7 +3308,22 @@ async function processNcCatJobUnit(unit: NcCatJobUnit) {
 
   const baseNoExt = unit.baseName;
   const machineNameHint = findMachineNameSuffix(baseNoExt, machines);
-  const looseFolderName = buildLooseFolderName(baseNoExt);
+
+  const looseFolderName = (() => {
+    const rootsToCheck = [processedJobsRoot, quarantineRoot].filter((root): root is string => !!root);
+    const maxAttempts = 200;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const name = buildLooseFolderName(baseNoExt);
+      const hasCollision = rootsToCheck.some((root) => existsSync(join(root, name)));
+      if (!hasCollision) return name;
+    }
+    logger.error({ baseNoExt, rootsToCheck }, 'nccat: unable to allocate unique loose folder name');
+    return null;
+  })();
+
+  if (!looseFolderName) {
+    return;
+  }
 
   const gathered = await gatherLooseJobFiles(unit.jobsRoot, baseNoExt, ncFilePath);
   if (!gathered.files.length) {
@@ -3394,7 +3482,7 @@ function setupNcCatJobsWatcher(dir: string) {
 
   const watcher = chokidar.watch(dir, {
     ignoreInitial: false, // Process existing files on startup
-    depth: 3, // Watch jobsRoot/FolderName/SubFolder/file.nc
+    depth: 10, // Allow deeper nesting under jobsRoot
     awaitWriteFinish: {
       stabilityThreshold: 2000, // Wait 2 seconds for file to stabilize
       pollInterval: 250

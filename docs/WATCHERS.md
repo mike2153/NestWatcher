@@ -59,6 +59,7 @@ A matching `.mmd` copy exists in `docs/charts/WATCHERS.mmd`.
 **What it watches**
 - Folder: `jobsRoot`
 - It reacts to new `.nc` files.
+- Nesting depth: up to 10 folders deep under `jobsRoot`.
 
 **What it does**
 - Groups the `.nc` file into a "job folder" unit.

@@ -58,7 +58,7 @@ function SidebarProvider({ className, style, children, ...props }: React.Compone
 }
 
 function Sidebar({ className, children, ...props }: React.ComponentProps<"div">) {
-  const { isMobile, openMobile, setOpenMobile } = useSidebar()
+  const { isMobile, openMobile, setOpenMobile, open } = useSidebar()
   if (isMobile) {
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile}>
@@ -77,8 +77,9 @@ function Sidebar({ className, children, ...props }: React.ComponentProps<"div">)
   return (
     <aside
       data-slot="sidebar"
+      data-state={open ? "expanded" : "collapsed"}
       className={cn(
-        "flex h-svh flex-col overflow-hidden text-sidebar-foreground w-[var(--sidebar-width)] border-r",
+        "flex h-svh flex-col overflow-hidden text-sidebar-foreground border-r transition-[width] duration-200 w-[var(--sidebar-width)] group-data-[collapsible=icon]/sidebar-wrapper:w-[var(--sidebar-width-icon)]",
         className
       )}
       style={{ backgroundColor: 'var(--sidebar)' }}

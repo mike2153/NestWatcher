@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
-import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
+import { SidebarProvider, SidebarInset, useSidebar } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/AppSidebar';
 import type {
   AlarmEntry,
@@ -13,6 +13,7 @@ import type {
 import { cn } from '../utils/cn';
 import { selectCurrentAlarms } from './alarmUtils';
 import { NcCatValidationResultsModal } from '@/components/NcCatValidationResultsModal';
+import { PanelLeft } from 'lucide-react';
 
 // Nav is defined in AppSidebar; no local nav here.
 const PAGE_TITLES: Record<string, string> = {
@@ -28,6 +29,23 @@ const PAGE_TITLES: Record<string, string> = {
   '/cnc-alarms': 'CNC Alarms',
   '/ordering': 'Ordering'
 };
+
+function SidebarToggleButton() {
+  const { toggleSidebar, open, isMobile } = useSidebar();
+
+  return (
+    <button
+      type="button"
+      className={cn(
+        'flex items-center justify-center rounded border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-sm text-[var(--foreground)] hover:bg-[var(--accent-blue-subtle)] hover:border-[var(--accent-blue-border)] transition-all duration-150'
+      )}
+      onClick={toggleSidebar}
+      title={isMobile ? 'Open menu' : open ? 'Collapse sidebar' : 'Expand sidebar'}
+    >
+      <PanelLeft className="size-4" />
+    </button>
+  );
+}
 
 export function AppLayout() {
   const { pathname } = useLocation();
@@ -53,7 +71,8 @@ export function AppLayout() {
   const [logLinesLive, setLogLinesLive] = useState<string[] | null>(null);
   const [logLoading, setLogLoading] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
-  const [validationReports, setValidationReports] = useState<NcCatValidationReport[]>([]);
+  const [latestValidationReport, setLatestValidationReport] = useState<NcCatValidationReport | null>(null);
+  const [validationReportHistory, setValidationReportHistory] = useState<NcCatValidationReport[]>([]);
   const [validationResultsOpen, setValidationResultsOpen] = useState(false);
 
   const dismissAlarm = useCallback((id: string) => {
@@ -194,31 +213,40 @@ export function AppLayout() {
     };
   }, [applyAlarms]);
 
+  const handleValidationReport = useCallback((report: NcCatValidationReport) => {
+    setLatestValidationReport(report);
+    setValidationReportHistory((prev) => {
+      const keyOf = (r: NcCatValidationReport) => `${r.reason}|${r.folderName}|${r.processedAt}`;
+      const key = keyOf(report);
+      const next = [report, ...prev.filter((r) => keyOf(r) !== key)];
+      return next.slice(0, 50);
+    });
+    setValidationResultsOpen(true);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const unsubscribe = window.api.validation.subscribeHeadlessResults((report) => {
       if (cancelled) return;
-      setValidationReports((prev) => [report, ...prev].slice(0, 50));
-      setValidationResultsOpen(true);
+      handleValidationReport(report);
     });
     return () => {
       cancelled = true;
       unsubscribe?.();
     };
-  }, []);
+  }, [handleValidationReport]);
 
   useEffect(() => {
     const handler = (event: Event) => {
       const customEvent = event as CustomEvent<NcCatValidationReport>;
       if (!customEvent.detail) return;
-      setValidationReports((prev) => [customEvent.detail, ...prev].slice(0, 50));
-      setValidationResultsOpen(true);
+      handleValidationReport(customEvent.detail);
     };
     window.addEventListener('nc-cat-validation-results', handler);
     return () => {
       window.removeEventListener('nc-cat-validation-results', handler);
     };
-  }, []);
+  }, [handleValidationReport]);
 
   useEffect(() => {
     let cancelled = false;
@@ -381,6 +409,7 @@ export function AppLayout() {
       <SidebarInset>
         <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] px-3 bg-[var(--card)] shadow-sm">
           <div className="flex items-center gap-2">
+            <SidebarToggleButton />
             <div className="page-title-gradient">{pageTitle}</div>
           </div>
           <div className="flex items-center gap-2">
@@ -405,8 +434,8 @@ export function AppLayout() {
         <NcCatValidationResultsModal
           open={validationResultsOpen}
           onOpenChange={setValidationResultsOpen}
-          reports={validationReports}
-          onClear={() => setValidationReports([])}
+          latestReport={latestValidationReport}
+          historyReports={validationReportHistory}
         />
 
         {alarms.length > 0 && (

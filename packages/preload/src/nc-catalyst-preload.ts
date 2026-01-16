@@ -10,7 +10,8 @@ import type {
   NcCatHeadlessValidateResponse,
   NcCatSubmitValidationReq,
   NcCatSubmitValidationRes,
-  SubscriptionAuthState
+  SubscriptionAuthState,
+  OpenJobInSimulatorReq
 } from '../../shared/src';
 import { type ResultEnvelope } from '../../shared/src/result';
 
@@ -171,9 +172,9 @@ const ncCatApi = {
   },
 
   // Listen for jobs being opened in NC-Cat
-  onOpenJobs: (listener: (payload: any) => void) => {
+  onOpenJobs: (listener: (payload: OpenJobInSimulatorReq) => void) => {
     const channel = 'nc-catalyst:open-jobs';
-    const handler = (_event: Electron.IpcRendererEvent, payload: any) => listener(payload);
+    const handler = (_event: Electron.IpcRendererEvent, payload: OpenJobInSimulatorReq) => listener(payload);
     ipcRenderer.on(channel, handler);
     return () => ipcRenderer.removeListener(channel, handler);
   },

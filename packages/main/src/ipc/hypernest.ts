@@ -44,6 +44,36 @@ let cachedSubscriptionAuthState: SubscriptionAuthState | null = null;
 let authStateRequestInFlight: Promise<SubscriptionAuthState | null> | null = null;
 let consecutiveAuthStateRequestFailures = 0;
 
+// Keep logs readable: only log auth state when it changes.
+let lastLoggedAuthStateKey: string | null = null;
+
+function toAuthStateKey(state: SubscriptionAuthState | null): string {
+  if (!state) return 'null';
+  return `${state.authenticated ? '1' : '0'}|${state.subscriptionStatus ?? 'unknown'}|${state.isAdmin ? '1' : '0'}`;
+}
+
+function logNcCatAuthStateIfChanged(source: string, state: SubscriptionAuthState | null): void {
+  const key = toAuthStateKey(state);
+  if (key === lastLoggedAuthStateKey) return;
+  lastLoggedAuthStateKey = key;
+
+  if (!state) {
+    logger.info({ source }, 'NC-Cat auth state unavailable');
+    return;
+  }
+
+  logger.info(
+    {
+      source,
+      authenticated: state.authenticated,
+      subscriptionStatus: state.subscriptionStatus,
+      isAdmin: state.isAdmin
+    },
+    'NC-Cat auth state'
+  );
+}
+
+
 // Auth state check interval (30 minutes)
 const AUTH_STATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 let authStateCheckInterval: ReturnType<typeof setInterval> | null = null;
@@ -89,7 +119,8 @@ function resolveNcCatalystSource(): { type: 'url'; url: string } | { type: 'file
   // Hot reload: if dev URL is set, use it
   const devUrl = process.env.NC_CATALYST_DEV_URL;
   if (devUrl) {
-    logger.info({ devUrl }, 'NC-Cat source: using dev URL');
+    logger.debug({ devUrl }, 'NC-Cat source: using dev URL');
+
     return { type: 'url', url: devUrl };
   }
 
@@ -101,7 +132,8 @@ function resolveNcCatalystSource(): { type: 'url'; url: string } | { type: 'file
   if (devDir && existsSync(devDir)) {
     const candidate = join(resolve(devDir), entry);
     if (existsSync(candidate)) {
-      logger.info({ devDir, entry, candidate }, 'NC-Cat source: using dev directory');
+      logger.debug({ devDir, entry, candidate }, 'NC-Cat source: using dev directory');
+
       return { type: 'file', path: candidate };
     }
   }
@@ -134,7 +166,8 @@ function resolveNcCatalystSource(): { type: 'url'; url: string } | { type: 'file
 
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
-      logger.info({ candidate }, 'NC-Cat source: selected file');
+      logger.debug({ candidate }, 'NC-Cat source: selected file');
+
       return { type: 'file', path: candidate };
     }
   }
@@ -163,13 +196,14 @@ export function startNcCatBackgroundWindow(): void {
   const fallbackPreloadPath = path.join(__dirname, '../../preload/dist/index.js');
   const preloadPath = existsSync(ncCatPreloadPath) ? ncCatPreloadPath : fallbackPreloadPath;
 
-  logger.info({
+  logger.debug({
     ncCatPreloadPath,
     fallbackPreloadPath,
     preloadPath,
     exists: existsSync(preloadPath),
     isNcCatPreload: preloadPath === ncCatPreloadPath
-  }, 'Starting NC-Cat background window');
+  }, 'NC-Cat background window: creating');
+
 
   ncCatBackgroundWin = new BrowserWindow({
     width: 800,
@@ -203,8 +237,9 @@ export function startNcCatBackgroundWindow(): void {
 
   ncCatBackgroundWin.on('closed', () => {
     ncCatBackgroundWin = null;
-    logger.info('NC-Cat background window closed');
+    logger.debug('NC-Cat headless window closed');
   });
+
 
   // Load NC-Cat
   if (source.type === 'url') {
@@ -217,7 +252,11 @@ export function startNcCatBackgroundWindow(): void {
     });
   }
 
-  logger.info('NC-Cat background window started');
+  logger.info(
+    { source: source.type === 'url' ? source.url : source.path },
+    'NC-Cat headless window started'
+  );
+
 
   // Start the auth state check interval
   startAuthStateCheckInterval();
@@ -316,16 +355,14 @@ function startAuthStateCheckInterval(): void {
     const state = cached ?? (await requestAuthStateFromNcCat());
 
     if (state) {
-      logger.info(
-        { authenticated: state.authenticated, status: state.subscriptionStatus },
-        'Initial auth state received from NC-Cat'
-      );
+      logNcCatAuthStateIfChanged('initial', state);
       if (!state.authenticated) {
         // Show NC‑Cat sign-in UI when NestWatcher starts and the user is not authenticated.
         openNcCatalystWindow();
       }
       return;
     }
+
 
     // Could not retrieve state (likely NC‑Cat not fully loaded). We'll retry on-demand when the renderer asks for state.
     logger.debug('Initial auth state not available from NC-Cat');
@@ -1445,40 +1482,25 @@ export function registerNcCatalystIpc() {
 
   // Handle auth state updates from NC-Cat (NC-Cat pushes updates)
   ipcMain.on('nc-catalyst:auth:stateUpdate', (_event, state: SubscriptionAuthState) => {
-    logger.info({
-      authenticated: state.authenticated,
-      status: state.subscriptionStatus,
-      isAdmin: state.isAdmin
-    }, 'Auth state update received from NC-Cat');
     cachedSubscriptionAuthState = state;
+    logNcCatAuthStateIfChanged('update', state);
 
     // Broadcast to all NestWatcher renderer windows
-    const mainWindows = BrowserWindow.getAllWindows().filter(
-      (w) => w !== ncCatWin && w !== ncCatBackgroundWin
-    );
-
-    logger.info({
-      mainWindowCount: mainWindows.length,
-      totalWindows: BrowserWindow.getAllWindows().length
-    }, 'Broadcasting auth state to NestWatcher windows');
-
+    const mainWindows = BrowserWindow.getAllWindows().filter((w) => w !== ncCatWin && w !== ncCatBackgroundWin);
     for (const win of mainWindows) {
       if (!win.isDestroyed()) {
         win.webContents.send('nc-catalyst:auth:stateChanged', state);
-        logger.debug({ windowId: win.id }, 'Sent auth state to window');
       }
     }
   });
 
+
   // Handle auth state response from NC-Cat (response to our request)
   ipcMain.on('nc-catalyst:auth:stateResponse', (_event, state: SubscriptionAuthState) => {
-    logger.info({
-      authenticated: state.authenticated,
-      status: state.subscriptionStatus,
-      isAdmin: state.isAdmin
-    }, 'Auth state response received from NC-Cat');
     cachedSubscriptionAuthState = state;
+    logNcCatAuthStateIfChanged('response', state);
   });
+
 
   // Forward login request to NC-Cat
   registerResultHandler<{ success: boolean; state?: SubscriptionAuthState; error?: string }>(

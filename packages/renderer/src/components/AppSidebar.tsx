@@ -85,7 +85,10 @@ export function AppSidebar() {
     <>
       <Sidebar>
         <SidebarHeader>
-          <div className="px-3 font-semibold text-xl">Woodtron</div>
+          <div className="px-3 font-semibold text-xl">
+            <span className="group-data-[collapsible=icon]/sidebar-wrapper:hidden">Woodtron</span>
+            <span className="hidden group-data-[collapsible=icon]/sidebar-wrapper:inline">W</span>
+          </div>
         </SidebarHeader>
         <SidebarContent>
           <SidebarMenu>
@@ -97,16 +100,21 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.to}>
                   <NavLink
                     to={item.to}
-                    className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
-                    style={({ isActive }) => isActive
-                      ? { backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }
-                      : { color: 'var(--muted-foreground)' }
+                    className={cn(
+                      'flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
+                      'group-data-[collapsible=icon]/sidebar-wrapper:justify-center group-data-[collapsible=icon]/sidebar-wrapper:px-2'
+                    )}
+                    style={({ isActive }) =>
+                      isActive
+                        ? { backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }
+                        : { color: 'var(--muted-foreground)' }
                     }
+                    title={showBadge ? `${item.label} (${badgeValue})` : item.label}
                   >
                     <Icon className={cn("transition-colors")} />
-                    <span className="truncate">{item.label}</span>
+                    <span className="truncate group-data-[collapsible=icon]/sidebar-wrapper:hidden">{item.label}</span>
                     {showBadge ? (
-                      <span className="ml-auto inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1 text-xs font-semibold leading-none text-white">
+                      <span className="ml-auto inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1 text-xs font-semibold leading-none text-white group-data-[collapsible=icon]/sidebar-wrapper:hidden">
                         {badgeValue}
                       </span>
                     ) : null}
@@ -119,7 +127,7 @@ export function AppSidebar() {
         </SidebarContent>
         <SidebarFooter>
           {/* Subscription Auth Status */}
-          <div className="px-4 pb-2 text-xs text-muted-foreground space-y-1">
+          <div className="px-4 pb-2 text-xs text-muted-foreground space-y-1 group-data-[collapsible=icon]/sidebar-wrapper:hidden">
             <div>
               Signed in as{' '}
               <span className="font-medium text-[var(--foreground)]">
@@ -138,15 +146,18 @@ export function AppSidebar() {
           <SidebarMenu>
             {/* Open NC-Cat window */}
             <SidebarMenuItem>
-              <button
-                onClick={openNcCatSignIn}
-                className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
-                style={{ color: 'var(--muted-foreground)' }}
-                title="Open NC Catalyst"
-              >
-                <Rocket />
-                <span className="truncate">Open NC Catalyst</span>
-              </button>
+                <button
+                  onClick={openNcCatSignIn}
+                  className={cn(
+                    'flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
+                    'group-data-[collapsible=icon]/sidebar-wrapper:justify-center group-data-[collapsible=icon]/sidebar-wrapper:px-2'
+                  )}
+                  style={{ color: 'var(--muted-foreground)' }}
+                  title="Open NC Catalyst"
+                >
+                  <Rocket />
+                  <span className="truncate group-data-[collapsible=icon]/sidebar-wrapper:hidden">Open NC Catalyst</span>
+                </button>
             </SidebarMenuItem>
             {/* Subscription Sign In / Sign Out */}
             <SidebarMenuItem>
@@ -154,22 +165,29 @@ export function AppSidebar() {
                 <button
                   onClick={handleSubscriptionSignOut}
                   disabled={!canManageNcCatalystSubscription}
-                  className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans disabled:opacity-60 disabled:hover:bg-transparent"
+                  className={cn(
+                    'flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans disabled:opacity-60 disabled:hover:bg-transparent',
+                    'group-data-[collapsible=icon]/sidebar-wrapper:justify-center group-data-[collapsible=icon]/sidebar-wrapper:px-2'
+                  )}
+
                   style={{ color: 'var(--muted-foreground)' }}
                   title={canManageNcCatalystSubscription ? 'Sign out of NC Catalyst subscription' : 'Only the subscription owner or an admin can sign out'}
                 >
                   <LogOut />
-                  <span className="truncate">Sign Out</span>
+                  <span className="truncate group-data-[collapsible=icon]/sidebar-wrapper:hidden">Sign Out</span>
                 </button>
               ) : (
                 <button
                   onClick={openNcCatSignIn}
-                  className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
+                  className={cn(
+                    'flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
+                    'group-data-[collapsible=icon]/sidebar-wrapper:justify-center group-data-[collapsible=icon]/sidebar-wrapper:px-2'
+                  )}
                   style={{ color: 'var(--muted-foreground)' }}
                   title="Sign in to NC Catalyst"
                 >
                   <KeyRound />
-                  <span className="truncate">Sign In</span>
+                  <span className="truncate group-data-[collapsible=icon]/sidebar-wrapper:hidden">Sign In</span>
                 </button>
               )}
             </SidebarMenuItem>
@@ -180,11 +198,15 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <button
                   onClick={() => setShowSettings(true)}
-                  className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
+                  className={cn(
+                    'flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
+                    'group-data-[collapsible=icon]/sidebar-wrapper:justify-center group-data-[collapsible=icon]/sidebar-wrapper:px-2'
+                  )}
                   style={{ color: 'var(--muted-foreground)' }}
+                  title="Settings"
                 >
                   <Settings />
-                  <span className="truncate">Settings</span>
+                  <span className="truncate group-data-[collapsible=icon]/sidebar-wrapper:hidden">Settings</span>
                 </button>
               </SidebarMenuItem>
             ) : null}
@@ -192,11 +214,15 @@ export function AppSidebar() {
             <SidebarMenuItem>
               <button
                 onClick={() => (session ? logout() : requireLogin())}
-                className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0"
+                className={cn(
+                  'flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
+                  'group-data-[collapsible=icon]/sidebar-wrapper:justify-center group-data-[collapsible=icon]/sidebar-wrapper:px-2'
+                )}
                 style={{ color: 'var(--muted-foreground)' }}
+                title={session ? 'Logout' : 'Login'}
               >
                 {session ? <LogOut /> : <UserRound />}
-                <span className="truncate">{session ? 'Logout' : 'Login'}</span>
+                <span className="truncate group-data-[collapsible=icon]/sidebar-wrapper:hidden">{session ? 'Logout' : 'Login'}</span>
               </button>
             </SidebarMenuItem>
           </SidebarMenu>
