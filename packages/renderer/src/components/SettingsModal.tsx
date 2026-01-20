@@ -46,6 +46,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       nestpickFolder: '',
       nestpickEnabled: true
     });
+    if (!res.ok) {
+      alert(`Failed to create machine: ${res.error.message}`);
+      return;
+    }
     if (res.ok) {
       await loadMachines();
       setSelectedMachineId(res.value.machineId);
@@ -56,6 +60,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const handleDeleteMachine = async (machineId: number) => {
     if (!confirm('Delete this machine?')) return;
     const res = await window.api.machines.delete(machineId);
+    if (!res.ok) {
+      alert(`Failed to delete machine: ${res.error.message}`);
+      return;
+    }
     if (res.ok) {
       await loadMachines();
       if (selectedMachineId === machineId) {
@@ -96,7 +104,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   <button
                     key={item.id}
                     onClick={() => setActiveCategory(item.id as SettingsCategory)}
-                    className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans"
+                    className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-[var(--accent-blue-subtle)] hover:text-[var(--foreground)] font-sans"
                     style={activeCategory === item.id
                       ? { backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }
                       : { color: 'var(--muted-foreground)' }
@@ -130,7 +138,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 {machines.map((machine) => (
                   <div
                     key={machine.machineId}
-                    className="group flex items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 h-10 text-sm font-medium transition-colors hover:bg-muted hover:text-foreground cursor-pointer relative font-sans"
+                    className="group flex items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 h-10 text-sm font-medium transition-colors hover:bg-[var(--accent-blue-subtle)] hover:text-[var(--foreground)] cursor-pointer relative font-sans"
                     style={selectedMachineId === machine.machineId && activeCategory === 'machine'
                       ? { backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }
                       : { color: 'var(--muted-foreground)' }
@@ -187,7 +195,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               variant="ghost"
               size="icon"
               onClick={onClose}
-              className="rounded-full hover:bg-muted"
+              className="rounded-full hover:bg-[var(--accent-blue-subtle)]"
             >
               <X className="size-5" />
             </Button>

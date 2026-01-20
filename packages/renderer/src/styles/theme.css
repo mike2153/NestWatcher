@@ -112,40 +112,40 @@
 
   /* === Sunset Drift Theme (Anthropic Inspired - Subtle Warm Tones) === */
   .sunset {
-    /* Backgrounds: Darker warm page background */
-    --background: #e5e3d8;
-    --background-body: #e5e3d8;
+    /* Backgrounds: bottom layer */
+    --background: rgb(227, 218, 203);
+    --background-body: rgb(227, 218, 203);
 
     /* Elevated surfaces */
-    --background-elevated: #eceadf;
-    --background-subtle: #e8e6dc;
+    --background-elevated: rgb(241, 238, 231);
+    --background-subtle: rgb(241, 238, 231);
 
-    /* Foreground: Soft Charcoal */
-    --foreground: #191919;
+    /* Foreground */
+    --foreground: rgb(20, 20, 20);
     --foreground-muted: #5a5a5a;
     --foreground-subtle: #7a7a7a;
 
-    /* Cards - Lighter than page background */
-    --card: #eceadf;
-    --card-foreground: #191919;
-    --card-hover: #eae8dd;
+    /* Cards / components */
+    --card: rgb(241, 238, 231);
+    --card-foreground: rgb(20, 20, 20);
+    --card-hover: rgb(241, 238, 231);
 
-    /* Primary: Burnt Orange / Terracotta */
-    --primary: #d97757;
-    --primary-hover: #c56545;
+    /* Primary: selected navbar item */
+    --primary: rgb(218, 119, 87);
+    --primary-hover: rgb(206, 108, 77);
     --primary-foreground: #ffffff;
 
     /* Accents */
-    --accent-blue: #d97757;
-    --accent-blue-light: #e88d6f;
-    --accent-blue-glow: rgba(217, 119, 87, 0.4);
-    --accent-blue-subtle: rgba(217, 119, 87, 0.12);
-    --accent-blue-border: rgba(217, 119, 87, 0.35);
+    --accent-blue: rgb(218, 119, 87);
+    --accent-blue-light: rgb(229, 141, 111);
+    --accent-blue-glow: rgba(218, 119, 87, 0.4);
+    --accent-blue-subtle: rgba(218, 119, 87, 0.12);
+    --accent-blue-border: rgba(218, 119, 87, 0.35);
 
     /* Secondary */
-    --secondary: #eae8dd;
-    --secondary-foreground: #191919;
-    --secondary-hover: #dfddd2;
+    --secondary: rgb(241, 238, 231);
+    --secondary-foreground: rgb(20, 20, 20);
+    --secondary-hover: rgb(235, 231, 223);
 
     /* Destructive */
     --destructive: #cc4e4e;
@@ -157,24 +157,24 @@
     --accent-foreground: #ffffff;
 
     /* Muted */
-    --muted: #e0ded3;
+    --muted: rgb(235, 231, 223);
     --muted-foreground: #5a5a5a;
 
     /* Borders - darker for better definition */
-    --border: #b5b2a3;
-    --border-subtle: #c4c1b3;
-    --border-strong: #a5a295;
+    --border: rgba(20, 20, 20, 0.18);
+    --border-subtle: rgba(20, 20, 20, 0.12);
+    --border-strong: rgba(20, 20, 20, 0.24);
 
     /* Ring */
-    --ring: #d97757;
-    --ring-glow: 0 0 0 3px rgba(217, 119, 87, 0.2);
+    --ring: rgb(218, 119, 87);
+    --ring-glow: 0 0 0 3px rgba(218, 119, 87, 0.2);
 
     /* Sidebar: Same as components */
-    --sidebar: #eceadf;
-    --sidebar-foreground: #191919;
-    --sidebar-accent: #eae8dd;
-    --sidebar-accent-foreground: #d97757;
-    --sidebar-border: #b5b2a3;
+    --sidebar: rgb(241, 238, 231);
+    --sidebar-foreground: rgb(20, 20, 20);
+    --sidebar-accent: rgb(241, 238, 231);
+    --sidebar-accent-foreground: rgb(218, 119, 87);
+    --sidebar-border: rgba(20, 20, 20, 0.18);
 
     /* Statuses - muted warm tones */
     --status-success-bg: #d8e8dc;
@@ -193,19 +193,19 @@
     --status-info-text: #3a6080;
     --status-info-border: #c8d4dc;
 
-    /* Table - Match card color */
-    --table-bg: #eceadf;
-    --table-header-bg: #eae8dd;
-    --table-text: #191919;
-    --table-border: #b5b2a3;
-    --table-row-border: #c4c1b3;
-    --table-hover-bg: #eae8dd;
-    --table-selected-bg: #ddd0c6;
+    /* Table - Match component color */
+    --table-bg: rgb(241, 238, 231);
+    --table-header-bg: rgb(241, 238, 231);
+    --table-text: rgb(20, 20, 20);
+    --table-border: rgba(20, 20, 20, 0.18);
+    --table-row-border: rgba(20, 20, 20, 0.12);
+    --table-hover-bg: rgb(241, 238, 231);
+    --table-selected-bg: rgba(218, 119, 87, 0.18);
 
     /* Scrollbar */
-    --scrollbar-track: #e5e3d8;
-    --scrollbar-thumb: #b5b2a5;
-    --scrollbar-thumb-hover: #a09d91;
+    --scrollbar-track: rgb(227, 218, 203);
+    --scrollbar-thumb: rgba(20, 20, 20, 0.25);
+    --scrollbar-thumb-hover: rgba(20, 20, 20, 0.35);
   }
 
   /* === Nordic Forest Theme === */

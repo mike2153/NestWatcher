@@ -55,6 +55,14 @@
     color: var(--foreground);
   }
 
+  /* Native select dropdown menu (option list) should stay readable in dark themes.
+     Many platforms render the option list with a light background regardless of theme. */
+  select option,
+  select optgroup {
+    color: #000;
+    background-color: #fff;
+  }
+
   /* Form elements - less rounded corners */
   select,
   input:not([type="checkbox"]):not([type="radio"]) {

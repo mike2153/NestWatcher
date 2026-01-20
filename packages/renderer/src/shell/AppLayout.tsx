@@ -13,7 +13,9 @@ import type {
 import { cn } from '../utils/cn';
 import { selectCurrentAlarms } from './alarmUtils';
 import { NcCatValidationResultsModal } from '@/components/NcCatValidationResultsModal';
+import { Button } from '@/components/ui/button';
 import { PanelLeft } from 'lucide-react';
+import { formatAuDate, formatAuDateTime, formatAuTime } from '@/utils/datetime';
 
 // Nav is defined in AppSidebar; no local nav here.
 const PAGE_TITLES: Record<string, string> = {
@@ -389,18 +391,12 @@ export function AppLayout() {
 
   const alarmBadgeClass = cn(
     'inline-flex min-w-[1.5rem] items-center justify-center rounded-full px-1.5 text-xs font-medium',
-    hasActiveAlarms ? 'bg-[var(--status-error-text)] text-white' : 'bg-[var(--muted)] text-[var(--foreground)]'
+    'bg-white/20 text-white'
   );
 
-  const diagnosticsButtonClass = cn(
-    'flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 text-sm text-[var(--foreground)] hover:bg-[var(--accent-blue-subtle)] hover:border-[var(--accent-blue-border)] transition-all duration-150',
-    hasDiagnosticsAlert && 'border-[var(--status-warning-text)] text-[var(--status-warning-text)]'
-  );
   const diagnosticsBadgeClass = cn(
     'inline-flex min-w-[1.5rem] items-center justify-center rounded-full px-1.5 text-xs font-medium',
-    diagnosticsAlertCount > 0
-      ? 'bg-[var(--status-warning-text)] text-white'
-      : 'bg-[var(--muted)] text-[var(--foreground)]'
+    'bg-white/20 text-white'
   );
 
   return (
@@ -413,17 +409,14 @@ export function AppLayout() {
             <div className="page-title-gradient">{pageTitle}</div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              className={cn('flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 text-sm text-[var(--foreground)] hover:bg-[var(--accent-blue-subtle)] hover:border-[var(--accent-blue-border)] transition-all duration-150', hasActiveAlarms && 'border-[var(--status-error-text)] text-[var(--status-error-text)]')}
-              onClick={toggleAlarmPanel}
-            >
+            <Button size="sm" variant="destructive" onClick={toggleAlarmPanel}>
               Alarms
               <span className={alarmBadgeClass}>{activeAlarmCount}</span>
-            </button>
-            <button className={diagnosticsButtonClass} onClick={toggleDiagnosticsPanel}>
+            </Button>
+            <Button size="sm" onClick={toggleDiagnosticsPanel}>
               Diagnostics
               {diagnosticsAlertCount > 0 && <span className={diagnosticsBadgeClass}>{diagnosticsAlertCount}</span>}
-            </button>
+            </Button>
           </div>
         </header>
 
@@ -487,7 +480,7 @@ export function AppLayout() {
                   {alarm.status && <div className="text-xs text-[var(--muted-foreground)]">Status: {alarm.status}</div>}
                   {alarm.lastSeenAt && (
                     <div className="text-xs text-[var(--muted-foreground)]">
-                      Last seen {new Date(alarm.lastSeenAt).toLocaleTimeString()}
+                      Last seen {formatAuTime(alarm.lastSeenAt)}
                     </div>
                   )}
                 </div>
@@ -497,7 +490,7 @@ export function AppLayout() {
         </div>
       )}
       {showDiagnostics && (
-        <div className="fixed right-4 top-16 z-40 w-[800px] rounded border border-[var(--border)] bg-[var(--card)] shadow-lg">
+        <div className="fixed right-4 top-16 bottom-4 z-40 w-[800px] rounded border border-[var(--border)] bg-[var(--card)] shadow-lg flex flex-col min-h-0">
           <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2">
             <div className="text-sm font-semibold text-[var(--foreground)]">Diagnostics</div>
             <div className="flex items-center gap-2">
@@ -520,7 +513,7 @@ export function AppLayout() {
               </button>
             </div>
           </div>
-          <div className="space-y-4 p-3 text-sm max-h-[80vh] overflow-y-auto text-[var(--foreground)]">
+          <div className="flex-1 min-h-0 p-3 text-sm overflow-hidden text-[var(--foreground)]">
             {copyFeedback && (
               <div
                 className={cn(
@@ -533,7 +526,8 @@ export function AppLayout() {
                 {copyFeedback.message}
               </div>
             )}
-            <section>
+            <div className="flex flex-col gap-4 h-full min-h-0">
+            <section className="shrink-0">
               <div className="text-xs uppercase text-muted-foreground">System Status</div>
               <div className="mt-2 flex flex-wrap items-center gap-4">
                 <span
@@ -613,23 +607,23 @@ export function AppLayout() {
                       </div>
                       <div className="mt-1 text-sm text-[var(--foreground)]">{issue.message}</div>
                       <div className="text-xs text-[var(--muted-foreground)]">
-                        {new Date(issue.lastUpdatedAt).toLocaleTimeString()}
+                        {formatAuTime(issue.lastUpdatedAt)}
                       </div>
                     </div>
                   ))}
                 </div>
               )}
             </section>
-            <section>
+            <section className="shrink-0">
               <div className="text-xs uppercase text-[var(--muted-foreground)]">Recent Errors</div>
-              <div className="mt-2 space-y-2 max-h-40 overflow-y-auto rounded border border-[var(--border)] bg-[var(--background)] p-2">
+              <div className="mt-2 space-y-2 max-h-72 overflow-y-auto rounded border border-[var(--border)] bg-[var(--background)] p-2">
                 {diagnosticsErrors.length === 0 ? (
                   <div className="text-xs text-[var(--muted-foreground)]">No errors recorded.</div>
                 ) : (
                   diagnosticsErrors.slice(0, 8).map((entry) => (
                     <div key={entry.id} className="rounded border border-[var(--border)] bg-[var(--card)] px-2 py-1">
                       <div className="text-xs text-[var(--muted-foreground)]">
-                        {new Date(entry.timestamp).toLocaleString()}
+                        {formatAuDateTime(entry.timestamp)}
                       </div>
                       <div className="text-sm font-medium text-[var(--foreground)]">{entry.source}</div>
                       <div className="text-[var(--foreground)]">{entry.message}</div>
@@ -638,9 +632,9 @@ export function AppLayout() {
                 )}
               </div>
             </section>
-            <section>
-              <div className="text-xs uppercase text-[var(--muted-foreground)]">Logs</div>
-              <div className="mt-2 space-y-2">
+            <section className="flex-1 min-h-0">
+              <div className="text-sm  text-[var(--muted-foreground)]">Logs</div>
+              <div className="mt-2 space-y-2 flex flex-col min-h-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <select
                     className="border border-[var(--border)] rounded px-2 py-1 text-xs bg-[var(--input-bg)] text-[var(--foreground)]"
@@ -689,17 +683,6 @@ export function AppLayout() {
                   </div>
                 ) : (
                   <>
-                    {selectedLogSummary && (
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--muted-foreground)]">
-                        <span>{selectedLogSummary.name}</span>
-                        <span>
-                          Updated {selectedLogSummary.updatedAt ? new Date(selectedLogSummary.updatedAt).toLocaleString() : '-'}
-                        </span>
-                        <span>
-                          Size {typeof selectedLogSummary.size === 'number' ? (selectedLogSummary.size < 1024 ? `${selectedLogSummary.size} B` : `${(selectedLogSummary.size / 1024).toFixed(1)} KB`) : '-'}
-                        </span>
-                      </div>
-                    )}
                     {logTail && (
                       <div className="text-xs text-[var(--muted-foreground)]">
                         Showing {logLines.length} {logLines.length === 1 ? "line" : "lines"}
@@ -707,10 +690,10 @@ export function AppLayout() {
                       </div>
                     )}
                     {logError && <div className="text-xs text-[var(--status-error-text)]">{logError}</div>}
-                    <div className="max-h-72 overflow-auto rounded border border-[var(--border)] bg-[var(--background)]">
+                    <div className="flex-1 min-h-0 overflow-auto rounded border border-[var(--border)] bg-[var(--background)]">
                       <pre
                         key={logSelectedFile ?? 'none'}
-                        className="min-w-full px-2 py-2 font-mono text-[11px] leading-snug whitespace-pre text-[var(--foreground)]"
+                        className="w-max min-w-full px-2 py-2 font-sans text-xs leading-snug whitespace-pre text-[var(--foreground)]"
                       >
                         {logLoading
                           ? 'Loading log...'
@@ -724,14 +707,10 @@ export function AppLayout() {
               </div>
             </section>
           </div>
+          </div>
         </div>
       )}
       </SidebarInset>
     </SidebarProvider>
   );
 }
-
-
-
-
-

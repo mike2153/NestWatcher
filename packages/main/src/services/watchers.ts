@@ -324,16 +324,22 @@ async function handleNcCatValidationRequest(
   const response: MainToWatcherMessage = {
     type: 'ncCatValidationResponse',
     requestId,
-    result: outcome.ok
-      ? {
+    result: (() => {
+      if (outcome.ok) {
+        return {
           ok: true,
           results: outcome.results,
           profileId: outcome.profileId ?? null,
           profileName: outcome.profileName ?? null
-        }
-      : outcome.skipped
-        ? { ok: false, skipped: true, reason: outcome.reason }
-        : { ok: false, error: outcome.error }
+        };
+      }
+
+      if ('error' in outcome) {
+        return { ok: false, error: outcome.error };
+      }
+
+      return { ok: false, skipped: true, reason: outcome.reason };
+    })()
   };
 
   try {

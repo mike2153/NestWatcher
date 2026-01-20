@@ -47,7 +47,7 @@ export function ValidationWarningsSettings() {
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        <h4 className="text-sm font-semibold text-foreground/80 uppercase tracking-wide">Validation Warnings</h4>
+        <h4 className="text-base font-semibold text-foreground/80  tracking-wide">Validation Warnings</h4>
 
         <div className="flex items-start gap-3">
           <input
