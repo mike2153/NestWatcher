@@ -101,7 +101,7 @@ export function GlobalTable<TData extends RowData>({
   return (
     <div
       className={cn(
-        'overflow-auto bg-table text-[var(--table-text)] border border-[var(--table-border)] rounded-lg',
+        'overflow-auto bg-[var(--table-bg)] text-[var(--table-text)] border border-[var(--table-border)] rounded-lg',
         className
       )}
       style={{ maxHeight }}

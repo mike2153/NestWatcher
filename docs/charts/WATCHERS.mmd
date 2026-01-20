@@ -1,0 +1,31 @@
+flowchart TD
+  Settings[Settings paths and machine folders] --> Worker[watchersWorker]
+
+  Worker --> JobsWatcher[NC Cat Jobs watcher]
+  JobsWatcher --> JobsRoot[Jobs folder jobsRoot]
+  JobsWatcher -->|Validate then move| ProcessedRoot[Processed Jobs processedJobsRoot]
+  JobsWatcher -->|Errors| QuarantineRoot[Quarantine quarantineRoot]
+
+  Worker --> IngestPoller[Jobs ingest polling]
+  IngestPoller --> ProcessedRoot
+  IngestPoller -->|Upsert jobs| DB[Postgres]
+
+  Worker --> AutoPACWatcher[AutoPAC CSV watcher]
+  AutoPACWatcher --> AutoPacCsvDir[AutoPAC CSV folder autoPacCsvDir]
+  AutoPACWatcher -->|Update status and delete CSV| DB
+
+  Worker --> NestpickProcessedWatcher[Nestpick processed watcher]
+  NestpickProcessedWatcher --> NestpickProcessed[nestpickFolder processed]
+  NestpickProcessedWatcher -->|Update status and archive CSV| DB
+
+  Worker --> GrundnerPoller[Grundner poller]
+  GrundnerPoller --> GrundnerFolder[Grundner folder grundnerFolderPath]
+  GrundnerPoller -->|Import stock.csv into DB| DB
+
+  Worker --> StageSanity[Stage sanity poller]
+  StageSanity --> ReadyToRun[Machine Ready To Run ap_jobfolder]
+  StageSanity -->|Revert STAGED to PENDING if missing files| DB
+
+  Worker --> SourceSanity[Source sanity poller]
+  SourceSanity --> ProcessedRoot
+  SourceSanity -->|Delete PENDING jobs missing on disk| DB

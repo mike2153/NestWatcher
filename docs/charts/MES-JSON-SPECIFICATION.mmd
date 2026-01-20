@@ -1,0 +1,10 @@
+flowchart TD
+  NcCat[NC Cat] -->|Writes validation.json| UserData[NestWatcher userData folder]
+  UserData --> Scanner[NestWatcher MES scanner]
+  Scanner --> Parse[Parse and validate JSON]
+  Parse --> Key[Build job key from processedJobsRoot folderPath and filename]
+  Key --> Exists{Job exists in jobs table}
+  Exists -->|Yes| Upsert[Upsert metrics into nc_stats]
+  Upsert --> UI[UI reads nc_stats for the MES modal]
+  Exists -->|No| Skip[Skip entry and report missing]
+  Scanner --> Delete[Delete validation.json]

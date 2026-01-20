@@ -1,7 +1,7 @@
 import { existsSync, promises as fsp } from 'fs';
 import { basename, extname, join, relative } from 'path';
 import { app } from 'electron';
-import { inArray, eq } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import {
   ValidationJsonSchema,
   type ValidationJson,
@@ -121,11 +121,11 @@ export async function processValidationJson(): Promise<void> {
         continue;
       }
       try {
+        const estimatedRuntimeSeconds = Number.isFinite(entry.ncEstRuntime) ? entry.ncEstRuntime : null;
+
         await upsertNcStats({
           jobKey,
-          ncEstRuntime: Number.isFinite(entry.ncEstRuntime)
-            ? Math.round(entry.ncEstRuntime)
-            : null,
+          ncEstRuntime: estimatedRuntimeSeconds != null ? Math.round(estimatedRuntimeSeconds) : null,
           yieldPercentage: entry.yieldPercentage,
           wasteOffcutM2: entry.wasteOffcutM2,
           wasteOffcutDustM3: entry.wasteOffcutDustM3,

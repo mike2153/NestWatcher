@@ -50,6 +50,7 @@ export const ValidationFileEntrySchema = z.object({
   folderName: z.string(),
   folderPath: z.string(),
 
+  // Estimated runtime in seconds (may be float)
   ncEstRuntime: z.number(),
   yieldPercentage: z.number(),
 

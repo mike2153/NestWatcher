@@ -1,0 +1,13 @@
+flowchart LR
+  UI[Renderer] --> Bridge[Preload window.api]
+  Bridge --> IPC[Main IPC auth handlers]
+  IPC --> DB[Postgres table app_users]
+
+  IPC --> Session[In memory session per window]
+  Session --> IPC
+  IPC --> UI
+
+  UI -->|Calls protected actions| IPC
+  IPC --> Guard[requireSession or requireAdminSession]
+  Guard --> Session
+  Guard --> DB

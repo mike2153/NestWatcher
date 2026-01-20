@@ -1,11 +1,13 @@
-﻿import { ok } from 'neverthrow';
-import type { PathValidationRes, Settings } from '../../../shared/src';
+import { ok, err } from 'neverthrow';
+import type { AppError, PathValidationRes, Settings } from '../../../shared/src';
 import { promises as fsp } from 'fs';
 import { resolve } from 'path';
-import { DbSettingsSchema, PathValidationReq } from '../../../shared/src';
+import { DbSettingsSchema, PathValidationReq, InventoryExportSettingsSchema } from '../../../shared/src';
 import { getConfigPath, loadConfig, mergeSettings, overwriteConfig } from '../services/config';
 import { testConnection, resetPool } from '../services/db';
 import { triggerDbStatusCheck } from '../services/dbWatchdog';
+import { syncInventoryExportScheduler } from '../services/inventoryExportScheduler';
+import { createAppError } from './errors';
 import { registerResultHandler } from './result';
 
 export function registerSettingsIpc() {
@@ -17,10 +19,27 @@ export function registerSettingsIpc() {
   registerResultHandler('settings:save', async (_e, next) => {
     const update = (typeof next === 'object' && next !== null ? (next as Partial<Settings>) : {}) ?? {};
     const resolved = mergeSettings({ ...update });
-    overwriteConfig(resolved);
+
+    // Validate inventory export settings so we never write an invalid scheduled export config.
+    const inventoryExportParsed = InventoryExportSettingsSchema.safeParse(resolved.inventoryExport);
+    if (!inventoryExportParsed.success) {
+      const message = inventoryExportParsed.error.issues[0]?.message ?? 'Invalid inventory export settings.';
+      return err(createAppError('settings.invalidInventoryExport', message, inventoryExportParsed.error.issues));
+    }
+
+    const nextSettings: Settings = {
+      ...resolved,
+      inventoryExport: inventoryExportParsed.data
+    };
+
+    overwriteConfig(nextSettings);
     await resetPool();
     triggerDbStatusCheck();
-    return ok(resolved);
+
+    // Apply scheduled export changes immediately.
+    syncInventoryExportScheduler();
+
+    return ok(nextSettings);
   }, { requiresAdmin: true });
 
   registerResultHandler('settings:validatePath', async (_event, raw) => {

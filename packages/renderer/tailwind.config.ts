@@ -1,7 +1,7 @@
 import type { Config } from 'tailwindcss';
 
 export default {
-  darkMode: ['class'],
+  darkMode: 'class',
   content: [
     './index.html',
     './src/**/*.{ts,tsx}',
@@ -71,6 +71,27 @@ export default {
           DEFAULT: 'var(--popover)',
           foreground: 'var(--popover-foreground)'
         },
+        sidebar: {
+          DEFAULT: 'var(--sidebar)',
+          foreground: 'var(--sidebar-foreground)',
+          primary: 'var(--sidebar-primary)',
+          'primary-foreground': 'var(--sidebar-primary-foreground)',
+          accent: 'var(--sidebar-accent)',
+          'accent-foreground': 'var(--sidebar-accent-foreground)',
+          border: 'var(--sidebar-border)',
+          ring: 'var(--sidebar-ring)',
+        },
+
+        // Table colors (using 'tbl' to avoid conflict with Tailwind's table display utilities)
+        tbl: {
+          DEFAULT: 'var(--table-bg)',
+          header: 'var(--table-header-bg)',
+          text: 'var(--table-text)',
+          border: 'var(--table-border)',
+          row: 'var(--table-row-border)',
+          hover: 'var(--table-hover-bg)',
+          selected: 'var(--table-selected-bg)',
+        },
 
         // Status colors
         success: {
@@ -110,89 +131,90 @@ export default {
           900: 'var(--error-900)'
         },
 
-        // Neutral scale
-        neutral: {
-          50: 'var(--neutral-50)',
-          100: 'var(--neutral-100)',
-          200: 'var(--neutral-200)',
-          300: 'var(--neutral-300)',
-          400: 'var(--neutral-400)',
-          500: 'var(--neutral-500)',
-          600: 'var(--neutral-600)',
-          700: 'var(--neutral-700)',
-          800: 'var(--neutral-800)',
-          900: 'var(--neutral-900)',
-          950: 'var(--neutral-950)'
-        }
       },
 
-      // Border radius using design tokens
-      borderRadius: {
-        lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)',
-      },
+      // Neutral scale
+      neutral: {
+        50: 'var(--neutral-50)',
+        100: 'var(--neutral-100)',
+        200: 'var(--neutral-200)',
+        300: 'var(--neutral-300)',
+        400: 'var(--neutral-400)',
+        500: 'var(--neutral-500)',
+        600: 'var(--neutral-600)',
+        700: 'var(--neutral-700)',
+        800: 'var(--neutral-800)',
+        900: 'var(--neutral-900)',
+        950: 'var(--neutral-950)'
+      }
+    },
 
-      // Shadows using design tokens
-      boxShadow: {
-        sm: 'var(--shadow-sm)',
-        DEFAULT: 'var(--shadow-base)',
-        md: 'var(--shadow-md)',
-        lg: 'var(--shadow-lg)',
-        xl: 'var(--shadow-xl)',
-        '2xl': 'var(--shadow-2xl)',
-      },
+    // Border radius using design tokens
+    borderRadius: {
+      lg: 'var(--radius)',
+      md: 'calc(var(--radius) - 2px)',
+      sm: 'calc(var(--radius) - 4px)',
+    },
 
-      // Typography scale
-      fontSize: {
-        xs: ['var(--text-xs)', { lineHeight: 'var(--leading-tight)' }],
-        sm: ['var(--text-sm)', { lineHeight: 'var(--leading-normal)' }],
-        base: ['var(--text-base)', { lineHeight: 'var(--leading-normal)' }],
-        lg: ['var(--text-lg)', { lineHeight: 'var(--leading-normal)' }],
-        xl: ['var(--text-xl)', { lineHeight: 'var(--leading-snug)' }],
-        '2xl': ['var(--text-2xl)', { lineHeight: 'var(--leading-snug)' }],
-        '3xl': ['var(--text-3xl)', { lineHeight: 'var(--leading-tight)' }],
-        '4xl': ['var(--text-4xl)', { lineHeight: 'var(--leading-tight)' }],
-      },
+    // Shadows using design tokens
+    boxShadow: {
+      sm: 'var(--shadow-sm)',
+      DEFAULT: 'var(--shadow-base)',
+      md: 'var(--shadow-md)',
+      lg: 'var(--shadow-lg)',
+      xl: 'var(--shadow-xl)',
+      '2xl': 'var(--shadow-2xl)',
+    },
 
-      // Spacing using design tokens
-      spacing: {
-        '0': 'var(--spacing-0)',
-        '1': 'var(--spacing-1)',
-        '2': 'var(--spacing-2)',
-        '3': 'var(--spacing-3)',
-        '4': 'var(--spacing-4)',
-        '5': 'var(--spacing-5)',
-        '6': 'var(--spacing-6)',
-        '8': 'var(--spacing-8)',
-        '10': 'var(--spacing-10)',
-        '12': 'var(--spacing-12)',
-        '16': 'var(--spacing-16)',
-      },
+    // Typography scale
+    fontSize: {
+      xs: ['var(--text-xs)', { lineHeight: 'var(--leading-tight)' }],
+      sm: ['var(--text-sm)', { lineHeight: 'var(--leading-normal)' }],
+      base: ['var(--text-base)', { lineHeight: 'var(--leading-normal)' }],
+      lg: ['var(--text-lg)', { lineHeight: 'var(--leading-normal)' }],
+      xl: ['var(--text-xl)', { lineHeight: 'var(--leading-snug)' }],
+      '2xl': ['var(--text-2xl)', { lineHeight: 'var(--leading-snug)' }],
+      '3xl': ['var(--text-3xl)', { lineHeight: 'var(--leading-tight)' }],
+      '4xl': ['var(--text-4xl)', { lineHeight: 'var(--leading-tight)' }],
+    },
 
-      // Animation and transitions
-      transitionDuration: {
-        fast: 'var(--transition-fast)',
-        normal: 'var(--transition-normal)',
-        slow: 'var(--transition-slow)',
-      },
+    // Spacing using design tokens
+    spacing: {
+      '0': 'var(--spacing-0)',
+      '1': 'var(--spacing-1)',
+      '2': 'var(--spacing-2)',
+      '3': 'var(--spacing-3)',
+      '4': 'var(--spacing-4)',
+      '5': 'var(--spacing-5)',
+      '6': 'var(--spacing-6)',
+      '8': 'var(--spacing-8)',
+      '10': 'var(--spacing-10)',
+      '12': 'var(--spacing-12)',
+      '16': 'var(--spacing-16)',
+    },
 
-      // Z-index scale
-      zIndex: {
-        dropdown: 'var(--z-dropdown)',
-        sticky: 'var(--z-sticky)',
-        fixed: 'var(--z-fixed)',
-        'modal-backdrop': 'var(--z-modal-backdrop)',
-        modal: 'var(--z-modal)',
-        popover: 'var(--z-popover)',
-        tooltip: 'var(--z-tooltip)',
-      },
+    // Animation and transitions
+    transitionDuration: {
+      fast: 'var(--transition-fast)',
+      normal: 'var(--transition-normal)',
+      slow: 'var(--transition-slow)',
+    },
 
-      animation: {
-        pulse: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-        spin: 'spin 1s linear infinite',
-      },
-    }
+    // Z-index scale
+    zIndex: {
+      dropdown: 'var(--z-dropdown)',
+      sticky: 'var(--z-sticky)',
+      fixed: 'var(--z-fixed)',
+      'modal-backdrop': 'var(--z-modal-backdrop)',
+      modal: 'var(--z-modal)',
+      popover: 'var(--z-popover)',
+      tooltip: 'var(--z-tooltip)',
+    },
+
+    animation: {
+      pulse: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+      spin: 'spin 1s linear infinite',
+    },
   },
   plugins: [],
 } satisfies Config;

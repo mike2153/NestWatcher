@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Settings } from '../../../../shared/src';
+import { Button } from '@/components/ui/button';
 
 type ValidationWarningsState = Settings['validationWarnings'];
 
@@ -61,20 +62,16 @@ export function ValidationWarningsSettings() {
               Show Validation Warnings
             </label>
             <p className="text-xs text-muted-foreground mt-1">
-              When enabled, a &quot;Validations&quot; button will appear in the header next to Alarms.
-              This displays jobs from NC-Cat that have validation warnings or errors.
+              When enabled, validation results from NC-Cat will pop up after jobs are ingested.
+              Staging will always show the validation results to the user who staged the job.
             </p>
           </div>
         </div>
       </div>
 
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
-      >
-        Save Changes
-      </button>
+      <Button size="sm" onClick={handleSave} disabled={saving}>
+        Save Settings
+      </Button>
     </div>
   );
 }

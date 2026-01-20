@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen } from 'lucide-react';
 import type { Machine, SaveMachineReq } from '../../../../shared/src';
+import { Button } from '@/components/ui/button';
+import { FolderBrowseIconButton, InfoTipIcon } from '@/components/ui/icon-buttons';
 
 type MachinePathKey = 'machineApJobfolder' | 'machineNestpickFolder';
 type PathValidationState = { status: 'empty' | 'checking' | 'valid' | 'invalid'; message: string };
@@ -176,7 +177,7 @@ export function MachineSettings({ machineId, onMachineUpdated }: MachineSettings
         <div>
           <label className="block text-sm font-medium mb-1">Machine Name</label>
           <input
-            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
             value={machine.name}
             onChange={(e) => setMachine({ ...machine, name: e.target.value })}
             placeholder="Machine name"
@@ -186,7 +187,7 @@ export function MachineSettings({ machineId, onMachineUpdated }: MachineSettings
         <div>
           <label className="block text-sm font-medium mb-1">PC IP Address</label>
           <input
-            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
             value={machine.pcIp ?? ''} 
             onChange={(e) => setMachine({ ...machine, pcIp: e.target.value || null })}
             placeholder="192.168.1.100"
@@ -195,23 +196,20 @@ export function MachineSettings({ machineId, onMachineUpdated }: MachineSettings
       </div>
 
       <div>
-        <label className="block text-sm font-medium mb-1">
-          Ready-To-Run Folder <span className="text-destructive">*</span>
+        <label className="flex items-center gap-2 text-sm font-medium mb-1">
+          <span>
+            Ready-To-Run Folder <span className="text-destructive">*</span>
+          </span>
+          <InfoTipIcon text="Required. Folder where ready-to-run jobs are staged for this machine." />
         </label>
         <div className="flex gap-2">
           <input
-            className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 ${getStatusBorder(pathStatus.machineApJobfolder.status)}`}
+            className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-1 ${getStatusBorder(pathStatus.machineApJobfolder.status)}`}
             value={machine.apJobfolder}
             onChange={(e) => setMachine({ ...machine, apJobfolder: e.target.value })}
             placeholder="C:\path\to\ready-to-run"
           />
-          <button
-            onClick={() => browseFolder('apJobfolder')}
-            className="px-3 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors"
-            title="Browse for folder"
-          >
-            <FolderOpen className="w-4 h-4" />
-          </button>
+          <FolderBrowseIconButton onClick={() => browseFolder('apJobfolder')} tooltip="Pick folder" />
         </div>
         <span className={`text-xs ${getStatusColor(pathStatus.machineApJobfolder.status)}`}>
           {pathStatus.machineApJobfolder.message}
@@ -219,25 +217,25 @@ export function MachineSettings({ machineId, onMachineUpdated }: MachineSettings
       </div>
 
       <div>
-        <label className="block text-sm font-medium mb-1">
-          Nestpick Folder {machine.nestpickEnabled && <span className="text-destructive">*</span>}
+        <label className="flex items-center gap-2 text-sm font-medium mb-1">
+          <span>
+            Nestpick Folder {machine.nestpickEnabled && <span className="text-destructive">*</span>}
+          </span>
+          <InfoTipIcon text="Used by Nestpick integration. Required only when Nestpick is enabled." />
         </label>
         <div className="flex gap-2">
           <input
-            className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 ${getStatusBorder(pathStatus.machineNestpickFolder.status)}`}
+            className={`flex-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-1 ${getStatusBorder(pathStatus.machineNestpickFolder.status)}`}
             value={machine.nestpickFolder}
             onChange={(e) => setMachine({ ...machine, nestpickFolder: e.target.value })}
             placeholder="C:\path\to\nestpick"
             disabled={!machine.nestpickEnabled}
           />
-          <button
+          <FolderBrowseIconButton
             onClick={() => browseFolder('nestpickFolder')}
-            className="px-3 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors disabled:opacity-50"
-            title="Browse for folder"
+            tooltip="Pick folder"
             disabled={!machine.nestpickEnabled}
-          >
-            <FolderOpen className="w-4 h-4" />
-          </button>
+          />
         </div>
         <span className={`text-xs ${getStatusColor(pathStatus.machineNestpickFolder.status)}`}>
           {pathStatus.machineNestpickFolder.message}
@@ -257,13 +255,9 @@ export function MachineSettings({ machineId, onMachineUpdated }: MachineSettings
         </label>
       </div>
 
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
-      >
-        Save Machine Settings
-      </button>
+      <Button size="sm" onClick={handleSave} disabled={saving}>
+        Save Settings
+      </Button>
     </div>
   );
 }

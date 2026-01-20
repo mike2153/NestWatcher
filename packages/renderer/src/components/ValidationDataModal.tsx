@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { ChevronDown, FileText, FileSpreadsheet } from 'lucide-react';
-import type { ValidationDataRes, AggregatedValidationDataRes, ToolUsage, DrillUsage } from '../../../shared/src';
+import type { ValidationDataRes, AggregatedValidationDataRes } from '../../../shared/src';
 
 type ValidationDataModalProps = {
   open: boolean;

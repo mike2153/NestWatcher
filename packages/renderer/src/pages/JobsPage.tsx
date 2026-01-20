@@ -17,7 +17,8 @@ import type {
   JobStatus,
   Machine,
   MachineHealthEntry,
-  MachineHealthCode
+  MachineHealthCode,
+  NcCatValidationReport
 } from '../../../shared/src';
 import { JOB_STATUS_VALUES } from '../../../shared/src';
 import { cn } from '../utils/cn';
@@ -119,7 +120,7 @@ function renderUserMeta(name?: string | null, timestamp?: string | null) {
 function formatTimestamp(value: string) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const day = d.getDate();
   const mon = months[d.getMonth()];
   const year = d.getFullYear();
@@ -216,7 +217,7 @@ function statusBadgeClass(status: JobStatus) {
     case 'LOAD_FINISH':
       return 'bg-amber-100 text-amber-800';
     case 'STAGED':
-      return 'bg-blue-100 text-blue-800';
+      return 'bg-cyan-100 text-cyan-800';
     case 'PENDING':
     default:
       return 'bg-accent text-accent-foreground';
@@ -267,7 +268,7 @@ export function JobsPage() {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [columnSizing, _setColumnSizing] = useState<ColumnSizingState>(loadColumnSizing);
   // Context menu is now handled by shadcn-style component; keep only selection logic
-  
+
   const [actionBusy, setActionBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [autoRefreshEnabled, _setAutoRefreshEnabled] = useState(() => {
@@ -347,7 +348,7 @@ export function JobsPage() {
         if (cancelled) return;
         if (res.ok) setDiagnostics(res.value);
       })
-      .catch(() => {});
+      .catch(() => { });
     const unsubscribe = window.api.diagnostics.subscribe((snapshot) => {
       if (!cancelled) setDiagnostics(snapshot);
     });
@@ -682,9 +683,9 @@ export function JobsPage() {
         const hh = Math.floor((total % 86400) / 3600);
         const mm = Math.floor((total % 3600) / 60);
         const ss = total % 60;
-        if (dd > 0) return `${dd}d ${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
-        if (hh > 0) return `${hh}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
-        return `${mm}:${String(ss).padStart(2,'0')}`;
+        if (dd > 0) return `${dd}d ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+        if (hh > 0) return `${hh}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+        return `${mm}:${String(ss).padStart(2, '0')}`;
       }
     },
     {
@@ -721,8 +722,8 @@ export function JobsPage() {
                       issue.severity === 'critical'
                         ? 'bg-red-600'
                         : issue.severity === 'warning'
-                        ? 'bg-amber-600'
-                        : 'bg-muted-foreground'
+                          ? 'bg-amber-600'
+                          : 'bg-muted-foreground'
                     )}
                     title={`${healthLabel(issue.code)} ? ${issue.message}`}
                   >
@@ -765,28 +766,26 @@ export function JobsPage() {
   });
 
   const selectedRowsData = useMemo(() => {
+    if (Object.keys(rowSelection).length === 0) {
+      return {
+        selectedKeys: [] as string[],
+        selectedJobs: [] as JobRow[],
+        anyLocked: false,
+        anyUnlocked: false,
+        isSingleSelection: false
+      };
+    }
     const selectedRows = table.getSelectedRowModel().flatRows;
-
-    console.log('=== Selection Debug ===');
-    console.log('rowSelection state:', rowSelection);
-    console.log('selectedRows from table:', selectedRows.length, selectedRows.map(r => ({ id: r.id, original: r.original })));
 
     const selectedKeys = selectedRows
       .map((row) => row.original)
       .filter(isJobRow)
       .map((r) => r.key);
-    const selectedJobs = selectedRows
-      .map((row) => row.original)
-      .filter(isJobRow);
-
-    console.log('selectedKeys:', selectedKeys);
-    console.log('selectedJobs count:', selectedJobs.length);
+    const selectedJobs = selectedRows.map((row) => row.original).filter(isJobRow);
 
     const anyLocked = selectedJobs.some((job) => job.locked);
     const anyUnlocked = selectedJobs.some((job) => !job.locked);
     const isSingleSelection = selectedKeys.length === 1;
-
-    console.log('Computed values:', { anyLocked, anyUnlocked });
 
     return {
       selectedKeys,
@@ -832,6 +831,9 @@ export function JobsPage() {
       let stagedCount = 0;
       const rerunKeys: string[] = [];
       const normalKeys: string[] = [];
+      const dispatchValidationReport = (report: NcCatValidationReport) => {
+        window.dispatchEvent(new CustomEvent<NcCatValidationReport>('nc-cat-validation-results', { detail: report }));
+      };
       for (const key of targetKeys) {
         const job = jobByKey.get(key);
         if (!job) continue;
@@ -860,16 +862,26 @@ export function JobsPage() {
       for (const key of normalKeys) {
         const res = await window.api.jobs.addToWorklist(key, machineId);
         if (!res.ok) failures.push(`${key}: ${res.error.message}`);
-        else if (!res.value.ok) failures.push(`${key}: ${res.value.error}`);
-        else stagedCount += 1;
+        else if (!res.value.ok) {
+          if (res.value.validationReport) dispatchValidationReport(res.value.validationReport);
+          failures.push(`${key}: ${res.value.error}`);
+        } else {
+          if (res.value.validationReport) dispatchValidationReport(res.value.validationReport);
+          stagedCount += 1;
+        }
       }
 
       // Rerun and stage
       for (const key of rerunKeys) {
         const res = await window.api.jobs.rerunAndStage(key, machineId);
         if (!res.ok) failures.push(`${key}: ${res.error.message}`);
-        else if (!res.value.ok) failures.push(`${key}: ${res.value.error}`);
-        else stagedCount += 1;
+        else if (!res.value.ok) {
+          if (res.value.validationReport) dispatchValidationReport(res.value.validationReport);
+          failures.push(`${key}: ${res.value.error}`);
+        } else {
+          if (res.value.validationReport) dispatchValidationReport(res.value.validationReport);
+          stagedCount += 1;
+        }
       }
 
       if (stagedCount) alert(`Staged ${stagedCount} job(s).`);
@@ -984,7 +996,7 @@ export function JobsPage() {
         </div>
       </div>
 
-      <div className="flex flex-nowrap gap-2 items-end overflow-x-auto">
+      <div className="flex flex-nowrap gap-2 items-end overflow-x-auto border rounded p-3 bg-[var(--card)]">
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-xs font-medium">Search</span>
           <input
@@ -1000,9 +1012,9 @@ export function JobsPage() {
           <select
             value={
               filters.statusGroups.length === 3 ? 'all' :
-              filters.statusGroups.length === 1 ? filters.statusGroups[0] :
-              // If a mixed selection somehow exists, treat as 'all' for display
-              'all'
+                filters.statusGroups.length === 1 ? filters.statusGroups[0] :
+                  // If a mixed selection somehow exists, treat as 'all' for display
+                  'all'
             }
             onChange={(e) => {
               const v = e.target.value as 'all' | StatusGroup;
@@ -1242,7 +1254,7 @@ export function JobsPage() {
                 Refresh
               </Button>
             </div>
-            <div className="border border-[var(--table-border)] rounded bg-table overflow-auto max-h-[calc(100vh-200px)]">
+            <div className="border border-[var(--table-border)] rounded bg-[var(--table-bg)] overflow-auto max-h-[calc(100vh-200px)]">
               <table className="w-full text-sm text-[var(--table-text)] table-text">
                 <thead className="bg-[var(--table-header-bg)] text-[var(--table-text)] sticky top-0 z-10">
                   <tr className="border-b-0">

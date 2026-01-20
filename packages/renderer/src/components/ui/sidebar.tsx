@@ -6,7 +6,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 
-const SIDEBAR_WIDTH = "12rem"
+const SIDEBAR_WIDTH = "13rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 
 type SidebarContextProps = {
@@ -42,15 +42,15 @@ function SidebarProvider({ className, style, children, ...props }: React.Compone
 
   return (
     <SidebarContext.Provider value={{ open, setOpen, openMobile, setOpenMobile, isMobile, toggleSidebar }}>
-      <div
-        data-collapsible={open ? "full" : "icon"}
-        className={cn("group/sidebar-wrapper flex min-h-svh w-full max-w-full overflow-x-hidden", className)}
-        style={{
-          ...(style as React.CSSProperties),
-          ...sidebarVars,
-        }}
-        {...props}
-      >
+        <div
+          data-collapsible={open ? "full" : "icon"}
+          className={cn("group/sidebar-wrapper flex h-svh w-full max-w-full overflow-hidden", className)}
+          style={{
+            ...(style as React.CSSProperties),
+            ...sidebarVars,
+          }}
+          {...props}
+        >
         {children}
       </div>
     </SidebarContext.Provider>
@@ -58,16 +58,16 @@ function SidebarProvider({ className, style, children, ...props }: React.Compone
 }
 
 function Sidebar({ className, children, ...props }: React.ComponentProps<"div">) {
-  const { isMobile, openMobile, setOpenMobile } = useSidebar()
+  const { isMobile, openMobile, setOpenMobile, open } = useSidebar()
   if (isMobile) {
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile}>
-        <SheetContent side="left" className="bg-sidebar text-sidebar-foreground w-(--sidebar-width) p-0 [&>button]:hidden">
+        <SheetContent side="left" className="bg-sidebar text-sidebar-foreground w-[var(--sidebar-width)] p-0 [&>button]:hidden">
           <SheetHeader className="sr-only">
             <SheetTitle>Sidebar</SheetTitle>
             <SheetDescription>Displays the mobile sidebar.</SheetDescription>
           </SheetHeader>
-          <div className="bg-sidebar flex h-full w-full flex-col">
+          <div className="bg-sidebar flex h-full w-full flex-col overflow-hidden">
             {children}
           </div>
         </SheetContent>
@@ -77,10 +77,12 @@ function Sidebar({ className, children, ...props }: React.ComponentProps<"div">)
   return (
     <aside
       data-slot="sidebar"
+      data-state={open ? "expanded" : "collapsed"}
       className={cn(
-        "text-sidebar-foreground w-(--sidebar-width) border-r bg-sidebar",
+        "flex h-svh flex-col overflow-hidden text-sidebar-foreground border-r transition-[width] duration-200 w-[var(--sidebar-width)] group-data-[collapsible=icon]/sidebar-wrapper:w-[var(--sidebar-width-icon)]",
         className
       )}
+      style={{ backgroundColor: 'var(--sidebar)' }}
       {...props}
     >
       {children}
@@ -89,7 +91,7 @@ function Sidebar({ className, children, ...props }: React.ComponentProps<"div">)
 }
 
 function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
-  return <main data-slot="sidebar-inset" className={cn("flex min-h-svh flex-1 flex-col min-w-0 overflow-x-hidden", className)} {...props} />
+  return <main data-slot="sidebar-inset" className={cn("flex h-svh flex-1 flex-col min-w-0 overflow-hidden bg-background", className)} {...props} />
 }
 
 function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {
@@ -97,7 +99,7 @@ function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
-  return <div data-slot="sidebar-content" className={cn("flex-1 p-2", className)} {...props} />
+  return <div data-slot="sidebar-content" className={cn("flex-1 min-h-0 overflow-y-auto p-2", className)} {...props} />
 }
 
 function SidebarFooter({ className, ...props }: React.ComponentProps<"div">) {
@@ -112,6 +114,30 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
   return <li data-slot="sidebar-menu-item" className={cn("", className)} {...props} />
 }
 
+function SidebarMenuButton({
+  className,
+  isActive,
+  children,
+  ...props
+}: React.ComponentProps<"button"> & { isActive?: boolean }) {
+  return (
+    <button
+      data-slot="sidebar-menu-button"
+      data-active={isActive}
+      className={cn(
+        "flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
+        isActive
+          ? "bg-primary text-primary-foreground"
+          : "text-muted-foreground",
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </button>
+  )
+}
+
 export {
   useSidebar,
   SidebarProvider,
@@ -122,4 +148,5 @@ export {
   SidebarContent,
   SidebarMenu,
   SidebarMenuItem,
+  SidebarMenuButton,
 }

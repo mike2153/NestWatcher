@@ -29,6 +29,28 @@ We also added `locked_by` and `staged_by` columns on `public.jobs` so locks/stag
 5. **Sessions** – On successful login/register/reset the backend issues a UUID token, records it in the DB, and keeps it in memory for that renderer window. The token is never persisted to disk, so reopening the app always re-prompts.
 6. **Logout** – Clears the DB token and the renderer session; the login modal reopens.
 
+## Data flow diagram
+
+This diagram shows the actual request path for local authentication and why it is safe.
+
+```mermaid
+flowchart LR
+  UI[Renderer] --> Bridge[Preload window.api]
+  Bridge --> IPC[Main IPC auth handlers]
+  IPC --> DB[Postgres table app_users]
+
+  IPC --> Session[In memory session per window]
+  Session --> IPC
+  IPC --> UI
+
+  UI -->|Calls protected actions| IPC
+  IPC --> Guard[requireSession or requireAdminSession]
+  Guard --> Session
+  Guard --> DB
+```
+
+A matching `.mmd` copy exists in `docs/charts/user-auth.mmd`.
+
 ## Role enforcement
 - The main process knows the current session for each `WebContents`. All privileged IPC handlers call `requireSession` or `requireAdminSession`.
   - Settings (read/save/test DB) now require admin.

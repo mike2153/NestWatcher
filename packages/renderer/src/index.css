@@ -12,6 +12,22 @@
     border-color: var(--border);
   }
 
+  /* Form elements with slightly thicker borders (text inputs, dropdowns, textareas) */
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    border-width: 1.5px;
+  }
+
+  /* Focus states - use accent-blue border for blue accent themes */
+  input:not([type="checkbox"]):not([type="radio"]):focus,
+  select:focus,
+  textarea:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 0 2px var(--accent-blue-subtle);
+  }
+
   html, body, #root {
     width: 100%;
     height: 100%;
@@ -23,6 +39,32 @@
   body {
     background: var(--background-body);
     color: var(--foreground);
+    font-family: 'Geist', 'Geist Variable', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 0.875rem; /* 14px base like NC Cat */
+    line-height: 1.5;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Form elements should have elevated background for contrast */
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    background-color: var(--card);
+    color: var(--foreground);
+  }
+
+  /* Form elements - less rounded corners */
+  select,
+  input:not([type="checkbox"]):not([type="radio"]) {
+    border-radius: 4px;
+  }
+
+  /* Buttons with border should have elevated background */
+  button.border,
+  .border.rounded {
+    background-color: var(--card);
   }
 }
 
@@ -180,19 +222,117 @@
 
   .form-input {
     width: 100%;
-    height: 2.5rem;
-    border: var(--input-border-width) solid var(--input-border);
-    background: var(--input-bg);
-    background-color: var(--input-bg);
+    height: 2.25rem; /* h-9 like NC Cat */
+    border: 1px solid var(--border);
+    background: transparent;
     color: var(--foreground);
-    border-radius: var(--radius-sm);
-    padding: 0.5rem 0.75rem;
+    border-radius: 0.375rem;
+    padding: 0.25rem 0.75rem;
     box-sizing: border-box;
+    font-size: 0.875rem;
+    transition: border-color 0.2s, box-shadow 0.2s;
   }
 
   .form-input:focus {
     outline: none;
-    border-color: var(--input-focus-border);
-    box-shadow: 0 0 0 2px var(--primary-a20);
+    border-color: var(--ring);
+    box-shadow: 0 0 0 1px var(--ring);
   }
+}
+
+/* Sign-in page animations */
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0px);
+    transform: translateY(0px);
+  }
+}
+
+@keyframes slideRightIn {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0px);
+    transform: translateX(0px);
+  }
+}
+
+@keyframes testimonialIn {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0px);
+    transform: translateY(0px) scale(1);
+  }
+}
+
+.animate-element {
+  animation: fadeSlideIn 0.6s ease-out forwards;
+}
+
+.animate-slide-right {
+  animation: slideRightIn 0.8s ease-out forwards;
+}
+
+.animate-testimonial {
+  animation: testimonialIn 0.8s ease-out forwards;
+}
+
+.animate-delay-100 { animation-delay: 100ms; }
+.animate-delay-200 { animation-delay: 200ms; }
+.animate-delay-300 { animation-delay: 300ms; }
+.animate-delay-400 { animation-delay: 400ms; }
+.animate-delay-500 { animation-delay: 500ms; }
+.animate-delay-600 { animation-delay: 600ms; }
+.animate-delay-700 { animation-delay: 700ms; }
+.animate-delay-800 { animation-delay: 800ms; }
+.animate-delay-900 { animation-delay: 900ms; }
+.animate-delay-1000 { animation-delay: 1000ms; }
+.animate-delay-1200 { animation-delay: 1200ms; }
+.animate-delay-1400 { animation-delay: 1400ms; }
+
+.custom-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1rem;
+  height: 1rem;
+  display: inline-grid;
+  place-content: center;
+  border-radius: 0.25rem;
+  border: 1px solid var(--border);
+  border-color: color-mix(in srgb, var(--border) 70%, var(--foreground) 30%);
+  background: transparent;
+}
+
+.custom-checkbox::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  transform: scale(0);
+  transition: transform 120ms ease-in-out;
+  border-radius: 0.125rem;
+  box-shadow: inset 1em 1em var(--primary);
+}
+
+.custom-checkbox:checked::before {
+  transform: scale(1);
+}
+
+.custom-checkbox:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ResultEnvelope } from './result';
+import type { NcCatValidationReport } from './ncCatContracts';
 
 export const SslMode = z.enum(['disable', 'require', 'verify-ca', 'verify-full']);
 
@@ -23,6 +24,143 @@ export const DbStatusSchema = z.object({
 export type DbStatus = z.infer<typeof DbStatusSchema>;
 
 export const CURRENT_SETTINGS_VERSION = 1 as const;
+
+export const InventoryExportFieldKey = z.enum([
+  'typeData',
+  'customerId',
+  'materialName',
+  'materialNumber',
+  'lengthMm',
+  'widthMm',
+  'thicknessMm',
+  'preReserved',
+  'stock',
+  'reservedStock',
+  'stockAvailable',
+  'lastUpdated'
+]);
+export type InventoryExportFieldKey = z.infer<typeof InventoryExportFieldKey>;
+
+export const InventoryExportDelimiter = z
+  .string()
+  .min(1, 'Delimiter is required')
+  .max(1, 'Delimiter must be exactly 1 character')
+  .refine((value) => value !== '\r' && value !== '\n', 'Delimiter cannot be a newline');
+
+const InventoryExportFieldColumnSchema = z.object({
+  kind: z.literal('field'),
+  enabled: z.boolean().default(true),
+  header: z.string().default(''),
+  field: InventoryExportFieldKey
+});
+
+const InventoryExportCustomColumnSchema = z.object({
+  kind: z.literal('custom'),
+  enabled: z.boolean().default(true),
+  header: z.string().default(''),
+  defaultValue: z.string().default('')
+});
+
+export const InventoryExportColumnSchema = z
+  .preprocess((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+    const record = value as Record<string, unknown>;
+    if (!('kind' in record) && 'field' in record) {
+      return { kind: 'field', ...record };
+    }
+    return value;
+  }, z.discriminatedUnion('kind', [InventoryExportFieldColumnSchema, InventoryExportCustomColumnSchema]))
+  .superRefine((col, ctx) => {
+    if (col.enabled && !col.header.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['header'],
+        message: 'Column header is required for enabled columns'
+      });
+    }
+  });
+export type InventoryExportColumn = z.infer<typeof InventoryExportColumnSchema>;
+
+export const InventoryExportTemplateSchema = z.object({
+  delimiter: InventoryExportDelimiter.default(','),
+  // Formatting string for the `lastUpdated` field in CSV exports.
+  // Supported tokens (any combination): hh:mm:ss hh:mm dd/mm/yyyy dd/mm/yy dd.mm.yyyy dd.mm.yy
+  lastUpdatedFormat: z.string().default('hh:mm dd.mm.yyyy'),
+  columns: z.array(InventoryExportColumnSchema).default([
+    { kind: 'field', enabled: true, header: 'Type', field: 'typeData' },
+    { kind: 'field', enabled: true, header: 'Customer ID', field: 'customerId' },
+    { kind: 'field', enabled: true, header: 'Length', field: 'lengthMm' },
+    { kind: 'field', enabled: true, header: 'Width', field: 'widthMm' },
+    { kind: 'field', enabled: true, header: 'Thickness', field: 'thicknessMm' },
+    { kind: 'field', enabled: true, header: 'Pre-Reserved', field: 'preReserved' },
+    { kind: 'field', enabled: true, header: 'Stock', field: 'stock' },
+    { kind: 'field', enabled: true, header: 'Reserved', field: 'reservedStock' },
+    { kind: 'field', enabled: true, header: 'Available', field: 'stockAvailable' },
+    { kind: 'field', enabled: true, header: 'Last Updated', field: 'lastUpdated' }
+  ])
+}).default({});
+export type InventoryExportTemplate = z.infer<typeof InventoryExportTemplateSchema>;
+
+export const InventoryExportScheduledSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    intervalSeconds: z.number().int().min(30, 'Minimum interval is 30 seconds').default(60),
+    onlyOnChange: z.boolean().default(true),
+    folderPath: z.string().default(''),
+    fileName: z.string().default('grundner_inventory.csv')
+  })
+  .superRefine((data, ctx) => {
+    if (!data.enabled) return;
+
+    if (!data.folderPath.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['folderPath'],
+        message: 'Folder path is required when scheduled export is enabled'
+      });
+    }
+
+    const fileName = data.fileName.trim();
+    if (!fileName) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fileName'],
+        message: 'File name is required when scheduled export is enabled'
+      });
+      return;
+    }
+
+    if (!/^.+\..+$/.test(fileName)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fileName'],
+        message: 'File name must include an extension, for example "inventory.csv"'
+      });
+    }
+
+    if (/[\\/]/.test(fileName) || /:/.test(fileName)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fileName'],
+        message: 'File name must not include folder paths'
+      });
+    }
+
+    if (/[<>:"|?*]/.test(fileName)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fileName'],
+        message: 'File name contains characters not allowed on Windows'
+      });
+    }
+  }).default({});
+export type InventoryExportScheduled = z.infer<typeof InventoryExportScheduledSchema>;
+
+export const InventoryExportSettingsSchema = z.object({
+  template: InventoryExportTemplateSchema,
+  scheduled: InventoryExportScheduledSchema
+}).default({});
+export type InventoryExportSettings = z.infer<typeof InventoryExportSettingsSchema>;
 
 export const ThemePreference = z.enum(['system', 'light', 'dark', 'modern']);
 export type ThemePreference = z.infer<typeof ThemePreference>;
@@ -87,18 +225,34 @@ export const SettingsSchema = z.object({
     autoPacCsvDir: z.string().default(''),
     grundnerFolderPath: z.string().default(''),
     archiveRoot: z.string().default(''),
-  }).default({ processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '' }),
+    jobsRoot: z.string().default(''),
+    quarantineRoot: z.string().default(''),
+  }).default({ processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' }),
   test: z.object({
     testDataFolderPath: z.string().default(''),
     useTestDataMode: z.boolean().default(false),
     sheetIdMode: z.enum(['type_data', 'customer_id']).default('type_data')
   }).default({ testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' }),
   grundner: z.object({
-    reservedAdjustmentMode: z.enum(['delta', 'absolute']).default('delta')
-  }).default({ reservedAdjustmentMode: 'delta' }),
+    tableColumns: z.object({
+      typeData: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(1) }).default({}),
+      materialName: z.object({ visible: z.boolean().default(false), order: z.number().int().min(1).default(2) }).default({}),
+      materialNumber: z.object({ visible: z.boolean().default(false), order: z.number().int().min(1).default(3) }).default({}),
+      customerId: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(4) }).default({}),
+      lengthMm: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(5) }).default({}),
+      widthMm: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(6) }).default({}),
+      thicknessMm: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(7) }).default({}),
+      preReserved: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(8) }).default({}),
+      stock: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(9) }).default({}),
+      reservedStock: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(10) }).default({}),
+      stockAvailable: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(11) }).default({}),
+      lastUpdated: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(12) }).default({})
+    }).default({})
+  }).default({}),
   ordering: z.object({
     includeReserved: z.boolean().default(false)
   }).default({ includeReserved: false }),
+  inventoryExport: InventoryExportSettingsSchema,
   jobs: z.object({
     completedJobsTimeframe: z.enum(['1day', '3days', '7days', '1month', 'all']).default('7days'),
     statusFilter: z.array(z.enum(['pending', 'processing', 'complete'])).default(['pending', 'processing', 'complete'])
@@ -255,6 +409,8 @@ export const WorklistCollisionInfo = z.object({
 });
 export type WorklistCollisionInfo = z.infer<typeof WorklistCollisionInfo>;
 
+const NcCatValidationReportSchema = z.custom<NcCatValidationReport>();
+
 export const WorklistAddSuccess = z.object({
   ok: z.literal(true),
   path: z.string(),
@@ -262,14 +418,16 @@ export const WorklistAddSuccess = z.object({
   skipped: z.array(WorklistSkippedFile),
   stagedAt: z.string().nullable(),
   alreadyStaged: z.boolean(),
-  collision: WorklistCollisionInfo.optional()
+  collision: WorklistCollisionInfo.optional(),
+  validationReport: NcCatValidationReportSchema.optional()
 });
 export type WorklistAddSuccess = z.infer<typeof WorklistAddSuccess>;
 
 export const WorklistAddFailure = z.object({
   ok: z.literal(false),
   error: z.string(),
-  skipped: z.array(WorklistSkippedFile).optional()
+  skipped: z.array(WorklistSkippedFile).optional(),
+  validationReport: NcCatValidationReportSchema.optional()
 });
 export type WorklistAddFailure = z.infer<typeof WorklistAddFailure>;
 
@@ -395,6 +553,8 @@ export const GrundnerRow = z.object({
   id: z.number().int(),
   typeData: z.number().int().nullable(),
   customerId: z.string().nullable(),
+  materialName: z.string().nullable(),
+  materialNumber: z.number().int().nullable(),
   lengthMm: z.number().int().nullable(),
   widthMm: z.number().int().nullable(),
   thicknessMm: z.number().int().nullable(),
@@ -504,7 +664,21 @@ export const OrderingExportRes = z.object({
 });
 export type OrderingExportRes = z.infer<typeof OrderingExportRes>;
 
+export const GrundnerExportRes = z.object({
+  savedPath: z.string().nullable()
+});
+export type GrundnerExportRes = z.infer<typeof GrundnerExportRes>;
 
+export const GrundnerCustomCsvPreviewReq = z.object({
+  template: InventoryExportTemplateSchema,
+  limit: z.number().int().min(1).max(50).default(10)
+});
+export type GrundnerCustomCsvPreviewReq = z.infer<typeof GrundnerCustomCsvPreviewReq>;
+
+export const GrundnerCustomCsvPreviewRes = z.object({
+  csv: z.string()
+});
+export type GrundnerCustomCsvPreviewRes = z.infer<typeof GrundnerCustomCsvPreviewRes>;
 
 
 

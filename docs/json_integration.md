@@ -7,7 +7,7 @@ Process `validation.json` files from NC Catalyst, store MES/MES-adjacent data in
 Key principles:
 - The JSON describes **files that already exist (or will exist) under the configured `processedJobsRoot`**.
 - We compute the job key **exactly** the same way as `ingestProcessedJobsRoot` so MES data always lines up with `public.jobs.key`.
-- We keep the JSON field name `ncEstRuntime` and map it to a DB column named `nc_est_runtime`.
+- We expect the JSON field name `ncEstRuntime` and map it to a DB column named `nc_est_runtime`.
 
 ---
 
@@ -57,7 +57,7 @@ export type ValidationFileEntry = {
   folderPath: string;    // absolute path of the folder under processedJobsRoot
 
   // Core metrics
-  ncEstRuntime: number;  // seconds
+  ncEstRuntime: number;  // seconds (estimated)
   yieldPercentage: number; // %
 
   // Offcuts and dust
@@ -126,7 +126,7 @@ Columns:
 | Column                 | Type        | Description |
 |------------------------|-------------|-------------|
 | `job_key`              | varchar(100) PK, FK → `public.jobs(key)` | Job key, built exactly like `ingestProcessedJobsRoot` |
-| `nc_est_runtime`       | integer     | Estimated runtime in seconds (`ncEstRuntime`) |
+| `nc_est_runtime`       | integer     | Estimated runtime in seconds (from `ncEstRuntime`) |
 | `yield_percentage`     | real        | Yield percentage |
 | `waste_offcut_m2`      | real        | Waste area in m² |
 | `waste_offcut_dust_m3` | real        | Waste offcut dust volume (m³) |
@@ -232,7 +232,7 @@ Syntax: Missing end-of-program marker
 Add helpers to work with `public.nc_stats`:
 
 ```typescript
-// Input shape for upsert from MES JSON
+// Input shape for upsert from MES JSON (`ncEstRuntime` is the estimated runtime)
 export type NcStatsUpsert = {
   jobKey: string;
   ncEstRuntime?: number | null;

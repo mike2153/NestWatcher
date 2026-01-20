@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   DiagnosticsSnapshot,
   Machine,
@@ -9,6 +9,8 @@ import type {
 import { JOB_STATUS_VALUES } from '../../../shared/src';
 import { cn } from '../utils/cn';
 import { GlobalTable } from '@/components/table/GlobalTable';
+import { Button } from '@/components/ui/button';
+
 import type { ColumnDef, RowSelectionState } from '@tanstack/react-table';
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import { ValidationDataModal } from '@/components/ValidationDataModal';
@@ -36,7 +38,7 @@ function formatIso(value: string | null) {
   if (!value) return '';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '';
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const day = d.getDate();
   const mon = months[d.getMonth()];
   const year = d.getFullYear();
@@ -55,21 +57,21 @@ function formatStatusLabel(value: string) {
   return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
 }
 
-  function statusClass(status: JobStatus) {
-    switch (status) {
-      case 'CNC_FINISH':
-      case 'FORWARDED_TO_NESTPICK':
-      case 'NESTPICK_COMPLETE':
-        return 'bg-green-100 text-green-800';
-      case 'LABEL_FINISH':
-      case 'LOAD_FINISH':
-        return 'bg-amber-100 text-amber-800';
-      case 'STAGED':
-        return 'bg-blue-100 text-blue-800';
-      default:
-        return 'bg-accent text-accent-foreground';
-    }
+function statusClass(status: JobStatus) {
+  switch (status) {
+    case 'CNC_FINISH':
+    case 'FORWARDED_TO_NESTPICK':
+    case 'NESTPICK_COMPLETE':
+      return 'bg-green-100 text-green-800';
+    case 'LABEL_FINISH':
+    case 'LOAD_FINISH':
+      return 'bg-amber-100 text-amber-800';
+    case 'STAGED':
+      return 'bg-cyan-100 text-cyan-800';
+    default:
+      return 'bg-accent text-accent-foreground';
   }
+}
 
 export function RouterPage() {
   const [files, setFiles] = useState<RouterReadyFile[]>([]);
@@ -161,7 +163,7 @@ export function RouterPage() {
         if (cancelled) return;
         if (res.ok) setDiagnostics(res.value);
       })
-      .catch(() => {});
+      .catch(() => { });
     const unsubscribe = window.api.diagnostics.subscribe((snapshot) => {
       if (!cancelled) setDiagnostics(snapshot);
     });
@@ -263,7 +265,7 @@ export function RouterPage() {
     return map;
   }, [machines]);
 
-  
+
 
   const columns = useMemo<ColumnDef<RouterReadyFile>[]>(() => [
     {
@@ -410,9 +412,8 @@ export function RouterPage() {
     const message =
       machineFilter === 'all'
         ? `Cleared ${clearedCount} processed job${clearedCount === 1 ? '' : 's'} from view`
-        : `Cleared ${clearedCount} processed job${clearedCount === 1 ? '' : 's'} for ${
-            machines.find((m) => m.machineId === machineFilter)?.name ?? `Machine ${machineFilter}`
-          }`;
+        : `Cleared ${clearedCount} processed job${clearedCount === 1 ? '' : 's'} for ${machines.find((m) => m.machineId === machineFilter)?.name ?? `Machine ${machineFilter}`
+        }`;
     setBanner({ type: 'success', message });
   };
 
@@ -485,8 +486,8 @@ export function RouterPage() {
       f.status ?? '',
       formatIso(
         f.addedAtR2R ??
-          f.jobDateadded ??
-          (f.mtimeMs != null ? new Date(f.mtimeMs).toISOString() : null)
+        f.jobDateadded ??
+        (f.mtimeMs != null ? new Date(f.mtimeMs).toISOString() : null)
       ),
       f.inDatabase ? 'Yes' : 'No'
     ].map(field => `"${String(field ?? '').replace(/"/g, '""')}"`).join(','));
@@ -530,43 +531,43 @@ export function RouterPage() {
             </div>
             <div className="flex gap-2">
               {machineFilter !== 'all' && (
-                <button
-                  className="border rounded px-3 py-1"
-                  onClick={async () => {
-                    setLoading(true);
-                    const res = await window.api.files.listReady(machineFilter as number);
-                    if (res.ok) {
-                      let items = res.value.files as ReadyFile[];
-                      if (statusFilter !== 'all') {
-                        items = items.filter((f) => f.status === statusFilter);
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      setLoading(true);
+                      const res = await window.api.files.listReady(machineFilter as number);
+                      if (res.ok) {
+                        let items = res.value.files as ReadyFile[];
+                        if (statusFilter !== 'all') {
+                          items = items.filter((f) => f.status === statusFilter);
+                        }
+                        items = applyClearedFilter(items, machineFilter as number);
+                        setFiles(items.map((item) => ({ ...item, machineId: machineFilter as number })));
                       }
-                      items = applyClearedFilter(items, machineFilter as number);
-                      setFiles(items.map((item) => ({ ...item, machineId: machineFilter as number })));
-                    }
-                    setLoading(false);
-                  }}
-                  disabled={loading}
-                >
-                  Refresh
-                </button>
+                      setLoading(false);
+                    }}
+                    disabled={loading}
+                  >
+                    Refresh
+                  </Button>
               )}
-              <button
-                className="border rounded px-3 py-1"
+              <Button
+                size="sm"
                 onClick={handleClearProcessed}
                 disabled={!hasClearable || deleting}
               >
                 Clear Processed
-              </button>
-              <button
-                className="border rounded px-3 py-1"
+              </Button>
+              <Button
+                size="sm"
                 onClick={handleDeleteSelected}
                 disabled={deleting || selectedCount === 0}
               >
                 {deleting ? 'Deleting...' : selectedCount > 1 ? `Delete Selected (${selectedCount})` : 'Delete Selected'}
-              </button>
-              <button className="border rounded px-3 py-1" onClick={exportCsv}>
+              </Button>
+              <Button size="sm" onClick={exportCsv}>
                 Export CSV
-              </button>
+              </Button>
             </div>
           </div>
           {banner && (
@@ -584,7 +585,7 @@ export function RouterPage() {
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 border rounded p-3 bg-[var(--card)]">
         <label className="text-sm flex items-center gap-2">
           <span>Machine</span>
           <select className="border rounded px-2 py-1" value={machineFilter === 'all' ? '' : machineFilter}

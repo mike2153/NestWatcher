@@ -16,6 +16,9 @@ import type {
   GrundnerListRes,
   GrundnerResyncReq,
   GrundnerUpdateReq,
+  GrundnerExportRes,
+  GrundnerCustomCsvPreviewReq,
+  GrundnerCustomCsvPreviewRes,
   HistoryListReq,
   HistoryListRes,
   JobEventsReq,
@@ -53,6 +56,7 @@ import type {
   AggregatedValidationDataReq,
   AggregatedValidationDataRes,
   ValidationWarningsListRes,
+  NcCatValidationReport,
   AuthStateRes,
   AuthSuccessRes,
   AuthLoginReq,
@@ -71,11 +75,28 @@ import type {
   NcCatSubmitValidationRes,
   OpenJobInSimulatorReq,
   OpenJobInSimulatorRes,
+  SharedSettingsSnapshot,
   SubscriptionAuthState,
   SubscriptionLoginReq,
   SubscriptionLoginRes
 } from '../../shared/src';
 import { type ResultEnvelope } from '../../shared/src/result';
+
+const subscriptionAuthRequestStateHandlers = new Set<() => void>();
+let pendingSubscriptionAuthStateRequest = false;
+ipcRenderer.on('nc-catalyst:auth:requestState', () => {
+  if (subscriptionAuthRequestStateHandlers.size > 0) {
+    for (const handler of subscriptionAuthRequestStateHandlers) {
+      try {
+        handler();
+      } catch {
+        // ignore
+      }
+    }
+  } else {
+    pendingSubscriptionAuthStateRequest = true;
+  }
+});
 
 // Normalize all IPC calls to return a simple { ok, value | error } envelope
 const invokeResult = <T>(channel: string, ...args: unknown[]): Promise<ResultEnvelope<T>> =>
@@ -98,12 +119,22 @@ const api = {
   validation: {
     getData: (input: ValidationDataReq) => invokeResult<ValidationDataRes>('validation:getData', input),
     getAggregatedData: (input: AggregatedValidationDataReq) => invokeResult<AggregatedValidationDataRes>('validation:getAggregatedData', input),
-    getWarnings: () => invokeResult<ValidationWarningsListRes>('validation:getWarnings')
+    getWarnings: () => invokeResult<ValidationWarningsListRes>('validation:getWarnings'),
+    subscribeHeadlessResults: (listener: (payload: NcCatValidationReport) => void) => {
+      const channel = 'nc-catalyst:validation-results';
+      const handler = (_event: Electron.IpcRendererEvent, payload: NcCatValidationReport) => {
+        listener(payload);
+      };
+      ipcRenderer.on(channel, handler);
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+      };
+    }
   },
   settings: {
     get: () => invokeResult<Settings>('settings:get'),
     getPath: () => invokeResult<string>('settings:path'),
-    save: (next: Settings) => invokeResult<Settings>('settings:save', next),
+    save: (next: Partial<Settings>) => invokeResult<Settings>('settings:save', next),
     validatePath: (input: PathValidationReq) => invokeResult<PathValidationRes>('settings:validatePath', input)
   },
   db: {
@@ -177,6 +208,10 @@ const api = {
     list: (req?: GrundnerListReq) => invokeResult<GrundnerListRes>('grundner:list', req ?? {}),
     update: (input: GrundnerUpdateReq) => invokeResult<{ ok: boolean; updated: number }>('grundner:update', input),
     resync: (input?: GrundnerResyncReq) => invokeResult<{ updated: number }>('grundner:resync', input ?? {}),
+    exportCsv: () => invokeResult<GrundnerExportRes>('grundner:exportCsv'),
+    exportCustomCsv: () => invokeResult<GrundnerExportRes>('grundner:exportCustomCsv'),
+    previewCustomCsv: (input: GrundnerCustomCsvPreviewReq) =>
+      invokeResult<GrundnerCustomCsvPreviewRes>('grundner:previewCustomCsv', input),
     subscribeRefresh: (listener: () => void) => {
       const channel = 'grundner:refresh';
       const handler = () => listener();
@@ -232,8 +267,8 @@ const api = {
   },
   ncCatalyst: {
     open: () => invokeResult<null>('nc-catalyst:open'),
-    getSharedSettings: () =>
-      invokeResult<import('../../shared/src').SharedSettingsSnapshot>('nc-catalyst:get-shared-settings'),
+    close: () => invokeResult<null>('nc-catalyst:close'),
+    getSharedSettings: () => invokeResult<SharedSettingsSnapshot>('nc-catalyst:get-shared-settings'),
     // Submit validated job data from NC-Cat to NestWatch
     submitValidation: (req: NcCatSubmitValidationReq) =>
       invokeResult<NcCatSubmitValidationRes>('nc-catalyst:submit-validation', req),
@@ -278,10 +313,14 @@ const api = {
       },
       // NC-Cat uses these to respond to NestWatcher requests
       onRequestState: (handler: () => void) => {
-        const channel = 'nc-catalyst:auth:requestState';
-        const listener = () => handler();
-        ipcRenderer.on(channel, listener);
-        return () => ipcRenderer.removeListener(channel, listener);
+        subscriptionAuthRequestStateHandlers.add(handler);
+        if (pendingSubscriptionAuthStateRequest) {
+          pendingSubscriptionAuthStateRequest = false;
+          queueMicrotask(() => handler());
+        }
+        return () => {
+          subscriptionAuthRequestStateHandlers.delete(handler);
+        };
       },
       sendStateResponse: (state: SubscriptionAuthState) => {
         ipcRenderer.send('nc-catalyst:auth:stateResponse', state);

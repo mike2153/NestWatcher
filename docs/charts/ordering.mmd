@@ -1,0 +1,13 @@
+flowchart TD
+  Ingest[Ingest creates a Pending job] --> PreReserve[Set pre_reserved true]
+  PreReserve --> GrundnerCount[Sync grundner pre_reserved count]
+  PreReserve --> Required[Ordering counts Pending jobs as Required]
+
+  Planner[Planner locks jobs] --> OrderSaw[Write order_saw.csv]
+  OrderSaw --> Grundner[Grundner replies with order_saw.erl]
+  Grundner --> Lock[Set is_locked true]
+  Lock --> ClearPre[Clear pre_reserved]
+  Lock --> LockedCount[Ordering counts locked jobs]
+
+  AutoPAC[AutoPAC reports load finish] --> LoadFinish[Update job to LOAD_FINISH]
+  LoadFinish --> Unlock[Clear is_locked]

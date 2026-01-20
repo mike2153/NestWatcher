@@ -1,13 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Database, FolderOpen, Package, Plus, Trash2, AlertTriangle } from 'lucide-react';
+import { X, Database, FolderOpen, Package, FileDown, Plus, Trash2, AlertTriangle, FlaskConical } from 'lucide-react';
+import { cn } from '@/utils/cn';
+import { Button } from '@/components/ui/button';
 import type { Machine } from '../../../shared/src';
 import { DatabaseSettings } from './settings/DatabaseSettings';
 import { FolderPathsSettings } from './settings/FolderPathsSettings';
 import { GrundnerSettings } from './settings/GrundnerSettings';
+import { TestDataSettings } from './settings/TestDataSettings';
+import { InventoryExportSettings } from './settings/InventoryExportSettings';
 import { MachineSettings } from './settings/MachineSettings';
 import { ValidationWarningsSettings } from './settings/ValidationWarningsSettings';
 
-type SettingsCategory = 'database' | 'folders' | 'grundner' | 'validation' | 'machine';
+type SettingsCategory = 'database' | 'folders' | 'grundner' | 'testData' | 'inventoryExport' | 'validation' | 'machine';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -68,112 +72,94 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-background border border-border rounded-lg shadow-xl w-[90vw] h-[80vh] max-w-6xl flex overflow-hidden">
-        {/* Sidebar */}
-        <div className="w-72 bg-sidebar border-r border-sidebar-border flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-none animate-in fade-in duration-200">
+      <div className="border rounded-lg shadow-2xl w-[96vw] h-[85vh] max-w-[90rem] flex overflow-hidden animate-in zoom-in-95 duration-200" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
+        <div className="w-48 border-r shrink-0 flex flex-col" style={{ backgroundColor: 'var(--sidebar)' }}>
           {/* Sidebar Header */}
-          <div className="px-6 py-4 border-b border-sidebar-border">
-            <h2 className="text-lg font-semibold text-sidebar-foreground">SETTINGS</h2>
+          <div className="flex items-center h-13 px-5" style={{ borderBottom: '1px solid var(--border)' }}>
+          <span className="px-2 font-semibold text-lg">Settings</span>
           </div>
 
           {/* Main Categories */}
-          <div className="flex-1 overflow-y-auto">
-            <nav className="p-3 space-y-1">
-              <button
-                onClick={() => setActiveCategory('database')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  activeCategory === 'database'
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
-                }`}
-              >
-                <Database className="w-4 h-4" />
-                Database
-              </button>
-
-              <button
-                onClick={() => setActiveCategory('folders')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  activeCategory === 'folders'
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
-                }`}
-              >
-                <FolderOpen className="w-4 h-4" />
-                Folder Paths
-              </button>
-
-              <button
-                onClick={() => setActiveCategory('grundner')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  activeCategory === 'grundner'
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
-                }`}
-              >
-                <Package className="w-4 h-4" />
-                Grundner
-              </button>
-
-              <button
-                onClick={() => setActiveCategory('validation')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  activeCategory === 'validation'
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
-                }`}
-              >
-                <AlertTriangle className="w-4 h-4" />
-                Validation
-              </button>
-            </nav>
-
-            {/* Separator */}
-            <div className="mx-6 my-3 border-t border-sidebar-border" />
+          <div className="flex-1 overflow-y-auto p-2 space-y-4">
+            {/* General Section */}
+            <div className="space-y-1">
+              <nav className="space-y-1">
+                {[
+                  { id: 'database', label: 'Database', icon: Database },
+                  { id: 'folders', label: 'Folder Paths', icon: FolderOpen },
+                  { id: 'grundner', label: 'Grundner', icon: Package },
+                  { id: 'inventoryExport', label: 'Inventory Export', icon: FileDown },
+                  { id: 'validation', label: 'Validation', icon: AlertTriangle },
+                  { id: 'testData', label: 'Test Data', icon: FlaskConical }
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveCategory(item.id as SettingsCategory)}
+                    className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans"
+                    style={activeCategory === item.id
+                      ? { backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }
+                      : { color: 'var(--muted-foreground)' }
+                    }
+                  >
+                    <item.icon className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                ))}
+              </nav>
+            </div>
 
             {/* Machines Section */}
-            <div className="p-3">
-              <div className="flex items-center justify-between px-3 mb-2">
-                <span className="text-xs font-semibold text-sidebar-foreground/60 uppercase tracking-wider">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between px-2 mb-1">
+                <span className="text-sm font-medium text-muted-foreground">
                   Machines
                 </span>
-                <button
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-6 h-6 w-6"
                   onClick={handleAddMachine}
-                  className="p-1 hover:bg-sidebar-accent rounded transition-colors"
                   title="Add Machine"
                 >
-                  <Plus className="w-4 h-4 text-sidebar-foreground" />
-                </button>
+                  <Plus className="size-3.5" />
+                </Button>
               </div>
 
               <div className="space-y-1">
                 {machines.map((machine) => (
                   <div
                     key={machine.machineId}
-                    className={`group flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer ${
-                      selectedMachineId === machine.machineId && activeCategory === 'machine'
-                        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                        : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
-                    }`}
+                    className="group flex items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 h-10 text-sm font-medium transition-colors hover:bg-muted hover:text-foreground cursor-pointer relative font-sans"
+                    style={selectedMachineId === machine.machineId && activeCategory === 'machine'
+                      ? { backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }
+                      : { color: 'var(--muted-foreground)' }
+                    }
                     onClick={() => handleSelectMachine(machine.machineId)}
                   >
-                    <span className="truncate">{machine.name}</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteMachine(machine.machineId);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-destructive/10 rounded transition-all"
-                      title="Delete Machine"
-                    >
-                      <Trash2 className="w-3 h-3 text-destructive" />
-                    </button>
+                    <div className={cn("size-2 rounded-full shrink-0", machine.nestpickEnabled ? "bg-emerald-500" : "bg-gray-300")} />
+                    <span className="truncate flex-1">{machine.name}</span>
+
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 bg-muted pl-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 h-6 w-6 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteMachine(machine.machineId);
+                        }}
+                        title="Delete Machine"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
                   </div>
                 ))}
                 {machines.length === 0 && (
-                  <div className="px-3 py-2 text-sm text-sidebar-foreground/60">
-                    No machines configured
+                  <div className="px-3 py-4 text-center border-2 border-dashed border-[var(--border)] rounded-lg">
+                    <p className="text-xs text-[var(--muted-foreground)] mb-2">No machines</p>
+                    <Button variant="outline" size="sm" onClick={handleAddMachine} className="text-xs h-7">Add First</Button>
                   </div>
                 )}
               </div>
@@ -181,30 +167,39 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </div>
         </div>
 
-        {/* Content Area */}
-        <div className="flex-1 flex flex-col">
-          {/* Content Header */}
-          <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-            <h3 className="text-lg font-semibold">
-              {activeCategory === 'database' && 'Database'}
-              {activeCategory === 'folders' && 'Folder Paths'}
-              {activeCategory === 'grundner' && 'Grundner'}
-              {activeCategory === 'validation' && 'Validation'}
-              {activeCategory === 'machine' && 'Machine Configuration'}
-            </h3>
-            <button
+        {/* Content Area - matches NC Cat structure */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Content Header - matches NC Cat header style */}
+          <div className="flex h-13 shrink-0 items-center justify-between gap-2 border-b px-4 bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
+            <div className="flex items-center gap-3">
+              <h1 className="text-lg font-semibold">
+                {activeCategory === 'database' && 'Database Configuration'}
+                {activeCategory === 'folders' && 'Folder Path Management'}
+                {activeCategory === 'grundner' && 'Grundner Integration'}
+                {activeCategory === 'testData' && 'Test Data'}
+                {activeCategory === 'inventoryExport' && 'Inventory Export'}
+                {activeCategory === 'validation' && 'Validation Rules'}
+                {activeCategory === 'machine' && 'Machine Settings'}
+              </h1>
+            </div>
+
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={onClose}
-              className="p-1 hover:bg-muted rounded-md transition-colors"
+              className="rounded-full hover:bg-muted"
             >
-              <X className="w-5 h-5" />
-            </button>
+              <X className="size-5" />
+            </Button>
           </div>
 
-          {/* Content Body */}
+          {/* Content Body - no background, inherits from bg-background */}
           <div className="flex-1 overflow-y-auto p-6">
             {activeCategory === 'database' && <DatabaseSettings />}
             {activeCategory === 'folders' && <FolderPathsSettings />}
             {activeCategory === 'grundner' && <GrundnerSettings />}
+            {activeCategory === 'testData' && <TestDataSettings />}
+            {activeCategory === 'inventoryExport' && <InventoryExportSettings />}
             {activeCategory === 'validation' && <ValidationWarningsSettings />}
             {activeCategory === 'machine' && (
               <MachineSettings

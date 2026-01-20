@@ -3,10 +3,15 @@ import { createHash } from 'crypto';
 import { existsSync, mkdirSync } from 'fs';
 import { promises as fsp } from 'fs';
 import type { Dirent } from 'fs';
-import { basename, extname, join, normalize, relative } from 'path';
+import { basename, dirname, extname, join, normalize, relative, sep } from 'path';
 import type { PoolClient } from 'pg';
 import { parentPort } from 'worker_threads';
-import type { Machine, MachineHealthCode } from '../../../shared/src';
+import type {
+  Machine,
+  MachineHealthCode,
+  NcCatHeadlessValidationFileResult,
+  NcCatValidationReport
+} from '../../../shared/src';
 import { loadConfig } from '../services/config';
 import { logger } from '../logger';
 import { getPool, testConnection, withClient } from '../services/db';
@@ -16,7 +21,11 @@ import { listMachines } from '../repo/machinesRepo';
 import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLifecycle, resyncGrundnerPreReservedForMaterial } from '../repo/jobsRepo';
 import { bulkUpsertCncStats } from '../repo/cncStatsRepo';
 import type { CncStatsUpsert } from '../repo/cncStatsRepo';
-import type { WatcherWorkerToMainMessage, MainToWatcherMessage } from './watchersMessages';
+import type {
+  WatcherWorkerToMainMessage,
+  MainToWatcherMessage,
+  NcCatValidationResponsePayload
+} from './watchersMessages';
 import { ingestProcessedJobsRoot } from '../services/ingest';
 import { appendProductionListDel } from '../services/nestpick';
 import { archiveCompletedJob } from '../services/archive';
@@ -111,6 +120,36 @@ function emitAppMessage(event: string, params?: Record<string, unknown>, source?
   });
 }
 
+const NCCAT_VALIDATION_TIMEOUT_MS = 90_000;
+const ncCatValidationPending = new Map<
+  string,
+  { resolve: (result: NcCatValidationResponsePayload) => void; timeout: NodeJS.Timeout }
+>();
+
+function requestNcCatHeadlessValidation(payload: {
+  reason: 'ingest' | 'stage';
+  folderName: string;
+  files: { filename: string; ncContent: string }[];
+  machineNameHint?: string | null;
+  machineId?: number | null;
+}): Promise<NcCatValidationResponsePayload> {
+  const requestId = `nccat-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      ncCatValidationPending.delete(requestId);
+      resolve({ ok: false, error: 'Headless validation request timed out' });
+    }, NCCAT_VALIDATION_TIMEOUT_MS);
+
+    ncCatValidationPending.set(requestId, { resolve, timeout });
+    postMessageToMain({
+      type: 'ncCatValidationRequest',
+      requestId,
+      payload
+    });
+  });
+}
+
 type LifecycleMessageJob = {
   folder: string | null;
   ncfile: string | null;
@@ -187,6 +226,9 @@ const TESTDATA_WATCHER_NAME = 'watcher:testdata';
 const TESTDATA_WATCHER_LABEL = 'Test Data Telemetry';
 const TESTDATA_PROCESSED_DIR = 'processed';
 const TESTDATA_FAILED_DIR = 'failed';
+
+const NCCAT_WATCHER_NAME = 'watcher:nccat';
+const NCCAT_WATCHER_LABEL = 'NC Cat Jobs Watcher';
 const TESTDATA_SKIP_DIRS = new Set([TESTDATA_PROCESSED_DIR, TESTDATA_FAILED_DIR]);
 
 // Serial processing queue for test data files
@@ -1175,7 +1217,71 @@ async function moveToArchive(source: string, archiveDir: string) {
   return target;
 }
 
+// Archive queue with backoff to avoid losing files when shares are unavailable
+const archiveQueue: Array<{
+  source: string;
+  archiveDir: string;
+  watcherName: string;
+  watcherLabel: string;
+  machineId: number | null;
+  attempts: number;
+}> = [];
+let archiveQueueRunning = false;
+
+function enqueueArchiveTask(task: {
+  source: string;
+  archiveDir: string;
+  watcherName: string;
+  watcherLabel: string;
+  machineId: number | null;
+  attempts?: number;
+}) {
+  archiveQueue.push({ ...task, attempts: task.attempts ?? 0 });
+  void processArchiveQueue();
+}
+
+async function processArchiveQueue() {
+  if (archiveQueueRunning || shuttingDown) return;
+  archiveQueueRunning = true;
+  try {
+    while (archiveQueue.length && !shuttingDown) {
+      const task = archiveQueue.shift()!;
+      const backoffMs = Math.min(30_000, task.attempts === 0 ? 0 : Math.pow(2, task.attempts) * 1000);
+      if (backoffMs > 0) {
+        await delay(backoffMs);
+      }
+      try {
+        await moveToArchive(task.source, task.archiveDir);
+        clearMachineHealthIssue(task.machineId, HEALTH_CODES.copyFailure);
+        recordWatcherEvent(task.watcherName, {
+          label: task.watcherLabel,
+          message: `Archived ${basename(task.source)}${task.attempts ? ' after retry' : ''}`
+        });
+      } catch (err) {
+        const attempts = task.attempts + 1;
+        setMachineHealthIssue({
+          machineId: task.machineId,
+          code: HEALTH_CODES.copyFailure,
+          message: `Archive failed for ${basename(task.source)} (attempt ${attempts})`,
+          severity: 'warning',
+          context: { file: task.source, archiveDir: task.archiveDir, attempts }
+        });
+        recordWatcherError(task.watcherName, err, {
+          path: task.source,
+          archiveDir: task.archiveDir,
+          label: task.watcherLabel,
+          attempts
+        });
+        archiveQueue.push({ ...task, attempts });
+      }
+    }
+  } finally {
+    archiveQueueRunning = false;
+  }
+}
+
 async function handleNestpickProcessed(machine: Machine, path: string) {
+
   try {
     await waitForStableFile(path);
     const raw = await readFile(path, 'utf8');
@@ -1213,12 +1319,19 @@ async function handleNestpickProcessed(machine: Machine, path: string) {
         }
       }
     }
-    // Check if file still exists before trying to move it (may have been moved by another process)
+    // Queue archive with retry to avoid losing files if share is down
     if (await fileExists(path)) {
-      await moveToArchive(path, join(machine.nestpickFolder, 'archive'));
+      enqueueArchiveTask({
+        source: path,
+        archiveDir: join(machine.nestpickFolder, 'archive'),
+        watcherName: nestpickProcessedWatcherName(machine),
+        watcherLabel: nestpickProcessedWatcherLabel(machine),
+        machineId: machine.machineId ?? null
+      });
     } else {
       logger.warn({ file: path }, 'watcher: processed file already moved/deleted, skipping archive');
     }
+
     recordWatcherEvent(nestpickProcessedWatcherName(machine), {
       label: nestpickProcessedWatcherLabel(machine),
       message: `Processed ${basename(path)}`
@@ -1251,9 +1364,16 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
     const rows = parseCsvContent(raw);
     if (!rows.length) {
       logger.warn({ file: path }, 'watcher: unstack csv empty');
-      await moveToArchive(path, join(machine.nestpickFolder, 'archive'));
+      enqueueArchiveTask({
+        source: path,
+        archiveDir: join(machine.nestpickFolder, 'archive'),
+        watcherName: nestpickUnstackWatcherName(machine),
+        watcherLabel: nestpickUnstackWatcherLabel(machine),
+        machineId: machine.machineId ?? null
+      });
       return;
     }
+
 
     const jobIdx = 0;
     const sourcePlaceIdx = 1;
@@ -1327,13 +1447,20 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
       }
     }
     const archiveDir = join(machine.nestpickFolder, 'archive');
-    // Check if file still exists before trying to move it (may have been moved by another process)
+    // Queue archive with retry to avoid losing files if share is down
     if (await fileExists(path)) {
-      await moveToArchive(path, archiveDir);
+      enqueueArchiveTask({
+        source: path,
+        archiveDir,
+        watcherName: nestpickUnstackWatcherName(machine),
+        watcherLabel: nestpickUnstackWatcherLabel(machine),
+        machineId: machine.machineId ?? null
+      });
       logger.info({ file: path, archiveDir, processedAny }, 'watcher: unstack archived');
     } else {
       logger.warn({ file: path, archiveDir }, 'watcher: unstack file already moved/deleted, skipping archive');
     }
+
 
     if (unmatched.length) {
       postMessageToMain({
@@ -1357,9 +1484,14 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
       severity: 'warning',
       context: { file: path, machineId: machine.machineId }
     });
-    try {
-      await moveToArchive(path, join(machine.nestpickFolder, 'archive'));
-    } catch (e) { void e; }
+    enqueueArchiveTask({
+      source: path,
+      archiveDir: join(machine.nestpickFolder, 'archive'),
+      watcherName: nestpickUnstackWatcherName(machine),
+      watcherLabel: nestpickUnstackWatcherLabel(machine),
+      machineId: machine.machineId ?? null
+    });
+
     recordWatcherError(nestpickUnstackWatcherName(machine), err, {
       path,
       machineId: machine.machineId,
@@ -1369,8 +1501,10 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
   }
 }
 
+type Awaitable<T> = T | Promise<T>;
+
 function stableProcess(
-  fn: (path: string) => Promise<void>,
+  fn: (path: string) => Awaitable<void>,
   delayMs = 1000,
   options?: { watcherName?: string; watcherLabel?: string }
 ) {
@@ -1385,7 +1519,8 @@ function stableProcess(
       normalizedPath,
       setTimeout(() => {
         pending.delete(normalizedPath);
-        fn(normalizedPath)
+        Promise.resolve()
+          .then(() => fn(normalizedPath))
           .then(() => {
             logger.info({ path: normalizedPath, watcher, label }, 'watcher: scan complete');
           })
@@ -1987,66 +2122,48 @@ function cleanupPendingGrundnerConflicts(now = Date.now()) {
   }
 }
 
-function indexOfHeader(header: string[], candidates: string[]): number {
-  const lower = header.map((h) => stripCsvCell(h).toLowerCase());
-  for (const cand of candidates) {
-    const i = lower.findIndex((h) => h === cand.toLowerCase());
-    if (i !== -1) return i;
-  }
-  return -1;
-}
-
 function parseGrundnerCsv(raw: string): GrundnerCsvRow[] {
   const rows = parseCsvContent(raw);
   if (!rows.length) return [];
-  const header = rows[0];
-  const hasHeader = header.some((c) => /[A-Za-z]/.test(c));
-  const body = hasHeader ? rows.slice(1) : rows;
-
-  let idxType = -1,
-    idxCust = -1,
-    idxLen = -1,
-    idxWid = -1,
-    idxThk = -1,
-    idxStock = -1,
-    idxAvail = -1,
-    idxReserved = -1;
-  if (hasHeader) {
-    idxType = indexOfHeader(header, ['type_data', 'type']);
-    idxCust = indexOfHeader(header, ['customer_id', 'customer']);
-    idxLen = indexOfHeader(header, ['length_mm', 'length']);
-    idxWid = indexOfHeader(header, ['width_mm', 'width']);
-    idxThk = indexOfHeader(header, ['thickness_mm', 'thickness']);
-    idxStock = indexOfHeader(header, ['stock']);
-    idxAvail = indexOfHeader(header, ['stock_available', 'available']);
-    // CSV may label this as 'reserved stock' (with space) or underscores
-    idxReserved = indexOfHeader(header, ['reserved_stock', 'reserved stock', 'reserved']);
-  } else {
-    // Fallback positions if no header present
-    idxType = 0;
-    idxCust = 1;
-    idxLen = 3;
-    idxWid = 4;
-    idxThk = 5;
-    idxStock = 7;
-    idxAvail = 8;
-    // Grundner CSV spec: column 15 (1-based) => index 14 (0-based)
-    idxReserved = 14;
-  }
-
+  // Grundner stock.csv has no headers; all indices are 0-based.
+  // Format (semicolon-delimited):
+  //  0 type_data
+  //  1 material name
+  //  2 length
+  //  3 width
+  //  4 thickness
+  //  5 material number
+  //  6 stock
+  //  7 stock av
+  //  14 reserved stock
+  //  15 customer ID
   const out: GrundnerCsvRow[] = [];
-  for (const row of body) {
-    const typeData = normalizeNumber(row[idxType]);
-    const customerIdRaw = idxCust >= 0 ? stripCsvCell(row[idxCust]) : '';
+  for (const row of rows) {
+    const typeData = normalizeNumber(row[0]);
+    const materialNameRaw = stripCsvCell(row[1] ?? '');
+    const materialName = materialNameRaw ? materialNameRaw : null;
+    const materialNumber = normalizeNumber(row[5]);
+    const customerIdRaw = stripCsvCell(row[15] ?? '');
     const customerId = customerIdRaw ? customerIdRaw : null;
-    const lengthMm = normalizeNumber(row[idxLen]);
-    const widthMm = normalizeNumber(row[idxWid]);
-    const thicknessMm = normalizeNumber(row[idxThk]);
-    const stock = normalizeNumber(row[idxStock]);
-    const stockAvailable = normalizeNumber(row[idxAvail]);
-    const reservedStock = normalizeNumber(row[idxReserved]);
+    const lengthMm = normalizeNumber(row[2]);
+    const widthMm = normalizeNumber(row[3]);
+    const thicknessMm = normalizeNumber(row[4]);
+    const stock = normalizeNumber(row[6]);
+    const stockAvailable = normalizeNumber(row[7]);
+    const reservedStock = normalizeNumber(row[14]);
     if (typeData == null) continue;
-    out.push({ typeData, customerId, lengthMm, widthMm, thicknessMm, stock, stockAvailable, reservedStock });
+    out.push({
+      typeData,
+      customerId,
+      materialName,
+      materialNumber,
+      lengthMm,
+      widthMm,
+      thicknessMm,
+      stock,
+      stockAvailable,
+      reservedStock
+    });
   }
   return out;
 }
@@ -2607,6 +2724,786 @@ function startJobsIngestPolling() {
   logger.info({ intervalMs: INGEST_INTERVAL_MS }, 'Jobs ingest polling started');
 }
 
+// ---------------------------------------------------------------------------------
+// NC Cat Jobs Watcher - Watches jobsRoot for new NC files and moves them to processedJobsRoot
+// ---------------------------------------------------------------------------------
+
+/**
+ * Move an entire folder from source to destination.
+ * Tries atomic rename first, falls back to copy+delete for cross-device moves.
+ */
+async function moveFolderToDestination(source: string, destRoot: string): Promise<{ ok: boolean; newPath?: string; error?: string }> {
+  try {
+    const folderName = basename(source);
+    const destination = join(destRoot, folderName);
+
+    // Ensure destination root exists
+    if (!existsSync(destRoot)) {
+      mkdirSync(destRoot, { recursive: true });
+    }
+
+    // Check if destination already exists - add random suffix
+    let finalDest = destination;
+    if (existsSync(destination)) {
+      const maxAttempts = 200;
+      let candidate: string | null = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const suffix = randomFourDigits();
+        const next = join(destRoot, `${folderName}_${suffix}`);
+        if (!existsSync(next)) {
+          candidate = next;
+          break;
+        }
+      }
+      if (!candidate) {
+        return { ok: false, error: `Destination collision: unable to allocate unique folder name for ${folderName}` };
+      }
+      finalDest = candidate;
+      logger.warn({ source, destination, finalDest }, 'nccat: destination exists, using random suffix');
+    }
+
+    const tryRename = async (): Promise<void> => {
+      let lastErr: unknown = null;
+      for (let attempt = 1; attempt <= 8; attempt++) {
+        try {
+          await rename(source, finalDest);
+          return;
+        } catch (err) {
+          lastErr = err;
+          const code = (err as NodeJS.ErrnoException)?.code;
+          if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') {
+            throw err;
+          }
+          await delay(150 * attempt);
+        }
+      }
+      throw lastErr;
+    };
+
+    try {
+      // Prefer atomic rename.
+      await tryRename();
+      return { ok: true, newPath: finalDest };
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code === 'EXDEV' || code === 'EPERM' || code === 'EACCES' || code === 'EBUSY') {
+        // Cross-device or Windows file-lock edge cases: copy then delete.
+        await copyFolderRecursive(source, finalDest);
+        await deleteFolderRecursive(source);
+        return { ok: true, newPath: finalDest };
+      }
+      throw err;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, error: message };
+  }
+}
+
+
+async function copyFolderRecursive(src: string, dest: string): Promise<void> {
+  if (!existsSync(dest)) {
+    mkdirSync(dest, { recursive: true });
+  }
+  const entries = await readdir(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = join(src, entry.name);
+    const destPath = join(dest, entry.name);
+    if (entry.isDirectory()) {
+      await copyFolderRecursive(srcPath, destPath);
+    } else if (entry.isFile()) {
+      await copyFile(srcPath, destPath);
+    }
+  }
+}
+
+async function deleteFolderRecursive(path: string): Promise<void> {
+  const entries = await readdir(path, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = join(path, entry.name);
+    if (entry.isDirectory()) {
+      await deleteFolderRecursive(fullPath);
+    } else {
+      const ok = await unlinkWithRetry(fullPath, 6, 150);
+      if (!ok) {
+        throw new Error(`Failed to delete file during folder cleanup: ${fullPath}`);
+      }
+    }
+  }
+
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    try {
+      await fsp.rmdir(path);
+      return;
+    } catch (err) {
+      lastErr = err;
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY' && code !== 'ENOTEMPTY') {
+        throw err;
+      }
+      await delay(150 * attempt);
+    }
+  }
+
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+
+const NCCAT_STABILITY_THRESHOLD_MS = 10_000;
+const NCCAT_REQUEUE_DELAY_MS = 2_000;
+
+type NcCatJobUnit = {
+  kind: 'folder' | 'loose';
+  sourcePath: string;
+  baseName: string;
+  jobsRoot: string;
+};
+
+const ncCatQueue: NcCatJobUnit[] = [];
+const ncCatQueuedKeys = new Set<string>();
+let ncCatQueueActive = false;
+
+function randomFourDigits(): string {
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
+
+function buildLooseFolderName(baseNoExt: string): string {
+  return `${baseNoExt}_${randomFourDigits()}`;
+}
+
+function getNcCatQueueKey(unit: NcCatJobUnit): string {
+  return `${unit.kind}:${unit.sourcePath}`;
+}
+
+async function getLatestMtime(path: string): Promise<number> {
+  try {
+    const stats = await stat(path);
+    if (stats.isFile()) {
+      return stats.mtimeMs;
+    }
+    if (!stats.isDirectory()) return stats.mtimeMs;
+    const entries = await readdir(path, { withFileTypes: true });
+    let latest = stats.mtimeMs;
+    for (const entry of entries) {
+      const childPath = join(path, entry.name);
+      const childMtime = await getLatestMtime(childPath);
+      if (childMtime > latest) latest = childMtime;
+    }
+    return latest;
+  } catch (err) {
+    logger.warn({ err, path }, 'nccat: failed to read mtime');
+    return Date.now();
+  }
+}
+
+async function isFolderStable(path: string): Promise<boolean> {
+  const latest = await getLatestMtime(path);
+  return Date.now() - latest >= NCCAT_STABILITY_THRESHOLD_MS;
+}
+
+type NcFileEntry = { path: string; relativeName: string };
+
+async function collectNcFiles(root: string): Promise<NcFileEntry[]> {
+  const out: NcFileEntry[] = [];
+  const walk = async (dir: string) => {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.isFile()) {
+        if (extname(entry.name).toLowerCase() === '.nc') {
+          const rel = relative(root, fullPath).replace(/\\/g, '/');
+          out.push({ path: fullPath, relativeName: rel });
+        }
+      }
+    }
+  };
+  await walk(root);
+  return out;
+}
+
+async function moveFileToDestination(
+  source: string,
+  destRoot: string
+): Promise<{ ok: boolean; newPath?: string; error?: string }> {
+  try {
+    if (!existsSync(destRoot)) {
+      mkdirSync(destRoot, { recursive: true });
+    }
+    const fileName = basename(source);
+    let destPath = join(destRoot, fileName);
+    if (existsSync(destPath)) {
+      const ext = extname(fileName);
+      const base = basename(fileName, ext);
+      const maxAttempts = 200;
+      let candidate: string | null = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const suffix = randomFourDigits();
+        const next = join(destRoot, `${base}_${suffix}${ext}`);
+        if (!existsSync(next)) {
+          candidate = next;
+          break;
+        }
+      }
+      if (!candidate) {
+        return { ok: false, error: `Destination collision: unable to allocate unique file name for ${fileName}` };
+      }
+      destPath = candidate;
+      logger.warn({ source, destPath }, 'nccat: destination exists, using random suffix');
+    }
+    const tryRename = async (): Promise<void> => {
+      let lastErr: unknown = null;
+      for (let attempt = 1; attempt <= 8; attempt++) {
+        try {
+          await rename(source, destPath);
+          return;
+        } catch (err) {
+          lastErr = err;
+          const code = (err as NodeJS.ErrnoException)?.code;
+          if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') {
+            throw err;
+          }
+          await delay(150 * attempt);
+        }
+      }
+      throw lastErr;
+    };
+
+    try {
+      await tryRename();
+      return { ok: true, newPath: destPath };
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code === 'EXDEV' || code === 'EPERM' || code === 'EACCES' || code === 'EBUSY') {
+        await copyFile(source, destPath);
+        await unlinkWithRetry(source, 6, 150);
+        return { ok: true, newPath: destPath };
+      }
+      throw err;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, error: message };
+  }
+}
+
+function isMatchingLooseName(filename: string, baseNoExt: string): boolean {
+  const base = basename(filename, extname(filename));
+  const baseLower = base.toLowerCase();
+  const target = baseNoExt.toLowerCase();
+  return baseLower === target || baseLower.startsWith(`${target}_`);
+}
+
+async function collectLooseCandidates(jobsRoot: string, baseNoExt: string): Promise<string[]> {
+  const candidates = new Map<string, { path: string; depth: number }>();
+  const dirs = [jobsRoot, join(jobsRoot, baseNoExt)];
+
+  for (const dir of dirs) {
+    try {
+      if (!existsSync(dir)) continue;
+      const stats = await stat(dir);
+      if (!stats.isDirectory()) continue;
+      const entries = await readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        if (!isMatchingLooseName(entry.name, baseNoExt)) continue;
+        const fullPath = join(dir, entry.name);
+        const rel = relative(jobsRoot, fullPath);
+        const depth = rel.split(/[\\/]+/).length;
+        const existing = candidates.get(entry.name);
+        if (!existing || depth < existing.depth) {
+          candidates.set(entry.name, { path: fullPath, depth });
+        }
+      }
+    } catch (err) {
+      logger.warn({ err, dir }, 'nccat: failed to scan loose candidates');
+    }
+  }
+
+  return Array.from(candidates.values()).map((entry) => entry.path);
+}
+
+async function gatherLooseJobFiles(jobsRoot: string, baseNoExt: string, ncFilePath: string): Promise<{
+  files: string[];
+  ncFiles: string[];
+}> {
+  const allFiles = await collectLooseCandidates(jobsRoot, baseNoExt);
+  const fileSet = new Set(allFiles.map((p) => normalize(p)));
+  if (!fileSet.has(normalize(ncFilePath))) {
+    allFiles.unshift(ncFilePath);
+    fileSet.add(normalize(ncFilePath));
+  }
+  const ncFiles = allFiles.filter((filePath) => extname(filePath).toLowerCase() === '.nc');
+  return { files: allFiles, ncFiles };
+}
+
+function findMachineNameSuffix(name: string, machines: Machine[]): string | null {
+  const lower = name.toLowerCase();
+  for (const machine of machines) {
+    const suffix = `_${machine.name}`.toLowerCase();
+    if (lower.endsWith(suffix)) {
+      return machine.name;
+    }
+  }
+  return null;
+}
+
+function buildValidationReport(
+  reason: 'ingest' | 'stage',
+  folderName: string,
+  profileName: string | null | undefined,
+  results: NcCatHeadlessValidationFileResult[]
+): NcCatValidationReport {
+  const files = results.map((result) => ({
+    filename: result.filename,
+    status: result.validation.status,
+    warnings: result.validation.warnings,
+    errors: result.validation.errors,
+    syntax: result.validation.syntax
+  }));
+  const hasErrors = files.some((file) => file.status === 'errors');
+  const hasWarnings = files.some((file) => file.status === 'warnings');
+  const overallStatus = hasErrors ? 'errors' : hasWarnings ? 'warnings' : 'pass';
+
+  return {
+    reason,
+    folderName,
+    profileName: profileName ?? null,
+    processedAt: new Date().toISOString(),
+    overallStatus,
+    files
+  };
+}
+
+function buildValidationSummaryText(report: NcCatValidationReport): string {
+  const lines: string[] = [];
+  lines.push(`Folder: ${report.folderName}`);
+  lines.push(`Status: ${report.overallStatus}`);
+  lines.push(`Processed: ${report.processedAt}`);
+  if (report.profileName) {
+    lines.push(`Profile: ${report.profileName}`);
+  }
+  lines.push('');
+
+  for (const file of report.files) {
+    lines.push(`File: ${file.filename}`);
+    lines.push(`Status: ${file.status}`);
+    if (file.errors.length) {
+      lines.push('Errors:');
+      for (const err of file.errors) {
+        lines.push(`- ${err}`);
+      }
+    }
+    if (file.syntax.length) {
+      lines.push('Syntax:');
+      for (const err of file.syntax) {
+        lines.push(`- ${err}`);
+      }
+    }
+    if (file.warnings.length) {
+      lines.push('Warnings:');
+      for (const warn of file.warnings) {
+        lines.push(`- ${warn}`);
+      }
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+async function writeValidationSummary(folderPath: string, report: NcCatValidationReport): Promise<void> {
+  const summaryPath = join(folderPath, 'validation_summary.txt');
+  try {
+    await fsp.writeFile(summaryPath, buildValidationSummaryText(report), 'utf8');
+  } catch (err) {
+    logger.warn({ err, summaryPath }, 'nccat: failed to write validation summary');
+  }
+}
+
+function getNcCatJobUnit(ncFilePath: string, jobsRoot: string): NcCatJobUnit | null {
+  const normalizedRoot = normalize(jobsRoot);
+  const normalizedFile = normalize(ncFilePath);
+  const rel = relative(normalizedRoot, normalizedFile);
+  if (!rel || rel.startsWith('..') || rel.includes(`..${sep}`)) {
+    return null;
+  }
+  const segments = rel.split(/[\\/]+/).filter(Boolean);
+  if (segments.length <= 1) {
+    const baseNoExt = basename(normalizedFile, extname(normalizedFile));
+    return {
+      kind: 'loose',
+      sourcePath: normalizedFile,
+      baseName: baseNoExt,
+      jobsRoot: normalizedRoot
+    };
+  }
+  const folderName = segments[0];
+  const folderPath = join(normalizedRoot, folderName);
+  return {
+    kind: 'folder',
+    sourcePath: folderPath,
+    baseName: folderName,
+    jobsRoot: normalizedRoot
+  };
+}
+
+async function processNcCatJobUnit(unit: NcCatJobUnit) {
+  const cfg = loadConfig();
+  const processedJobsRoot = cfg.paths.processedJobsRoot;
+  const quarantineRoot = cfg.paths.quarantineRoot;
+
+  if (!processedJobsRoot) {
+    logger.warn({ unit }, 'nccat: processedJobsRoot not configured, skipping');
+    return;
+  }
+
+  const machines = await listMachines();
+
+  if (unit.kind === 'folder') {
+    const jobFolder = normalize(unit.sourcePath);
+    if (!existsSync(jobFolder)) {
+      logger.warn({ jobFolder }, 'nccat: job folder missing, skipping');
+
+      return;
+    }
+
+    const folderName = basename(jobFolder);
+    const machineNameHint = findMachineNameSuffix(folderName, machines);
+
+    if (!(await isFolderStable(jobFolder))) {
+      logger.info({ folderName }, 'nccat: folder not stable yet, requeueing');
+      setTimeout(() => enqueueNcCatJobUnit(unit), NCCAT_REQUEUE_DELAY_MS);
+      return;
+    }
+
+    const ncFiles = await collectNcFiles(jobFolder);
+    if (!ncFiles.length) {
+      logger.warn({ jobFolder }, 'nccat: no .nc files found, skipping');
+      return;
+    }
+
+    recordWatcherEvent(NCCAT_WATCHER_NAME, {
+      label: NCCAT_WATCHER_LABEL,
+      message: `Validating: ${folderName}`,
+      context: { folderName, ncFiles: ncFiles.length }
+    });
+
+    const fileInputs = await Promise.all(
+      ncFiles.map(async (file) => ({
+        filename: file.relativeName,
+        ncContent: await readFile(file.path, 'utf8')
+      }))
+    );
+
+    const validationResult = await requestNcCatHeadlessValidation({
+      reason: 'ingest',
+      folderName,
+      files: fileInputs,
+      machineNameHint
+    });
+
+    if (!validationResult.ok) {
+      if (validationResult.skipped) {
+        emitAppMessage(
+          'ncCat.validationSkipped',
+          { folderName, reason: validationResult.reason ?? 'Validation skipped' },
+          'nc-cat-watcher'
+        );
+      } else {
+        emitAppMessage(
+          'ncCat.validationUnavailable',
+          { folderName, error: validationResult.error ?? 'Validation failed' },
+          'nc-cat-watcher'
+        );
+      }
+    }
+
+    const report =
+      validationResult.ok
+        ? buildValidationReport('ingest', folderName, validationResult.profileName ?? null, validationResult.results)
+        : null;
+    const shouldQuarantine = report?.overallStatus === 'errors';
+
+    if (shouldQuarantine) {
+      if (!quarantineRoot) {
+        logger.warn({ folderName }, 'nccat: quarantineRoot not configured; leaving job in place');
+        return;
+      }
+      const moveResult = await moveFolderToDestination(jobFolder, quarantineRoot);
+      if (!moveResult.ok) {
+        recordWatcherError(NCCAT_WATCHER_NAME, new Error(moveResult.error ?? 'Move failed'), {
+          label: NCCAT_WATCHER_LABEL,
+          folderName,
+          jobFolder
+        });
+        return;
+      }
+      if (report) {
+        await writeValidationSummary(moveResult.newPath ?? jobFolder, report);
+        postMessageToMain({ type: 'ncCatValidationReport', report });
+      }
+      emitAppMessage(
+        'ncCat.jobQuarantined',
+        { folderName, destination: moveResult.newPath, reason: 'validation_errors' },
+        'nc-cat-watcher'
+      );
+      return;
+    }
+
+    const moveResult = await moveFolderToDestination(jobFolder, processedJobsRoot);
+    if (!moveResult.ok) {
+      recordWatcherError(NCCAT_WATCHER_NAME, new Error(moveResult.error ?? 'Move failed'), {
+        label: NCCAT_WATCHER_LABEL,
+        folderName,
+        jobFolder
+      });
+      return;
+    }
+
+    if (report) {
+      postMessageToMain({ type: 'ncCatValidationReport', report });
+    }
+
+    emitAppMessage(
+      'ncCat.jobMoved',
+      { folderName, destination: moveResult.newPath },
+      'nc-cat-watcher'
+    );
+
+    try {
+      const ingestResult = await ingestProcessedJobsRoot();
+      logger.info({ inserted: ingestResult.inserted, updated: ingestResult.updated }, 'nccat: triggered ingest after move');
+    } catch (ingestErr) {
+      logger.warn({ err: ingestErr }, 'nccat: ingest failed after move');
+    }
+    return;
+  }
+
+  const ncFilePath = normalize(unit.sourcePath);
+  if (!existsSync(ncFilePath)) {
+    logger.warn({ ncFilePath }, 'nccat: loose NC file missing, skipping');
+    return;
+  }
+
+  const baseNoExt = unit.baseName;
+  const machineNameHint = findMachineNameSuffix(baseNoExt, machines);
+
+  const looseFolderName = (() => {
+    const rootsToCheck = [processedJobsRoot, quarantineRoot].filter((root): root is string => !!root);
+    const maxAttempts = 200;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const name = buildLooseFolderName(baseNoExt);
+      const hasCollision = rootsToCheck.some((root) => existsSync(join(root, name)));
+      if (!hasCollision) return name;
+    }
+    logger.error({ baseNoExt, rootsToCheck }, 'nccat: unable to allocate unique loose folder name');
+    return null;
+  })();
+
+  if (!looseFolderName) {
+    return;
+  }
+
+  const gathered = await gatherLooseJobFiles(unit.jobsRoot, baseNoExt, ncFilePath);
+  if (!gathered.files.length) {
+    logger.warn({ ncFilePath }, 'nccat: no loose files found for NC file');
+    return;
+  }
+
+  const latestMtime = await Promise.all(gathered.files.map((file) => getLatestMtime(file)));
+  if (latestMtime.some((mtime) => Date.now() - mtime < NCCAT_STABILITY_THRESHOLD_MS)) {
+    logger.info({ baseNoExt }, 'nccat: loose files not stable yet, requeueing');
+    setTimeout(() => enqueueNcCatJobUnit(unit), NCCAT_REQUEUE_DELAY_MS);
+    return;
+  }
+
+  const ncFiles = gathered.ncFiles;
+  if (!ncFiles.length) {
+    logger.warn({ ncFilePath }, 'nccat: no .nc files found for loose job');
+    return;
+  }
+
+  const validationInputs = await Promise.all(
+    ncFiles.map(async (file) => ({
+      filename: basename(file),
+      ncContent: await readFile(file, 'utf8')
+    }))
+  );
+
+  const validationResult = await requestNcCatHeadlessValidation({
+    reason: 'ingest',
+    folderName: looseFolderName,
+    files: validationInputs,
+    machineNameHint
+  });
+
+  if (!validationResult.ok) {
+    if (validationResult.skipped) {
+      emitAppMessage(
+        'ncCat.validationSkipped',
+        { folderName: looseFolderName, reason: validationResult.reason ?? 'Validation skipped' },
+        'nc-cat-watcher'
+      );
+    } else {
+      emitAppMessage(
+        'ncCat.validationUnavailable',
+        { folderName: looseFolderName, error: validationResult.error ?? 'Validation failed' },
+        'nc-cat-watcher'
+      );
+    }
+  }
+
+  const report =
+    validationResult.ok
+      ? buildValidationReport('ingest', looseFolderName, validationResult.profileName ?? null, validationResult.results)
+      : null;
+  const shouldQuarantine = report?.overallStatus === 'errors';
+  const destinationRoot = shouldQuarantine ? quarantineRoot : processedJobsRoot;
+
+  if (!destinationRoot) {
+    logger.warn({ looseFolderName }, 'nccat: destination root missing; skipping move');
+    return;
+  }
+
+  const destinationFolder = join(destinationRoot, looseFolderName);
+  if (!existsSync(destinationFolder)) {
+    mkdirSync(destinationFolder, { recursive: true });
+  }
+
+  let moveFailure = false;
+  for (const filePath of gathered.files) {
+    const moveResult = await moveFileToDestination(filePath, destinationFolder);
+    if (!moveResult.ok) {
+      moveFailure = true;
+      recordWatcherError(NCCAT_WATCHER_NAME, new Error(moveResult.error ?? 'Move failed'), {
+        label: NCCAT_WATCHER_LABEL,
+        source: filePath,
+        destination: destinationFolder
+      });
+    }
+  }
+
+  if (moveFailure) {
+    return;
+  }
+
+  if (report) {
+    postMessageToMain({ type: 'ncCatValidationReport', report });
+  }
+
+  if (shouldQuarantine) {
+    if (report) {
+      await writeValidationSummary(destinationFolder, report);
+    }
+    emitAppMessage(
+      'ncCat.jobQuarantined',
+      { folderName: looseFolderName, destination: destinationFolder, reason: 'validation_errors' },
+      'nc-cat-watcher'
+    );
+    return;
+  }
+
+  emitAppMessage(
+    'ncCat.jobMoved',
+    { folderName: looseFolderName, destination: destinationFolder },
+    'nc-cat-watcher'
+  );
+
+  try {
+    const ingestResult = await ingestProcessedJobsRoot();
+    logger.info({ inserted: ingestResult.inserted, updated: ingestResult.updated }, 'nccat: triggered ingest after move');
+  } catch (ingestErr) {
+    logger.warn({ err: ingestErr }, 'nccat: ingest failed after move');
+  }
+}
+
+function enqueueNcCatJobUnit(unit: NcCatJobUnit) {
+  const key = getNcCatQueueKey(unit);
+  if (ncCatQueuedKeys.has(key)) return;
+  ncCatQueuedKeys.add(key);
+  ncCatQueue.push(unit);
+  void processNcCatQueue();
+}
+
+async function processNcCatQueue() {
+  if (ncCatQueueActive) return;
+  ncCatQueueActive = true;
+  while (ncCatQueue.length > 0) {
+    const unit = ncCatQueue.shift();
+    if (!unit) continue;
+    ncCatQueuedKeys.delete(getNcCatQueueKey(unit));
+    try {
+      await processNcCatJobUnit(unit);
+    } catch (err) {
+      recordWatcherError(NCCAT_WATCHER_NAME, err, { label: NCCAT_WATCHER_LABEL });
+      logger.error({ err, unit }, 'nccat: failed to process job unit');
+    }
+  }
+  ncCatQueueActive = false;
+}
+
+function enqueueNcCatJobFile(ncFilePath: string, jobsRoot: string) {
+  const unit = getNcCatJobUnit(ncFilePath, jobsRoot);
+  if (!unit) {
+    logger.debug({ ncFilePath }, 'nccat: ignored file outside jobsRoot');
+    return;
+  }
+  enqueueNcCatJobUnit(unit);
+}
+
+function setupNcCatJobsWatcher(dir: string) {
+  registerWatcher(NCCAT_WATCHER_NAME, NCCAT_WATCHER_LABEL);
+
+  const onAdd = stableProcess((path: string) => enqueueNcCatJobFile(path, dir), 2000, {
+    watcherName: NCCAT_WATCHER_NAME,
+    watcherLabel: NCCAT_WATCHER_LABEL
+  });
+
+  const watcher = chokidar.watch(dir, {
+    ignoreInitial: false, // Process existing files on startup
+    depth: 10, // Allow deeper nesting under jobsRoot
+    awaitWriteFinish: {
+      stabilityThreshold: 2000, // Wait 2 seconds for file to stabilize
+      pollInterval: 250
+    }
+  });
+
+  trackWatcher(watcher);
+
+  // Only trigger for .nc files
+  watcher.on('add', (path) => {
+    if (path.toLowerCase().endsWith('.nc')) {
+      onAdd(path);
+    }
+  });
+
+  watcher.on('error', (err) => {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    setMachineHealthIssue({
+      machineId: null,
+      code: HEALTH_CODES.copyFailure,
+      message: `NC Cat jobs watcher error${code ? ` (${code})` : ''}`,
+      severity: 'critical',
+      context: { dir, code }
+    });
+    recordWatcherError(NCCAT_WATCHER_NAME, err, { dir, label: NCCAT_WATCHER_LABEL });
+    logger.error({ err, dir }, 'nccat: watcher error');
+  });
+
+  watcher.on('ready', () => {
+    watcherReady(NCCAT_WATCHER_NAME, NCCAT_WATCHER_LABEL);
+    clearMachineHealthIssue(null, HEALTH_CODES.copyFailure);
+    logger.info({ dir }, 'nccat: jobs watcher ready');
+  });
+
+  logger.info({ dir }, 'nccat: jobs watcher started');
+}
+
+// ---------------------------------------------------------------------------------
+
 async function initWatchers() {
   logger.info('watchers: waiting for database readiness before starting');
   await waitForDbReady();
@@ -2620,6 +3517,9 @@ async function initWatchers() {
   }
   if (cfg.test.useTestDataMode) {
     setupTestDataWatcher(cfg.test.testDataFolderPath);
+  }
+  if (cfg.paths.jobsRoot) {
+    setupNcCatJobsWatcher(cfg.paths.jobsRoot);
   }
   void setupNestpickWatchers();
   startJobsIngestPolling();
@@ -2637,6 +3537,12 @@ if (channel) {
     if (!message || typeof message !== 'object') return;
     if (message.type === 'shutdown') {
       void shutdown(message.reason).finally(() => process.exit(0));
+    } else if (message.type === 'ncCatValidationResponse') {
+      const pending = ncCatValidationPending.get(message.requestId);
+      if (!pending) return;
+      clearTimeout(pending.timeout);
+      ncCatValidationPending.delete(message.requestId);
+      pending.resolve(message.result);
     }
   });
 }

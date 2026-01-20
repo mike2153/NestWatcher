@@ -1,7 +1,12 @@
 import type { Dirent } from 'fs';
 import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, readFileSync } from 'fs';
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve, sep } from 'path';
-import type { WorklistAddResult, WorklistCollisionInfo, WorklistSkippedFile } from '../../../shared/src';
+import type {
+  NcCatValidationReport,
+  WorklistAddResult,
+  WorklistCollisionInfo,
+  WorklistSkippedFile
+} from '../../../shared/src';
 import { dialog } from 'electron';
 import { appendJobEvent } from '../repo/jobEventsRepo';
 import { rerunJob } from './rerun';
@@ -12,6 +17,7 @@ import { loadConfig } from './config';
 import { withClient } from './db';
 import { placeOrderSawCsv } from './orderSaw';
 import { pushAppMessage } from './messages';
+import { runHeadlessValidationWithRetry } from './ncCatHeadless';
 
 const OVERWRITE_PATTERNS: RegExp[] = [
   /^planit.*\.csv$/i,
@@ -130,6 +136,78 @@ export async function addJobToWorklist(key: string, machineId: number, actorName
 
   if (!job.ncfile) return { ok: false, error: 'Job ncfile missing' };
 
+  const cfg = loadConfig();
+  const sourceRoot = resolveSourceRoot(job.folder, cfg.paths.processedJobsRoot || '', job.key);
+  if (!sourceRoot) {
+    logger.warn({ folder: job.folder, jobKey: job.key, processedRoot: cfg.paths.processedJobsRoot }, 'worklist: source folder unresolved');
+    return { ok: false, error: 'Source folder not found' };
+  }
+
+  const leaf = basename(sourceRoot) || 'job';
+  const files = walk(sourceRoot);
+  if (!files.length) {
+    return { ok: false, error: 'No files found in source folder' };
+  }
+
+  let validationReport: NcCatValidationReport | null = null;
+  const validationNcFiles = files.filter((filePath) => extname(filePath).toLowerCase() === '.nc');
+  if (validationNcFiles.length) {
+    const validationInputs = validationNcFiles.map((filePath) => ({
+      filename: relative(sourceRoot, filePath).replace(/\\/g, '/'),
+      ncContent: readFileSync(filePath, 'utf8')
+    }));
+
+    const validationOutcome = await runHeadlessValidationWithRetry({
+      reason: 'stage',
+      folderName: leaf,
+      files: validationInputs,
+      machineId,
+      machineNameHint: m.name
+    });
+
+    if (validationOutcome.ok) {
+      const filesSummary = validationOutcome.results.map((result) => ({
+        filename: result.filename,
+        status: result.validation.status,
+        warnings: result.validation.warnings,
+        errors: result.validation.errors,
+        syntax: result.validation.syntax
+      }));
+      const hasErrors = filesSummary.some((file) => file.status === 'errors');
+      const hasWarnings = filesSummary.some((file) => file.status === 'warnings');
+      const overallStatus = hasErrors ? 'errors' : hasWarnings ? 'warnings' : 'pass';
+
+      const report: NcCatValidationReport = {
+        reason: 'stage',
+        folderName: leaf,
+        profileName: validationOutcome.profileName ?? null,
+        processedAt: new Date().toISOString(),
+        overallStatus,
+        files: filesSummary
+      };
+      validationReport = report;
+      if (overallStatus === 'errors') {
+        return {
+          ok: false,
+          error: 'Validation errors found. Staging blocked.',
+          validationReport: report
+        };
+      }
+    } else if (validationOutcome.skipped) {
+      pushAppMessage(
+        'ncCat.validationSkipped',
+        { folderName: leaf, reason: validationOutcome.reason ?? 'Validation skipped' },
+        { source: 'worklist' }
+      );
+    } else {
+      pushAppMessage(
+        'ncCat.validationUnavailable',
+        { folderName: leaf, error: validationOutcome.error ?? 'Validation failed' },
+        { source: 'worklist' }
+      );
+    }
+  }
+
   const resetResult = await resetJobForRestage(job.key);
   if (resetResult.reset) {
     logger.info(
@@ -143,22 +221,9 @@ export async function addJobToWorklist(key: string, machineId: number, actorName
     );
   }
 
-  const cfg = loadConfig();
-  const sourceRoot = resolveSourceRoot(job.folder, cfg.paths.processedJobsRoot || '', job.key);
-  if (!sourceRoot) {
-    logger.warn({ folder: job.folder, jobKey: job.key, processedRoot: cfg.paths.processedJobsRoot }, 'worklist: source folder unresolved');
-    return { ok: false, error: 'Source folder not found' };
-  }
-
-  const leaf = basename(sourceRoot) || 'job';
   const destBaseDir = join(destDir, leaf);
   const { path: finalDestBaseDir, collision } = chooseDestination(destBaseDir);
   if (!existsSync(finalDestBaseDir)) mkdirSync(finalDestBaseDir, { recursive: true });
-
-  const files = walk(sourceRoot);
-  if (!files.length) {
-    return { ok: false, error: 'No files found in source folder' };
-  }
 
   const filesByName = new Map<string, string[]>();
   const filesByRelLower = new Map<string, string>();
@@ -625,7 +690,8 @@ export async function addJobToWorklist(key: string, machineId: number, actorName
     skipped,
     stagedAt,
     alreadyStaged,
-    ...(collision ? { collision } : {})
+    ...(collision ? { collision } : {}),
+    ...(validationReport ? { validationReport } : {})
   };
 }
 

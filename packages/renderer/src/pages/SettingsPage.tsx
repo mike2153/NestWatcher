@@ -3,8 +3,9 @@ import { Trash2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { Button } from '@/components/ui/button';
 import type { DbSettings, Settings, Machine, SaveMachineReq, DbStatus } from '../../../shared/src';
-import { CURRENT_SETTINGS_VERSION } from '../../../shared/src';
+import { CURRENT_SETTINGS_VERSION, InventoryExportSettingsSchema } from '../../../shared/src';
 
 const schema = z.object({
   host: z.string().default(''),
@@ -31,11 +32,30 @@ type PathsState = Settings['paths'];
 type TestState = Settings['test'];
 type GrundnerState = Settings['grundner'];
 type OrderingState = Settings['ordering'];
+type InventoryExportState = Settings['inventoryExport'];
 
-const DEFAULT_PATHS: PathsState = { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '' };
+const DEFAULT_PATHS: PathsState = { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' };
 const DEFAULT_TEST: TestState = { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' };
-const DEFAULT_GRUNDNER: GrundnerState = { reservedAdjustmentMode: 'delta' };
+const DEFAULT_GRUNDNER: GrundnerState = {
+  tableColumns: {
+    typeData: { visible: true, order: 1 },
+    materialName: { visible: false, order: 2 },
+    materialNumber: { visible: false, order: 3 },
+    customerId: { visible: true, order: 4 },
+    lengthMm: { visible: true, order: 5 },
+    widthMm: { visible: true, order: 6 },
+    thicknessMm: { visible: true, order: 7 },
+    preReserved: { visible: true, order: 8 },
+    stock: { visible: true, order: 9 },
+    reservedStock: { visible: true, order: 10 },
+    stockAvailable: { visible: true, order: 11 },
+    lastUpdated: { visible: true, order: 12 }
+  }
+};
 const DEFAULT_ORDERING: OrderingState = { includeReserved: false };
+const DEFAULT_INVENTORY_EXPORT: InventoryExportState = InventoryExportSettingsSchema.parse(undefined);
+
+
 
 type PathFieldKey = 'processedJobsRoot' | 'autoPacCsvDir' | 'grundnerFolderPath' | 'archiveRoot' | 'testDataFolderPath';
 type PathValidationState = { status: 'empty' | 'checking' | 'valid' | 'invalid'; message: string };
@@ -154,6 +174,7 @@ export function SettingsPage() {
   const [testState, setTestState] = useState<TestState>(DEFAULT_TEST);
   const [grundnerState, setGrundnerState] = useState<GrundnerState>(DEFAULT_GRUNDNER);
   const [orderingState, setOrderingState] = useState<OrderingState>(DEFAULT_ORDERING);
+  const [inventoryExportState, setInventoryExportState] = useState<InventoryExportState>(DEFAULT_INVENTORY_EXPORT);
   const [dbStatus, setDbStatus] = useState<DbStatus | null>(null);
   const [pathStatus, setPathStatus] = useState<Record<PathFieldKey, PathValidationState>>(() => createInitialPathStatus());
   const [machinePathStatus, setMachinePathStatus] = useState<Record<MachinePathKey, PathValidationState>>(() => createInitialMachinePathStatus());
@@ -257,6 +278,8 @@ export function SettingsPage() {
     setTestState(withDefaults(DEFAULT_TEST, settings.test));
     setGrundnerState(withDefaults(DEFAULT_GRUNDNER, settings.grundner));
     setOrderingState(withDefaults(DEFAULT_ORDERING, settings.ordering));
+    const inventoryExportRes = InventoryExportSettingsSchema.safeParse(settings.inventoryExport);
+    setInventoryExportState(inventoryExportRes.success ? inventoryExportRes.data : DEFAULT_INVENTORY_EXPORT);
     await loadMachines();
   }, [loadMachines, reset]);
 
@@ -427,6 +450,7 @@ export function SettingsPage() {
       test: testState,
       grundner: grundnerState,
       ordering: orderingState,
+      inventoryExport: inventoryExportState,
       jobs: { completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] },
       validationWarnings: { showValidationWarnings: false }
     };
@@ -807,17 +831,7 @@ export function SettingsPage() {
               <option value="customer_id">customer_id</option>
             </select>
           </label>
-          <label className="form-label">
-            <span>Grundner Reserved Mode</span>
-            <select
-              className="form-input"
-              value={grundnerState.reservedAdjustmentMode}
-              onChange={(e) => setGrundnerState({ reservedAdjustmentMode: e.target.value as GrundnerState['reservedAdjustmentMode'] })}
-            >
-              <option value="delta">delta</option>
-              <option value="absolute">absolute</option>
-            </select>
-          </label>
+
           <div className="flex flex-col gap-1">
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -899,8 +913,8 @@ export function SettingsPage() {
           </label>
         </div>
         <div className="flex gap-2">
-          <button type="button" className="border rounded px-3 py-1" disabled={isSubmitting || dbTestResult.status === 'testing'} onClick={handleSubmit(onTest)}>Test</button>
-          <button type="submit" className="border rounded px-3 py-1" disabled={isSubmitting}>Save</button>
+          <Button size="sm" type="button" disabled={isSubmitting || dbTestResult.status === 'testing'} onClick={handleSubmit(onTest)}>Test</Button>
+          <Button size="sm" type="submit" disabled={isSubmitting}>Save</Button>
         </div>
         {dbTestResult.status !== 'idle' && (
           <div className={`text-xs ${dbTestResult.status === 'ok' ? 'text-success' : dbTestResult.status === 'error' ? 'text-destructive' : 'text-warning'}`}>
@@ -911,5 +925,3 @@ export function SettingsPage() {
     </div>
   );
 }
-
-

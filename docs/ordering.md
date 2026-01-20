@@ -22,6 +22,35 @@ The UI lives in `packages/renderer/src/pages/OrderingPage.tsx`. All server-side 
 
 `listOrdering()` returns `{ items, includeReserved, generatedAt }`. `includeReserved` mirrors the settings flag so the UI can show/hide the reserved column, and `generatedAt` is displayed over the table.
 
+## Pre reserve and locking sheets
+
+This page is also where you see the results of two job-level flags that affect material planning:
+
+- `pre_reserved` on `public.jobs` means: "this pending job exists and should count as demand for its material".
+  - In the current code, ingestion sets `pre_reserved = true` for newly seen jobs.
+  - When a job leaves `PENDING` or gets locked, `pre_reserved` is cleared.
+- `is_locked` on `public.jobs` means: "this job has been allocated a sheet and should not be double booked".
+  - Locking happens only after Grundner confirms the request.
+  - The lock is cleared automatically when AutoPAC reports `LOAD_FINISH`.
+
+```mermaid
+flowchart TD
+  Ingest[Ingest creates a Pending job] --> PreReserve[Set pre_reserved true]
+  PreReserve --> GrundnerCount[Sync grundner pre_reserved count]
+  PreReserve --> Required[Ordering counts Pending jobs as Required]
+
+  Planner[Planner locks jobs] --> OrderSaw[Write order_saw.csv]
+  OrderSaw --> Grundner[Grundner replies with order_saw.erl]
+  Grundner --> Lock[Set is_locked true]
+  Lock --> ClearPre[Clear pre_reserved]
+  Lock --> LockedCount[Ordering counts locked jobs]
+
+  AutoPAC[AutoPAC reports load finish] --> LoadFinish[Update job to LOAD_FINISH]
+  LoadFinish --> Unlock[Clear is_locked]
+```
+
+A matching `.mmd` copy exists in `docs/charts/ordering.mmd`.
+
 ## Renderer behavior
 - On mount the page calls `window.api.ordering.list()` and stores the results locally. Shared IPC types are defined in `packages/shared/src/ipc.ts`.
 - Search filters `materialLabel`, `materialKey`, `customerId`, and `typeData`.

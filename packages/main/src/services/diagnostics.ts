@@ -252,7 +252,7 @@ export function watcherReady(name: string, label?: string) {
   watcher.status = 'watching';
   try {
     const lbl = watcher.label ?? name;
-    logger.info({ watcher: name, label: lbl }, `watcher: ready - ${lbl}`);
+    logger.debug({ watcher: name, label: lbl }, `watcher: ready - ${lbl}`);
   } catch { /* noop */ void 0; }
   emitUpdate();
 }
@@ -308,9 +308,10 @@ export function subscribeDiagnostics(listener: (snapshot: DiagnosticsSnapshot) =
 }
 
 export function registerWatcher(name: string, label: string) {
-  ensureWatcher(name, label);
+  const watcher = ensureWatcher(name, label);
+  watcher.status = 'idle';
   try {
-    logger.info({ watcher: name, label }, `watcher: register - ${label}`);
+    logger.debug({ watcher: name, label }, `watcher: register - ${label}`);
   } catch { /* noop */ void 0; }
   emitUpdate();
 }

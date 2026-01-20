@@ -7,6 +7,8 @@ import {
 } from '@tanstack/react-table';
 import type { ColumnDef, SortingState, ExpandedState } from '@tanstack/react-table';
 import { GlobalTable } from '@/components/table/GlobalTable';
+import { Button } from '@/components/ui/button';
+
 import type { AllocatedMaterialRow } from '../../../shared/src';
 import { ChevronRight, ChevronDown } from 'lucide-react';
 
@@ -377,24 +379,24 @@ export function AllocatedMaterialPage() {
         <div className="text-sm text-muted-foreground">
           Showing {rows.length} allocated job{rows.length !== 1 ? 's' : ''} (PENDING status only)
         </div>
-        <button
+        <Button
           type="button"
-          className="border rounded px-3 py-1 text-sm"
+          size="sm"
           disabled={loading}
           onClick={() => void load()}
         >
           {loading ? 'Refreshing...' : 'Refresh'}
-        </button>
+        </Button>
       </div>
 
       {hierarchicalData.length === 0 ? (
-        <div className="rounded-lg border border-[var(--table-border)] bg-table px-6 py-10 text-center text-muted-foreground">
+        <div className="rounded-lg border border-[var(--table-border)] bg-[var(--table-bg)] px-6 py-10 text-center text-muted-foreground">
           {loading ? 'Loading allocated material...' : 'No allocated material found.'}
         </div>
       ) : (
         <GlobalTable
           table={table}
-          className="bg-table"
+          className="bg-[var(--table-bg)]"
         />
       )}
     </div>

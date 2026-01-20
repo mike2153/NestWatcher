@@ -156,6 +156,7 @@ export interface NcCatSubmitValidationReq {
       filename: string;
       folderName: string;
       folderPath: string;
+      // Estimated runtime in seconds (may be float).
       ncEstRuntime: number;
       yieldPercentage: number;
       usableOffcuts: Array<{ x: number; y: number; z: number }>;
@@ -209,6 +210,68 @@ export interface NcCatSubmitValidationRes {
   reason?: string | null;
   /** Validation status that caused rejection */
   validationStatus?: 'pass' | 'warnings' | 'errors' | null;
+}
+
+// ---------------------------------------------------------------------------------
+// NC-Cat Headless Validation (NestWatcher-triggered, no validation.json)
+// ---------------------------------------------------------------------------------
+
+export type NcCatHeadlessValidationReason = 'ingest' | 'stage';
+
+export interface NcCatHeadlessValidationFileInput {
+  filename: string;
+  ncContent: string;
+}
+
+export interface NcCatHeadlessValidationFileResult {
+  filename: string;
+  validation: {
+    status: 'pass' | 'warnings' | 'errors';
+    warnings: string[];
+    errors: string[];
+    syntax: string[];
+  };
+}
+
+export interface NcCatHeadlessValidateRequest {
+  requestId: string;
+  reason: NcCatHeadlessValidationReason;
+  folderName: string;
+  files: NcCatHeadlessValidationFileInput[];
+  profileId?: string | null;
+  profileName?: string | null;
+  profileSettings?: unknown | null;
+  machineNameHint?: string | null;
+}
+
+export interface NcCatHeadlessValidateResponse {
+  requestId: string;
+  success: boolean;
+  results?: NcCatHeadlessValidationFileResult[];
+  error?: string | null;
+  profileId?: string | null;
+  profileName?: string | null;
+}
+
+// ---------------------------------------------------------------------------------
+// Headless Validation Report (NestWatcher -> Renderer)
+// ---------------------------------------------------------------------------------
+
+export interface NcCatValidationReportFile {
+  filename: string;
+  status: 'pass' | 'warnings' | 'errors';
+  warnings: string[];
+  errors: string[];
+  syntax: string[];
+}
+
+export interface NcCatValidationReport {
+  reason: NcCatHeadlessValidationReason;
+  folderName: string;
+  profileName?: string | null;
+  processedAt: string;
+  overallStatus: 'pass' | 'warnings' | 'errors';
+  files: NcCatValidationReportFile[];
 }
 
 // ---------------------------------------------------------------------------------

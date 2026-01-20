@@ -145,19 +145,5 @@ export function applyCustomContentSecurityPolicy(targetSession: Session, policy:
     responseHeaders['Content-Security-Policy'] = [policy];
     callback({ responseHeaders });
   });
-  logger.info({ policy }, 'Custom Content Security Policy applied to session');
 }
-
-export function logSecurityConfigurationSummary() {
-  logger.info(
-    {
-      allowedExternalOrigins: Array.from(ALLOWED_EXTERNAL_ORIGINS),
-      allowedExternalProtocols: Array.from(ALLOWED_EXTERNAL_PROTOCOLS),
-      internalOrigins: Array.from(getInternalOrigins()),
-      packaged: app.isPackaged
-    },
-    'Navigation security configuration'
-  );
-}
-
 

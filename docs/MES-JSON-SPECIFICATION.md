@@ -7,6 +7,30 @@
 
 The MES (Manufacturing Execution System) JSON export provides comprehensive data about processed NC files for integration with external manufacturing systems. This document describes each field in the export format.
 
+## How NestWatcher consumes `validation.json`
+
+In this repo, NestWatcher imports MES metrics from a `validation.json` file.
+
+- **Where the file is expected**: NestWatcher looks for `validation.json` inside Electron `userData`.
+- **How it links back to jobs**: It only trusts entries that point inside `processedJobsRoot` and turns each entry into a `job key` using the folder path plus NC filename.
+- **What gets updated**: It upserts a row in `public.nc_stats` keyed by `jobKey`.
+- **Cleanup**: The file is deleted after processing.
+
+```mermaid
+flowchart TD
+  NcCat[NC Cat] -->|Writes validation.json| UserData[NestWatcher userData folder]
+  UserData --> Scanner[NestWatcher MES scanner]
+  Scanner --> Parse[Parse and validate JSON]
+  Parse --> Key[Build job key from processedJobsRoot folderPath and filename]
+  Key --> Exists{Job exists in jobs table}
+  Exists -->|Yes| Upsert[Upsert metrics into nc_stats]
+  Upsert --> UI[UI reads nc_stats for the MES modal]
+  Exists -->|No| Skip[Skip entry and report missing]
+  Scanner --> Delete[Delete validation.json]
+```
+
+A matching `.mmd` copy exists in `docs/charts/MES-JSON-SPECIFICATION.mmd`.
+
 ---
 
 ## Top-Level Structure
@@ -110,7 +134,7 @@ Each entry in the `files` array represents one processed NC file.
 
 ```json
 {
-  "ncRuntime": 245.67,
+  "ncEstRuntime": 245.67,
   "sheetLoadTime": 60,
   "partCount": 12,
   "yieldPercentage": 87.34
@@ -119,7 +143,7 @@ Each entry in the `files` array represents one processed NC file.
 
 | Field | Type | Unit | Description |
 |-------|------|------|-------------|
-| `ncRuntime` | Number | seconds | Estimated machining time for the NC program (2 decimal places) |
+| `ncEstRuntime` | Number | seconds | Estimated machining time for the NC program (2 decimal places) |
 | `sheetLoadTime` | Number | seconds | Fixed time allocated for loading a sheet onto the CNC machine (configurable in settings, default 60) |
 | `partCount` | Number | - | Total number of parts detected in the nest |
 | `yieldPercentage` | Number | % | Percentage of sheet area utilized by parts (2 decimal places) |
@@ -360,7 +384,7 @@ palletAdjustedVolumeM3 = (totalPartVolume / utilizationEfficiency%) / 1,000,000,
         "name": "18mm Laminate Oak",
         "sheetSize": { "x": 2800, "y": 1200, "z": 18 }
       },
-      "ncRuntime": 312.45,
+      "ncEstRuntime": 312.45,
       "sheetLoadTime": 60,
       "partCount": 8,
       "yieldPercentage": 82.34,

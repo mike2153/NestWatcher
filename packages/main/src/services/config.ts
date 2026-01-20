@@ -26,10 +26,50 @@ const DEFAULT_SETTINGS: Settings = {
     sslMode: 'disable',
     statementTimeoutMs: 30000
   },
-  paths: { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '' },
+  paths: { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' },
   test: { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' },
-  grundner: { reservedAdjustmentMode: 'delta' },
+  grundner: {
+    tableColumns: {
+      typeData: { visible: true, order: 1 },
+      materialName: { visible: false, order: 2 },
+      materialNumber: { visible: false, order: 3 },
+      customerId: { visible: true, order: 4 },
+      lengthMm: { visible: true, order: 5 },
+      widthMm: { visible: true, order: 6 },
+      thicknessMm: { visible: true, order: 7 },
+      preReserved: { visible: true, order: 8 },
+      stock: { visible: true, order: 9 },
+      reservedStock: { visible: true, order: 10 },
+      stockAvailable: { visible: true, order: 11 },
+      lastUpdated: { visible: true, order: 12 }
+    }
+  },
   ordering: { includeReserved: false },
+  inventoryExport: {
+    template: {
+      delimiter: ',',
+      lastUpdatedFormat: 'hh:mm dd.mm.yyyy',
+      columns: [
+        { kind: 'field', enabled: true, header: 'Type', field: 'typeData' },
+        { kind: 'field', enabled: true, header: 'Customer ID', field: 'customerId' },
+        { kind: 'field', enabled: true, header: 'Length', field: 'lengthMm' },
+        { kind: 'field', enabled: true, header: 'Width', field: 'widthMm' },
+        { kind: 'field', enabled: true, header: 'Thickness', field: 'thicknessMm' },
+        { kind: 'field', enabled: true, header: 'Pre-Reserved', field: 'preReserved' },
+        { kind: 'field', enabled: true, header: 'Stock', field: 'stock' },
+        { kind: 'field', enabled: true, header: 'Reserved', field: 'reservedStock' },
+        { kind: 'field', enabled: true, header: 'Available', field: 'stockAvailable' },
+        { kind: 'field', enabled: true, header: 'Last Updated', field: 'lastUpdated' }
+      ]
+    },
+    scheduled: {
+      enabled: false,
+      intervalSeconds: 60,
+      onlyOnChange: true,
+      folderPath: '',
+      fileName: 'grundner_inventory.csv'
+    }
+  },
   jobs: { completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] },
   validationWarnings: { showValidationWarnings: false }
 };
@@ -46,23 +86,85 @@ function cloneDefaults(): Settings {
     test: { ...DEFAULT_SETTINGS.test },
     grundner: { ...DEFAULT_SETTINGS.grundner },
     ordering: { ...DEFAULT_SETTINGS.ordering },
+    inventoryExport: {
+      template: {
+        ...DEFAULT_SETTINGS.inventoryExport.template,
+        columns: [...DEFAULT_SETTINGS.inventoryExport.template.columns]
+      },
+      scheduled: { ...DEFAULT_SETTINGS.inventoryExport.scheduled }
+    },
     jobs: { ...DEFAULT_SETTINGS.jobs },
     validationWarnings: { ...DEFAULT_SETTINGS.validationWarnings }
   };
 }
 
+function normalizeGrundnerTableColumns(
+  input: unknown,
+  defaults: Settings['grundner']['tableColumns']
+): Settings['grundner']['tableColumns'] {
+  const inputRecord =
+    input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : null;
+
+  const out: Settings['grundner']['tableColumns'] = { ...defaults };
+  for (const key of Object.keys(defaults) as Array<keyof Settings['grundner']['tableColumns']>) {
+    const raw = inputRecord?.[key as string];
+
+    // Legacy/dev shape: `{ [key]: boolean }`
+    if (typeof raw === 'boolean') {
+      out[key] = { ...defaults[key], visible: raw };
+      continue;
+    }
+
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      const col = raw as Record<string, unknown>;
+      const visible = typeof col.visible === 'boolean' ? col.visible : defaults[key].visible;
+      const order = typeof col.order === 'number' && Number.isInteger(col.order) && col.order >= 1 ? col.order : defaults[key].order;
+      out[key] = { visible, order };
+      continue;
+    }
+  }
+
+  return out;
+}
+
 function normalizeSettings(input: MaybeSettings): Settings {
   const base = (typeof input === 'object' && input !== null ? input : {}) as Partial<Settings>;
+
   const db: Settings['db'] = { ...DEFAULT_SETTINGS.db, ...(base.db ?? {}) } as Settings['db'];
   // Coerce password to a string to avoid pg errors when null/number are provided
   db.password = typeof db.password === 'string' ? db.password : (db.password == null ? '' : String(db.password));
+
+  const inventoryExportBase = (base.inventoryExport ?? {}) as Partial<Settings['inventoryExport']>;
+  const templateBase = (inventoryExportBase.template ?? {}) as Partial<Settings['inventoryExport']['template']>;
+  const scheduledBase = (inventoryExportBase.scheduled ?? {}) as Partial<Settings['inventoryExport']['scheduled']>;
+
+  const template: Settings['inventoryExport']['template'] = {
+    ...DEFAULT_SETTINGS.inventoryExport.template,
+    ...templateBase,
+    columns: Array.isArray(templateBase.columns) ? templateBase.columns : DEFAULT_SETTINGS.inventoryExport.template.columns
+  };
+
+  const scheduled: Settings['inventoryExport']['scheduled'] = {
+    ...DEFAULT_SETTINGS.inventoryExport.scheduled,
+    ...scheduledBase
+  };
+
+  const grundnerBase = (base.grundner ?? {}) as Partial<Settings['grundner']>;
+  const tableColumns = normalizeGrundnerTableColumns(
+    grundnerBase.tableColumns,
+    DEFAULT_SETTINGS.grundner.tableColumns
+  );
+
+  const grundner: Settings['grundner'] = { tableColumns };
+
   return {
     version: typeof base.version === 'number' && base.version > 0 ? base.version : CURRENT_SETTINGS_VERSION,
     db,
     paths: { ...DEFAULT_SETTINGS.paths, ...(base.paths ?? {}) },
     test: { ...DEFAULT_SETTINGS.test, ...(base.test ?? {}) },
-    grundner: { ...DEFAULT_SETTINGS.grundner, ...(base.grundner ?? {}) },
+    grundner,
     ordering: { ...DEFAULT_SETTINGS.ordering, ...(base.ordering ?? {}) },
+    inventoryExport: { template, scheduled },
     jobs: { ...DEFAULT_SETTINGS.jobs, ...(base.jobs ?? {}) },
     validationWarnings: { ...DEFAULT_SETTINGS.validationWarnings, ...(base.validationWarnings ?? {}) }
   };
@@ -70,17 +172,26 @@ function normalizeSettings(input: MaybeSettings): Settings {
 
 function mergeSettingsInternal(base: Settings, update: MaybeSettings): Settings {
   const partial = (typeof update === 'object' && update !== null ? update : {}) as Partial<Settings>;
+  const grundnerTableColumns =
+    partial.grundner?.tableColumns != null
+      ? { ...base.grundner.tableColumns, ...partial.grundner.tableColumns }
+      : base.grundner.tableColumns;
   return normalizeSettings({
     version: partial.version ?? base.version,
     db: { ...base.db, ...(partial.db ?? {}) },
     paths: { ...base.paths, ...(partial.paths ?? {}) },
     test: { ...base.test, ...(partial.test ?? {}) },
-    grundner: { ...base.grundner, ...(partial.grundner ?? {}) },
+    grundner: { ...base.grundner, ...(partial.grundner ?? {}), tableColumns: grundnerTableColumns },
     ordering: { ...base.ordering, ...(partial.ordering ?? {}) },
+    inventoryExport: {
+      template: { ...base.inventoryExport.template, ...((partial.inventoryExport?.template ?? {}) as Partial<Settings['inventoryExport']['template']>) },
+      scheduled: { ...base.inventoryExport.scheduled, ...((partial.inventoryExport?.scheduled ?? {}) as Partial<Settings['inventoryExport']['scheduled']>) }
+    },
     jobs: { ...base.jobs, ...(partial.jobs ?? {}) },
     validationWarnings: { ...base.validationWarnings, ...(partial.validationWarnings ?? {}) }
   });
 }
+
 
 // Strict config path policy:
 // - Dev: settings.json at repo root (relative to compiled main at packages/main/dist)

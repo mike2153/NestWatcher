@@ -1,5 +1,5 @@
 import { app, BrowserWindow, session, ipcMain } from 'electron';
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, promises as fsp } from 'fs';
 import path, { join, resolve, basename, extname } from 'path';
 import { ok, err } from 'neverthrow';
 import type {
@@ -19,15 +19,14 @@ import type {
   OpenJobInSimulatorReq,
   OpenJobInSimulatorRes,
   OpenJobDescriptor,
-  SubscriptionAuthState,
-  SUBSCRIPTION_AUTH_CHANNELS
+  SubscriptionAuthState
 } from '../../../shared/src';
 import { PROTOCOL_VERSION } from '../../../shared/src';
 import { applyWindowNavigationGuards, applyCustomContentSecurityPolicy } from '../security';
 import { registerResultHandler } from './result';
 import { loadConfig } from '../services/config';
-import { machines, ncCatProfiles, jobs, ncStats } from '../db/schema';
-import { withDb, withClient } from '../services/db';
+import { machines, ncCatProfiles, jobs } from '../db/schema';
+import { withDb } from '../services/db';
 import { eq, inArray } from 'drizzle-orm';
 import { logger } from '../logger';
 import { pushAppMessage } from '../services/messages';
@@ -38,12 +37,78 @@ import { getHardwareId } from '../services/hardwareId';
 let ncCatWin: BrowserWindow | null = null;
 let ncCatBackgroundWin: BrowserWindow | null = null;
 
+let ncCatLogListenerRegistered = false;
+
 // Cached subscription auth state from NC-Cat
 let cachedSubscriptionAuthState: SubscriptionAuthState | null = null;
+let authStateRequestInFlight: Promise<SubscriptionAuthState | null> | null = null;
+let consecutiveAuthStateRequestFailures = 0;
+
+// Keep logs readable: only log auth state when it changes.
+let lastLoggedAuthStateKey: string | null = null;
+
+function toAuthStateKey(state: SubscriptionAuthState | null): string {
+  if (!state) return 'null';
+  return `${state.authenticated ? '1' : '0'}|${state.subscriptionStatus ?? 'unknown'}|${state.isAdmin ? '1' : '0'}`;
+}
+
+function logNcCatAuthStateIfChanged(source: string, state: SubscriptionAuthState | null): void {
+  const key = toAuthStateKey(state);
+  if (key === lastLoggedAuthStateKey) return;
+  lastLoggedAuthStateKey = key;
+
+  if (!state) {
+    logger.info({ source }, 'NC-Cat auth state unavailable');
+    return;
+  }
+
+  logger.info(
+    {
+      source,
+      authenticated: state.authenticated,
+      subscriptionStatus: state.subscriptionStatus,
+      isAdmin: state.isAdmin
+    },
+    'NC-Cat auth state'
+  );
+}
+
 
 // Auth state check interval (30 minutes)
 const AUTH_STATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 let authStateCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+function waitForNcCatLoad(win: BrowserWindow, timeoutMs = 20_000): Promise<void> {
+  if (!win.webContents.isLoading()) return Promise.resolve();
+  return new Promise((resolveWait) => {
+    const done = () => {
+      clearTimeout(timeout);
+      win.webContents.removeListener('did-finish-load', done);
+      win.webContents.removeListener('did-fail-load', done);
+      resolveWait();
+    };
+    const timeout = setTimeout(done, timeoutMs);
+    win.webContents.once('did-finish-load', done);
+    win.webContents.once('did-fail-load', done);
+  });
+}
+
+function waitForCachedAuthState(timeoutMs = 8_000): Promise<SubscriptionAuthState | null> {
+  if (cachedSubscriptionAuthState) return Promise.resolve(cachedSubscriptionAuthState);
+  return new Promise((resolveWait) => {
+    const interval = setInterval(() => {
+      if (cachedSubscriptionAuthState) {
+        clearTimeout(timeout);
+        clearInterval(interval);
+        resolveWait(cachedSubscriptionAuthState);
+      }
+    }, 250);
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+      resolveWait(cachedSubscriptionAuthState);
+    }, timeoutMs);
+  });
+}
 
 /**
  * Returns either a dev server URL (if NC_CATALYST_DEV_URL is set) or a file path.
@@ -54,6 +119,8 @@ function resolveNcCatalystSource(): { type: 'url'; url: string } | { type: 'file
   // Hot reload: if dev URL is set, use it
   const devUrl = process.env.NC_CATALYST_DEV_URL;
   if (devUrl) {
+    logger.debug({ devUrl }, 'NC-Cat source: using dev URL');
+
     return { type: 'url', url: devUrl };
   }
 
@@ -63,16 +130,52 @@ function resolveNcCatalystSource(): { type: 'url'; url: string } | { type: 'file
   // Prefer a dev working copy when provided
   const devDir = process.env.NC_CATALYST_DEV_DIR;
   if (devDir && existsSync(devDir)) {
-    return { type: 'file', path: join(resolve(devDir), entry) };
+    const candidate = join(resolve(devDir), entry);
+    if (existsSync(candidate)) {
+      logger.debug({ devDir, entry, candidate }, 'NC-Cat source: using dev directory');
+
+      return { type: 'file', path: candidate };
+    }
   }
 
-  // Packaged: <App>/resources/NC_CAT_V3
-  // Dev:      ../../../resources/NC_CAT_V3 relative to compiled dist
-  const base = app.isPackaged
-    ? join(process.resourcesPath, 'NC_CAT_V3')
-    : resolve(__dirname, '../../../resources/NC_CAT_V3');
+  // Try multiple fallbacks so dev and packaged builds both resolve correctly.
+  const appPath = app.getAppPath();
+  const candidates = [
+    // Packaged: <Resources>/NC_CAT_V3
+    join(process.resourcesPath, 'NC_CAT_V3', entry),
+    // Dev: project resources alongside app path
+    join(appPath, 'resources', 'NC_CAT_V3', entry),
+    // Dev: repo root resources (one level above app path)
+    join(resolve(appPath, '..'), 'resources', 'NC_CAT_V3', entry),
+    // Dev: relative to source tree (compiled dist/ipc -> repo/resources)
+    join(resolve(__dirname, '../../../../resources/NC_CAT_V3'), entry),
+    // Legacy fallback
+    join(resolve(__dirname, '../../../resources/NC_CAT_V3'), entry)
+  ].filter((p, idx, arr) => arr.indexOf(p) === idx);
 
-  return { type: 'file', path: join(base, entry) };
+  logger.info(
+    {
+      entry,
+      appPath,
+      resourcesPath: process.resourcesPath,
+      __dirname,
+      candidates: candidates.map((pathTried) => ({ pathTried, exists: existsSync(pathTried) }))
+    },
+    'NC-Cat source: evaluated file candidates'
+  );
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      logger.debug({ candidate }, 'NC-Cat source: selected file');
+
+      return { type: 'file', path: candidate };
+    }
+  }
+
+  // Last resort: use appPath resources even if missing; caller will log the failure.
+  const fallback = join(appPath, 'resources', 'NC_CAT_V3', entry);
+  logger.warn({ fallback }, 'NC-Cat source: no candidate found, using fallback');
+  return { type: 'file', path: fallback };
 }
 
 /**
@@ -87,7 +190,20 @@ export function startNcCatBackgroundWindow(): void {
   }
 
   const source = resolveNcCatalystSource();
-  const preloadPath = path.join(__dirname, '../../preload/dist/index.js');
+
+  // Use NC-Cat specific preload script
+  const ncCatPreloadPath = path.join(__dirname, '../../preload/dist/nc-catalyst-preload.js');
+  const fallbackPreloadPath = path.join(__dirname, '../../preload/dist/index.js');
+  const preloadPath = existsSync(ncCatPreloadPath) ? ncCatPreloadPath : fallbackPreloadPath;
+
+  logger.debug({
+    ncCatPreloadPath,
+    fallbackPreloadPath,
+    preloadPath,
+    exists: existsSync(preloadPath),
+    isNcCatPreload: preloadPath === ncCatPreloadPath
+  }, 'NC-Cat background window: creating');
+
 
   ncCatBackgroundWin = new BrowserWindow({
     width: 800,
@@ -121,8 +237,9 @@ export function startNcCatBackgroundWindow(): void {
 
   ncCatBackgroundWin.on('closed', () => {
     ncCatBackgroundWin = null;
-    logger.info('NC-Cat background window closed');
+    logger.debug('NC-Cat headless window closed');
   });
+
 
   // Load NC-Cat
   if (source.type === 'url') {
@@ -135,7 +252,11 @@ export function startNcCatBackgroundWindow(): void {
     });
   }
 
-  logger.info('NC-Cat background window started');
+  logger.info(
+    { source: source.type === 'url' ? source.url : source.path },
+    'NC-Cat headless window started'
+  );
+
 
   // Start the auth state check interval
   startAuthStateCheckInterval();
@@ -156,7 +277,7 @@ export function stopNcCatBackgroundWindow(): void {
 /**
  * Get the active NC-Cat window (background or visible)
  */
-function getActiveNcCatWindow(): BrowserWindow | null {
+export function getActiveNcCatWindow(): BrowserWindow | null {
   // Prefer the visible window if it exists
   if (ncCatWin && !ncCatWin.isDestroyed()) {
     return ncCatWin;
@@ -172,32 +293,54 @@ function getActiveNcCatWindow(): BrowserWindow | null {
  * Request subscription auth state from NC-Cat
  */
 async function requestAuthStateFromNcCat(): Promise<SubscriptionAuthState | null> {
+  if (authStateRequestInFlight) return authStateRequestInFlight;
   const win = getActiveNcCatWindow();
   if (!win) {
     logger.debug('No NC-Cat window available for auth state request');
     return null;
   }
 
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      logger.warn('Auth state request to NC-Cat timed out');
-      resolve(null);
-    }, 10000); // 10 second timeout
+  authStateRequestInFlight = (async () => {
+    await waitForNcCatLoad(win);
 
-    // Listen for the response
-    const responseChannel = 'nc-catalyst:auth:stateResponse';
-    const handler = (_event: Electron.IpcMainEvent, state: SubscriptionAuthState) => {
-      clearTimeout(timeout);
-      ipcMain.removeListener(responseChannel, handler);
-      cachedSubscriptionAuthState = state;
-      resolve(state);
-    };
+    return new Promise<SubscriptionAuthState | null>((resolve) => {
+      const responseChannel = 'nc-catalyst:auth:stateResponse';
+      const handler = (_event: Electron.IpcMainEvent, state: SubscriptionAuthState) => {
+        clearTimeout(timeout);
+        ipcMain.removeListener(responseChannel, handler);
+        cachedSubscriptionAuthState = state;
+        consecutiveAuthStateRequestFailures = 0;
+        resolve(state);
+      };
 
-    ipcMain.once(responseChannel, handler);
+      const timeout = setTimeout(() => {
+        ipcMain.removeListener(responseChannel, handler);
+        consecutiveAuthStateRequestFailures += 1;
+        if (consecutiveAuthStateRequestFailures >= 3) {
+          logger.warn({ failures: consecutiveAuthStateRequestFailures }, 'Auth state request to NC-Cat timed out');
+        } else {
+          logger.debug({ failures: consecutiveAuthStateRequestFailures }, 'Auth state request to NC-Cat timed out');
+        }
+        resolve(null);
+      }, 15_000);
 
-    // Request the state
-    win.webContents.send('nc-catalyst:auth:requestState');
+      ipcMain.once(responseChannel, handler);
+
+      try {
+        win.webContents.send('nc-catalyst:auth:requestState');
+      } catch (sendErr) {
+        clearTimeout(timeout);
+        ipcMain.removeListener(responseChannel, handler);
+        consecutiveAuthStateRequestFailures += 1;
+        logger.debug({ err: sendErr }, 'Failed to send auth state request to NC-Cat');
+        resolve(null);
+      }
+    });
+  })().finally(() => {
+    authStateRequestInFlight = null;
   });
+
+  return authStateRequestInFlight;
 }
 
 /**
@@ -206,13 +349,24 @@ async function requestAuthStateFromNcCat(): Promise<SubscriptionAuthState | null
 function startAuthStateCheckInterval(): void {
   stopAuthStateCheckInterval();
 
-  // Initial check after a short delay to let NC-Cat initialize
+  // Initial check after NC-Cat has had a chance to load and install its IPC listeners.
   setTimeout(async () => {
-    const state = await requestAuthStateFromNcCat();
+    const cached = await waitForCachedAuthState();
+    const state = cached ?? (await requestAuthStateFromNcCat());
+
     if (state) {
-      logger.info({ authenticated: state.authenticated, status: state.subscriptionStatus }, 'Initial auth state received from NC-Cat');
+      logNcCatAuthStateIfChanged('initial', state);
+      if (!state.authenticated) {
+        // Show NC‑Cat sign-in UI when NestWatcher starts and the user is not authenticated.
+        openNcCatalystWindow();
+      }
+      return;
     }
-  }, 5000);
+
+
+    // Could not retrieve state (likely NC‑Cat not fully loaded). We'll retry on-demand when the renderer asks for state.
+    logger.debug('Initial auth state not available from NC-Cat');
+  }, 1500);
 
   // Regular checks every 30 minutes
   authStateCheckInterval = setInterval(async () => {
@@ -260,20 +414,64 @@ export function isSubscriptionValid(): boolean {
 }
 
 export function openNcCatalystWindow() {
+  logger.info('openNcCatalystWindow called');
+
   if (ncCatWin && !ncCatWin.isDestroyed()) {
+    logger.info('NC-Cat window already open; focusing');
+    try {
+      ncCatWin.show();
+      ncCatWin.focus();
+    } catch (err) {
+      logger.debug({ err }, 'Failed to focus NC-Cat window');
+    }
     ncCatWin.focus();
     return;
   }
 
-  const source = resolveNcCatalystSource();
+  logger.info({
+    hasBackgroundWin: !!ncCatBackgroundWin,
+    isDestroyed: ncCatBackgroundWin ? ncCatBackgroundWin.isDestroyed() : null
+  }, 'Checking if background NC-Cat window is running');
 
-  // Preload script path - same as main window to expose window.api
-  const preloadPath = path.join(__dirname, '../../preload/dist/index.js');
+  const source = resolveNcCatalystSource();
+  logger.info(
+    {
+      source,
+      env: {
+        NC_CATALYST_DEV_URL: process.env.NC_CATALYST_DEV_URL,
+        NC_CATALYST_ENTRY: process.env.NC_CATALYST_ENTRY,
+        NC_CATALYST_DEV_DIR: process.env.NC_CATALYST_DEV_DIR
+      }
+    },
+    'Opening NC-Cat window'
+  );
+
+  // Use NC-Cat specific preload script that only exposes needed IPC methods
+  // NC-Cat should NOT have access to NestWatcher's window.api
+  const ncCatPreloadPath = path.join(__dirname, '../../preload/dist/nc-catalyst-preload.js');
+  const fallbackPreloadPath = path.join(__dirname, '../../preload/dist/index.js');
+
+  // Use NC-Cat preload if it exists, otherwise fall back to main preload (for dev)
+  const preloadPath = existsSync(ncCatPreloadPath) ? ncCatPreloadPath : fallbackPreloadPath;
+
+  logger.info(
+    {
+      ncCatPreloadPath,
+      fallbackPreloadPath,
+      selectedPreload: preloadPath,
+      exists: existsSync(preloadPath),
+      isNcCatPreload: preloadPath === ncCatPreloadPath
+    },
+    'NC-Cat preload resolved'
+  );
+
+  logger.info('Creating NC-Cat BrowserWindow');
 
   ncCatWin = new BrowserWindow({
     width: 1400,
     height: 900,
-    show: false,
+    // Show immediately so the user sees something even while loading (and so failures aren't "invisible").
+    show: true,
     webPreferences: {
       // Use a separate session so we can apply a relaxed CSP without affecting the main app
       partition: 'persist:nc-catalyst',
@@ -285,18 +483,59 @@ export function openNcCatalystWindow() {
     }
   });
 
-  applyWindowNavigationGuards(ncCatWin.webContents, { allowExternal: false });
+  logger.info({ id: ncCatWin.id }, 'NC-Cat BrowserWindow created');
 
-  ncCatWin.on('ready-to-show', () => ncCatWin?.show());
+  applyWindowNavigationGuards(ncCatWin.webContents, { allowExternal: false });
+  logger.info('Navigation guards applied');
+
+  ncCatWin.on('ready-to-show', () => {
+    logger.info('NC-Cat window ready-to-show event');
+    try {
+      ncCatWin?.show();
+      ncCatWin?.focus();
+    } catch (err) {
+      logger.debug({ err }, 'Failed to show NC-Cat window');
+    }
+  });
   ncCatWin.on('closed', () => {
+    logger.info('NC-Cat window closed event');
     ncCatWin = null;
   });
+  ncCatWin.on('close', () => {
+    logger.info('NC-Cat window close event (before closing)');
+  });
+  ncCatWin.on('unresponsive', () => {
+    logger.warn('NC-Cat window became unresponsive');
+  });
+  ncCatWin.webContents.on('render-process-gone', (_event, details) => {
+    logger.error({ details }, 'NC-Cat render process gone');
+  });
+  ncCatWin.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    logger.error({ errorCode, errorDescription, validatedURL }, 'NC-Cat did-fail-load event');
+  });
+  ncCatWin.webContents.on('did-start-loading', () => {
+    logger.info('NC-Cat did-start-loading event');
+  });
+  ncCatWin.webContents.on('did-stop-loading', () => {
+    logger.info('NC-Cat did-stop-loading event');
+  });
+  ncCatWin.webContents.on('dom-ready', () => {
+    logger.info('NC-Cat dom-ready event');
+  });
   ncCatWin.webContents.on('did-finish-load', () => {
+    logger.info('NC-Cat did-finish-load event');
     // NC Catalyst UI is designed for a browser viewport; scale slightly for the desktop window
     ncCatWin?.webContents.setZoomFactor(0.9);
+    try {
+      ncCatWin?.show();
+      ncCatWin?.focus();
+    } catch (err) {
+      logger.debug({ err }, 'Failed to focus NC-Cat window after load');
+    }
   });
 
   // Relaxed CSP for NC Catalyst: allow required CDNs and inline handlers in this session only
+  logger.info('Applying CSP to NC-Cat session');
   const ncSession = session.fromPartition('persist:nc-catalyst');
   const ncPolicy = [
     "default-src 'self' https: data: ws:",
@@ -308,33 +547,127 @@ export function openNcCatalystWindow() {
     "font-src 'self' https://fonts.gstatic.com",
     // Images from local and possible https
     "img-src 'self' data: blob: https:",
-    // Allow WebSocket connections for Vite HMR
-    "connect-src 'self' ws: wss: http://localhost:* https://localhost:*",
+    // Allow WebSocket connections for Vite HMR + Supabase auth/API
+    "connect-src 'self' ws: wss: http://localhost:* https://localhost:* https://*.supabase.co https://*.supabase.in",
     "object-src 'none'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'"
   ].join('; ');
   applyCustomContentSecurityPolicy(ncSession, ncPolicy);
+  logger.info('CSP applied');
 
   if (source.type === 'url') {
     // Hot reload mode: load from Vite dev server
+    logger.info({ url: source.url }, 'NC-Cat loadURL start');
     ncCatWin.loadURL(source.url).catch((err) => {
-      console.error('Failed to load NC Catalyst from dev server', { err, url: source.url });
+      logger.error({ err, url: source.url }, 'Failed to load NC Catalyst from dev server');
     });
   } else {
     // Production mode: load from file
-    ncCatWin.loadFile(source.path).catch((err) => {
-      console.error('Failed to load NC Catalyst', { err, path: source.path });
-    });
+    logger.info({ pathTried: source.path, exists: existsSync(source.path) }, 'NC-Cat loadFile start');
+    ncCatWin.loadFile(source.path)
+      .then(() => {
+        logger.info('NC-Cat loadFile succeeded');
+      })
+      .catch((err) => {
+        const exists = existsSync(source.path);
+        logger.error(
+          {
+            err,
+            errMessage: err?.message,
+            errStack: err?.stack,
+            pathTried: source.path,
+            exists,
+            windowDestroyed: ncCatWin?.isDestroyed()
+          },
+          'Failed to load NC Catalyst from file path'
+        );
+      });
+  }
+
+  logger.info('openNcCatalystWindow completed');
+}
+
+export function closeNcCatalystWindow(): void {
+  logger.info({
+    hasWindow: !!ncCatWin,
+    isDestroyed: ncCatWin?.isDestroyed(),
+    stack: new Error().stack
+  }, 'closeNcCatalystWindow called');
+  if (ncCatWin && !ncCatWin.isDestroyed()) {
+    logger.info('Closing NC-Cat window');
+    ncCatWin.close();
   }
 }
 
 export function registerNcCatalystIpc() {
+  if (!ncCatLogListenerRegistered) {
+    ncCatLogListenerRegistered = true;
+
+    ipcMain.on('nc-catalyst:log', (event: Electron.IpcMainEvent, rawPayload: unknown) => {
+      try {
+        // Only accept logs from our NC-Cat windows (prevents other renderers spoofing this channel)
+        const allowedSenderIds = new Set<number>();
+        if (ncCatWin && !ncCatWin.isDestroyed()) {
+          allowedSenderIds.add(ncCatWin.webContents.id);
+        }
+        if (ncCatBackgroundWin && !ncCatBackgroundWin.isDestroyed()) {
+          allowedSenderIds.add(ncCatBackgroundWin.webContents.id);
+        }
+
+        if (!allowedSenderIds.has(event.sender.id)) {
+          return;
+        }
+
+        const payload = rawPayload as { level?: unknown; message?: unknown; timestamp?: unknown };
+        const level = typeof payload?.level === 'string' ? payload.level.toLowerCase() : 'info';
+        const message = typeof payload?.message === 'string' ? payload.message : '';
+        const timestamp = typeof payload?.timestamp === 'string' ? payload.timestamp : undefined;
+        const prefixed = message ? `[NC Catalyst] ${message}` : '[NC Catalyst]';
+
+        const meta = { source: 'nc-catalyst', senderId: event.sender.id, timestamp };
+
+        switch (level) {
+          case 'fatal':
+            logger.fatal(meta, prefixed);
+            break;
+          case 'error':
+            logger.error(meta, prefixed);
+            break;
+          case 'warn':
+            logger.warn(meta, prefixed);
+            break;
+          case 'debug':
+            logger.debug(meta, prefixed);
+            break;
+          case 'trace':
+            logger.trace(meta, prefixed);
+            break;
+          case 'info':
+          default:
+            logger.info(meta, prefixed);
+            break;
+        }
+      } catch (err) {
+        logger.warn({ err }, 'Failed to forward NC-Cat log');
+      }
+    });
+  }
+
   registerResultHandler('nc-catalyst:open', async () => {
+    logger.info('IPC nc-catalyst:open received');
     openNcCatalystWindow();
     return ok<null, AppError>(null);
-  });
+  }, { requiresAuth: false });
+
+  registerResultHandler('nc-catalyst:close', async () => {
+    // Log with stack trace to see where this is being called from
+    const stack = new Error().stack;
+    logger.info({ stack }, 'IPC nc-catalyst:close received');
+    closeNcCatalystWindow();
+    return ok<null, AppError>(null);
+  }, { requiresAuth: false });
 
   // Provide shared WE settings (paths + machines) back to NC-Cat when requested.
   registerResultHandler(
@@ -354,9 +687,8 @@ export function registerNcCatalystIpc() {
 
       const snapshot: SharedSettingsSnapshot = {
         processedJobsRoot: cfg.paths.processedJobsRoot ?? '',
-        // For now, treat jobsRoot as the same as processedJobsRoot; can be split later if needed.
-        jobsRoot: cfg.paths.processedJobsRoot ?? '',
-        quarantineRoot: null,
+        jobsRoot: cfg.paths.jobsRoot ?? '',
+        quarantineRoot: cfg.paths.quarantineRoot ?? null,
         machines: rows.map((m) => ({
           machineId: m.machineId,
           name: m.name,
@@ -661,49 +993,167 @@ export function registerNcCatalystIpc() {
         });
       }
 
-      // Create destination folder
+      // Determine destination folder
       const destFolder = join(processedJobsRoot, req.folderName);
 
       try {
-        if (!existsSync(destFolder)) {
-          mkdirSync(destFolder, { recursive: true });
-        }
+        // Check if we can move the source folder (preferred) or need to write files
+        const canMoveSource = req.sourceFolderPath && existsSync(req.sourceFolderPath);
 
-        // Write all files to destination
-        for (const file of req.files) {
-          // Write NC file
-          const ncPath = join(destFolder, file.filename);
-          writeFileSync(ncPath, file.ncContent, 'utf8');
+        if (canMoveSource) {
+          // MOVE the source folder to processedJobsRoot
+          logger.info(
+            { sourceFolderPath: req.sourceFolderPath, destFolder },
+            'NC-Cat submit-validation: moving source folder'
+          );
 
-          // Write NESTPICK file if provided
-          if (file.nestpickContent) {
-            const nestpickExt = '.nsp'; // Default extension
-            const baseNoExt = basename(file.filename, extname(file.filename));
-            const nestpickPath = join(destFolder, `${baseNoExt}${nestpickExt}`);
-            writeFileSync(nestpickPath, file.nestpickContent, 'utf8');
+          // Check if destination already exists
+          let finalDestFolder = destFolder;
+          if (existsSync(destFolder)) {
+            finalDestFolder = join(processedJobsRoot, `${req.folderName}_${Date.now()}`);
+            logger.warn(
+              { destFolder, finalDestFolder },
+              'NC-Cat submit-validation: destination exists, using timestamped name'
+            );
           }
 
-          // Write label images if provided
-          if (file.labelImages) {
-            for (const [partNumber, dataUrl] of Object.entries(file.labelImages)) {
-              if (!dataUrl) continue;
+          try {
+            // Try atomic rename first
+            await fsp.rename(req.sourceFolderPath!, finalDestFolder);
+            logger.info(
+              { source: req.sourceFolderPath, destination: finalDestFolder },
+              'NC-Cat submit-validation: folder moved (atomic rename)'
+            );
+          } catch (renameErr) {
+            const code = (renameErr as NodeJS.ErrnoException)?.code;
+            if (code === 'EXDEV') {
+              // Cross-device, need to copy then delete
+              logger.info(
+                { source: req.sourceFolderPath, destination: finalDestFolder },
+                'NC-Cat submit-validation: cross-device move, using copy+delete'
+              );
 
-              // Parse data URL: data:image/jpeg;base64,/9j/4AAQ...
-              const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
-              if (match) {
-                const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
-                const base64Data = match[2];
-                const baseNoExt = basename(file.filename, extname(file.filename));
-                const labelPath = join(destFolder, `${baseNoExt}_${partNumber}.${ext}`);
-                writeFileSync(labelPath, Buffer.from(base64Data, 'base64'));
+              // Ensure destination exists
+              if (!existsSync(finalDestFolder)) {
+                mkdirSync(finalDestFolder, { recursive: true });
+              }
+
+              // Copy all files recursively
+              const copyDir = async (src: string, dest: string) => {
+                const entries = await fsp.readdir(src, { withFileTypes: true });
+                for (const entry of entries) {
+                  const srcPath = join(src, entry.name);
+                  const destPath = join(dest, entry.name);
+                  if (entry.isDirectory()) {
+                    if (!existsSync(destPath)) {
+                      mkdirSync(destPath, { recursive: true });
+                    }
+                    await copyDir(srcPath, destPath);
+                  } else if (entry.isFile()) {
+                    await fsp.copyFile(srcPath, destPath);
+                  }
+                }
+              };
+
+              await copyDir(req.sourceFolderPath!, finalDestFolder);
+
+              // Delete source folder
+              const deleteDir = async (dir: string) => {
+                const entries = await fsp.readdir(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                  const fullPath = join(dir, entry.name);
+                  if (entry.isDirectory()) {
+                    await deleteDir(fullPath);
+                  } else {
+                    await fsp.unlink(fullPath);
+                  }
+                }
+                await fsp.rmdir(dir);
+              };
+
+              await deleteDir(req.sourceFolderPath!);
+
+              logger.info(
+                { source: req.sourceFolderPath, destination: finalDestFolder },
+                'NC-Cat submit-validation: folder moved (copy+delete)'
+              );
+            } else {
+              throw renameErr;
+            }
+          }
+
+          // Write any additional generated files (NESTPICK, labels) that weren't in source
+          for (const file of req.files) {
+            // Write NESTPICK file if provided (generated by NC-Cat, not in source)
+            if (file.nestpickContent) {
+              const nestpickExt = '.nsp';
+              const baseNoExt = basename(file.filename, extname(file.filename));
+              const nestpickPath = join(finalDestFolder, `${baseNoExt}${nestpickExt}`);
+              writeFileSync(nestpickPath, file.nestpickContent, 'utf8');
+            }
+
+            // Write label images if provided (generated by NC-Cat)
+            if (file.labelImages) {
+              for (const [partNumber, dataUrl] of Object.entries(file.labelImages)) {
+                if (!dataUrl) continue;
+                const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+                if (match) {
+                  const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
+                  const base64Data = match[2];
+                  const baseNoExt = basename(file.filename, extname(file.filename));
+                  const labelPath = join(finalDestFolder, `${baseNoExt}_${partNumber}.${ext}`);
+                  writeFileSync(labelPath, Buffer.from(base64Data, 'base64'));
+                }
+              }
+            }
+          }
+        } else {
+          // FALLBACK: Write files from content (legacy behavior)
+          logger.info(
+            { destFolder, fileCount: req.files.length, sourceFolderPath: req.sourceFolderPath },
+            'NC-Cat submit-validation: writing files from content (source folder not available)'
+          );
+
+          if (!existsSync(destFolder)) {
+            mkdirSync(destFolder, { recursive: true });
+          }
+
+          // Write all files to destination
+          for (const file of req.files) {
+            // Write NC file
+            const ncPath = join(destFolder, file.filename);
+            writeFileSync(ncPath, file.ncContent, 'utf8');
+
+            // Write NESTPICK file if provided
+            if (file.nestpickContent) {
+              const nestpickExt = '.nsp';
+              const baseNoExt = basename(file.filename, extname(file.filename));
+              const nestpickPath = join(destFolder, `${baseNoExt}${nestpickExt}`);
+              writeFileSync(nestpickPath, file.nestpickContent, 'utf8');
+            }
+
+            // Write label images if provided
+            if (file.labelImages) {
+              for (const [partNumber, dataUrl] of Object.entries(file.labelImages)) {
+                if (!dataUrl) continue;
+                const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+                if (match) {
+                  const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
+                  const base64Data = match[2];
+                  const baseNoExt = basename(file.filename, extname(file.filename));
+                  const labelPath = join(destFolder, `${baseNoExt}_${partNumber}.${ext}`);
+                  writeFileSync(labelPath, Buffer.from(base64Data, 'base64'));
+                }
               }
             }
           }
         }
 
+        const finalDest = canMoveSource ? (existsSync(destFolder) ? join(processedJobsRoot, `${req.folderName}_${Date.now()}`) : destFolder) : destFolder;
+
         logger.info(
-          { destFolder, fileCount: req.files.length },
-          'NC-Cat submit-validation: files written to destination'
+          { destFolder: finalDest, fileCount: req.files.length, moveMode: canMoveSource },
+          'NC-Cat submit-validation: files processed to destination'
         );
 
         // Process each file entry and create job + nc_stats
@@ -721,11 +1171,13 @@ export function registerNcCatalystIpc() {
             0
           );
 
+          const estimatedRuntimeSeconds = Number.isFinite(fileEntry.ncEstRuntime) ? fileEntry.ncEstRuntime : null;
+
           // Upsert nc_stats with MES data
           try {
             await upsertNcStats({
               jobKey,
-              ncEstRuntime: Math.round(fileEntry.ncEstRuntime),
+              ncEstRuntime: estimatedRuntimeSeconds != null ? Math.round(estimatedRuntimeSeconds) : null,
               yieldPercentage: fileEntry.yieldPercentage,
               wasteOffcutM2: fileEntry.wasteOffcutM2,
               wasteOffcutDustM3: fileEntry.wasteOffcutDustM3,
@@ -1026,14 +1478,11 @@ export function registerNcCatalystIpc() {
 
   // Handle auth state updates from NC-Cat (NC-Cat pushes updates)
   ipcMain.on('nc-catalyst:auth:stateUpdate', (_event, state: SubscriptionAuthState) => {
-    logger.debug({ authenticated: state.authenticated, status: state.subscriptionStatus }, 'Auth state update received from NC-Cat');
     cachedSubscriptionAuthState = state;
+    logNcCatAuthStateIfChanged('update', state);
 
     // Broadcast to all NestWatcher renderer windows
-    const mainWindows = BrowserWindow.getAllWindows().filter(
-      (w) => w !== ncCatWin && w !== ncCatBackgroundWin
-    );
-
+    const mainWindows = BrowserWindow.getAllWindows().filter((w) => w !== ncCatWin && w !== ncCatBackgroundWin);
     for (const win of mainWindows) {
       if (!win.isDestroyed()) {
         win.webContents.send('nc-catalyst:auth:stateChanged', state);
@@ -1041,11 +1490,13 @@ export function registerNcCatalystIpc() {
     }
   });
 
+
   // Handle auth state response from NC-Cat (response to our request)
   ipcMain.on('nc-catalyst:auth:stateResponse', (_event, state: SubscriptionAuthState) => {
-    logger.debug({ authenticated: state.authenticated, status: state.subscriptionStatus }, 'Auth state response received from NC-Cat');
     cachedSubscriptionAuthState = state;
+    logNcCatAuthStateIfChanged('response', state);
   });
+
 
   // Forward login request to NC-Cat
   registerResultHandler<{ success: boolean; state?: SubscriptionAuthState; error?: string }>(

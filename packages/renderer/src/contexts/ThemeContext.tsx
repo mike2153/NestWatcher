@@ -1,10 +1,10 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
-type Theme = 'dark' | 'light';
+export type Theme = 'dark' | 'sunset' | 'forest' | 'supabase' | 'nccat-light';
 
 interface ThemeContextType {
   theme: Theme;
-  toggleTheme: () => void;
+  toggleTheme: () => void; 
   setTheme: (theme: Theme) => void;
 }
 
@@ -17,8 +17,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // Check localStorage for saved preference
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(THEME_STORAGE_KEY);
-      if (saved === 'light' || saved === 'dark') {
-        return saved;
+      if (['dark', 'sunset', 'forest', 'supabase', 'nccat-light'].includes(saved as string)) {
+        return saved as Theme;
       }
     }
     return 'dark'; // Default to dark theme
@@ -27,15 +27,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Apply theme class to document
     const root = document.documentElement;
-    root.classList.remove('light', 'dark');
+    root.classList.remove('dark', 'sunset', 'forest', 'supabase', 'nccat-light');
     root.classList.add(theme);
-
-    // Persist to localStorage
     localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
   const toggleTheme = () => {
-    setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark'));
+    setThemeState((prev) => {
+      // Flip between Light and the default dark theme.
+      if (prev === 'dark') return 'nccat-light';
+      return 'dark';
+    });
   };
 
   const setTheme = (newTheme: Theme) => {

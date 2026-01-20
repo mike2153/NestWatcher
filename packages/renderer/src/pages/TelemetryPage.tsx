@@ -128,7 +128,7 @@ export function TelemetryPage() {
     const dataset = buildChartData(seconds);
     const total = dataset.reduce((acc, d) => acc + d.value, 0);
     return (
-      <div className="border rounded p-3">
+      <div className="border rounded p-3 bg-[var(--card)]">
         <div className="text-sm font-medium mb-2">{name}</div>
         <div className="w-full h-96">
           <ResponsiveContainer>
@@ -161,7 +161,7 @@ export function TelemetryPage() {
   return (
     <div className="p-4 space-y-3">
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 border rounded p-3 bg-[var(--card)]">
         <label className="text-sm flex flex-col gap-1">
           <span>From</span>
           <input
@@ -226,7 +226,7 @@ export function TelemetryPage() {
       )}
 
       {!onlyOne && (
-        <div className="border rounded p-4">
+        <div className="border rounded p-4 bg-[var(--card)]">
           <div className="text-sm font-medium mb-2">Aggregated</div>
           <div className="w-full h-[500px]">
             <ResponsiveContainer>

@@ -1,0 +1,52 @@
+flowchart TD
+  Programmer[Programmer] -->|Copies job folder| JobsRoot[Jobs folder jobsRoot]
+
+  JobsRoot --> JobsWatcher[NestWatcher watches jobsRoot]
+  JobsWatcher --> Stable[Wait for copy to finish]
+  Stable --> Validate[Validate NC files with NC Cat]
+
+  Validate --> Decision{Validation result}
+  Decision -->|Errors| QuarantineRoot[Quarantine folder quarantineRoot]
+  Decision -->|Pass or warnings| ProcessedRoot[Processed Jobs folder processedJobsRoot]
+
+  ProcessedRoot --> Ingest[Ingest scans processedJobsRoot]
+  Ingest --> DBPending[Create or update job rows in Postgres]
+  DBPending --> Pending[Job status is Pending]
+
+  Pending -->|Operator clicks Add To Worklist| Stage[Stage job to machine]
+  Stage --> R2R[Copy files to Machine Ready To Run ap_jobfolder]
+  Stage --> Staged[Update job status to Staged]
+
+  Stage --> GrundnerRequest[Write order_saw.csv]
+  GrundnerRequest --> GrundnerFolder[Grundner folder grundnerFolderPath]
+  GrundnerFolder --> GrundnerReply[Grundner writes order_saw.erl]
+  GrundnerReply --> LockDecision{Reply matches request}
+  LockDecision -->|Yes| Locked[Lock job and clear Pre reserve]
+  LockDecision -->|No| LockFailed[Show warning and do not lock]
+
+  R2R --> AutoPAC[AutoPAC runs job]
+
+  AutoPAC -->|Drops load finish CSV| AutoPacCsvDir[AutoPAC CSV folder autoPacCsvDir]
+  AutoPAC -->|Drops label finish CSV| AutoPacCsvDir
+  AutoPAC -->|Drops cnc finish CSV| AutoPacCsvDir
+
+  AutoPacCsvDir --> AutoPacWatcher[NestWatcher watches autoPacCsvDir]
+  AutoPacWatcher --> Parse[Read CSV and find job base names]
+
+  Parse --> LoadFinish[Update status to Load finished]
+  LoadFinish --> Unlock[Clear lock on Load finished]
+
+  Parse --> LabelFinish[Update status to Label finished]
+
+  Parse --> CncFinish[Update status to CNC finished]
+
+  CncFinish -->|If Nestpick enabled| NestpickForward[Write Nestpick.csv]
+  NestpickForward --> NestpickInbox[Nestpick inbox nestpickFolder]
+
+  NestpickInbox --> NestpickRobot[Nestpick robot]
+  NestpickRobot -->|Drops processed CSV| NestpickProcessed[nestpickFolder processed]
+  NestpickProcessed --> NestpickWatcher[NestWatcher watches processed]
+  NestpickWatcher --> Complete[Update status to Nestpick complete]
+  Complete --> NestpickArchive[nestpickFolder archive]
+
+  Complete -->|Optional| Archive[Archive files archiveRoot]

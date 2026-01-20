@@ -201,7 +201,26 @@ class RotatingFileStream extends Writable {
         const errMsg = (e && typeof e === 'object' && 'message' in (e as Record<string, unknown>) && typeof (e as { message?: unknown }).message === 'string')
           ? ` - ${(e as { message: string }).message}`
           : '';
-        line = `${levelLabel} ${proc} | ${hhmmss} ${day} ${mon} | ${message}${errMsg}`;
+
+        const detailParts: string[] = [];
+        const addDetail = (key: string, value: unknown) => {
+          if (value == null) return;
+          if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') return;
+
+          let text = String(value);
+          text = text.replace(/[\r\n\t]+/g, ' ').trim();
+          if (!text) return;
+
+          const maxValueLen = 260;
+          if (text.length > maxValueLen) text = `${text.slice(0, maxValueLen)}…`;
+          detailParts.push(`${key}=${text}`);
+        };
+
+        addDetail('jobFolder', parsed['jobFolder']);
+        addDetail('ncFilePath', parsed['ncFilePath']);
+
+        const details = detailParts.length ? ` | ${detailParts.join(' | ')}` : '';
+        line = `${levelLabel} ${proc} | ${hhmmss} ${day} ${mon} | ${message}${errMsg}${details}`;
       } catch {
         // Fallback: write raw text if parsing fails
         line = buffer.toString('utf8');
@@ -293,6 +312,28 @@ class CleanConsoleStream extends Writable {
       if (logEntry.err?.message) {
         message += ` - ${logEntry.err.message}`;
       }
+
+      const detailParts: string[] = [];
+      const addDetail = (key: string, value: unknown) => {
+        if (value == null) return;
+        if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') return;
+
+        let text = String(value);
+        text = text.replace(/[\r\n\t]+/g, ' ').trim();
+        if (!text) return;
+
+        const maxValueLen = 260;
+        if (text.length > maxValueLen) text = `${text.slice(0, maxValueLen)}…`;
+        detailParts.push(`${key}=${text}`);
+      };
+
+      addDetail('jobFolder', logEntry['jobFolder']);
+      addDetail('ncFilePath', logEntry['ncFilePath']);
+
+      if (detailParts.length) {
+        message += ` | ${detailParts.join(' | ')}`;
+      }
+
       // Include level prefix for console visibility
       console.log(`${levelLabel} ${message}`);
       callback();

@@ -7,7 +7,7 @@ function formatDate(value: string | null | undefined) {
   if (!value) return "";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "";
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const day = d.getDate();
   const mon = months[d.getMonth()];
   const year = d.getFullYear();
@@ -206,12 +206,12 @@ export function HistoryPage() {
     <div className="space-y-4 w-full">
       <div className="flex items-center justify-end gap-3">
         <div className="text-sm text-muted-foreground">{loading ? "Loading..." : `${rows.length} completed jobs`}</div>
-        <button className="border rounded px-3 py-1 text-sm" onClick={fetchHistory} disabled={loading}>
+        <Button size="sm" onClick={fetchHistory} disabled={loading}>
           Refresh
-        </button>
+        </Button>
       </div>
 
-      <div className="flex flex-wrap gap-3 items-end border rounded p-3">
+      <div className="flex flex-wrap gap-3 items-end border rounded p-3 bg-[var(--card)]">
         <label className="text-sm flex flex-col gap-1">
           <span>Search</span>
           <input
@@ -277,14 +277,14 @@ export function HistoryPage() {
         </div>
       </div>
 
-      
+
 
       {error && (
         <div className="border border-red-300 bg-red-50 text-red-700 text-sm px-3 py-2 rounded">{error}</div>
       )}
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-        <div className="border rounded bg-table text-[var(--table-text)] h-[calc(100vh-250px)] overflow-y-auto">
+        <div className="bg-[var(--table-bg)] text-[var(--table-text)] h-[calc(100vh-250px)] overflow-y-auto">
           <Table className="table-fixed">
             <TableHeader>
               <TableRow>
@@ -301,7 +301,7 @@ export function HistoryPage() {
                 return (
                   <TableRow
                     key={row.key}
-                    className={isActive ? '[background:var(--table-selected-bg)]' : 'hover:[background:var(--table-hover-bg)]'}
+                    className={isActive ? '!bg-[var(--accent-blue-subtle)]' : ''}
                     onClick={() => setSelectedKey(row.key)}
                   >
                     <TableCell className="px-2 py-2 truncate">{row.folder ?? ''}</TableCell>
@@ -320,7 +320,7 @@ export function HistoryPage() {
           </Table>
         </div>
 
-        <div className="rounded border bg-background shadow-lg p-4 space-y-3 h-[calc(100vh-250px)] overflow-y-auto">
+        <div className="rounded border bg-card text-card-foreground shadow-lg p-4 space-y-3 h-[calc(100vh-250px)] overflow-y-auto">
           {!selectedRow && <div className="text-sm text-muted-foreground">Select a job to view its timeline.</div>}
           {selectedRow && (
             <>
@@ -341,7 +341,7 @@ export function HistoryPage() {
                   <ul className="space-y-3">
                     {timelineItems.map((item) => (
                       <li key={item.id} className="relative pl-5">
-                        <span className="absolute left-0 top-2 h-2 w-2 rounded-full bg-primary" />
+                        <span className="absolute left-0 top-2 size-2 rounded-full bg-emerald-500" />
                         <div className="text-xs text-muted-foreground">{item.at ? formatDate(item.at) : "No timestamp"}</div>
                         <div className="text-sm font-medium">{item.label}</div>
                         {item.description && <div className="text-xs text-muted-foreground">{item.description}</div>}
