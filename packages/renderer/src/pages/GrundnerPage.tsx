@@ -248,7 +248,7 @@ export function GrundnerPage() {
         accessorKey: 'materialNumber',
         header: 'Material #',
         cell: (ctx) => ctx.getValue<number | null>() ?? '',
-        meta: { widthPercent: GRUNDNER_COL_PCT.materialNumber, minWidthPx:80 }
+        meta: { widthPercent: GRUNDNER_COL_PCT.materialNumber, minWidthPx: 80 }
       },
       {
         id: 'customerId',

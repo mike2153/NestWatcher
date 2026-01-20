@@ -113,21 +113,7 @@ export function DatabaseSettings() {
 
   return (
     <form onSubmit={handleSubmit(onSave)} className="space-y-6">
-      {/* Status Bar */}
-      {dbStatus && (
-        <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-md">
-          <span
-            aria-label={dbStatus.online ? 'Database online' : dbStatus.error ? 'Database offline' : 'Database checking'}
-            className={`inline-block w-2 h-2 rounded-full motion-reduce:animate-none ${dbStatus.online ? 'bg-emerald-500 animate-pulse' : dbStatus.error ? 'bg-red-500 animate-pulse' : 'bg-muted-foreground'}`}
-          />
-          <span className={`text-sm font-medium ${statusClass}`}>{statusLabel}</span>
-          {dbStatus.online && dbStatus.latencyMs !== undefined && (
-            <span className="text-sm text-muted-foreground">({dbStatus.latencyMs}ms)</span>
-          )}
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
           <label className="block text-sm font-medium mb-1">Host</label>
           <input
@@ -213,6 +199,21 @@ export function DatabaseSettings() {
         <Button type="submit" size="sm" disabled={isSubmitting}>
           Save Settings
         </Button>
+
+        {dbStatus ? (
+          <div className="flex items-center gap-2">
+            <span
+              aria-label={dbStatus.online ? 'Database online' : dbStatus.error ? 'Database offline' : 'Database checking'}
+              className={`inline-block w-2 h-2 rounded-full motion-reduce:animate-none ${
+                dbStatus.online ? 'bg-emerald-500 animate-pulse' : dbStatus.error ? 'bg-red-500 animate-pulse' : 'bg-muted-foreground'
+              }`}
+            />
+            <span className={`text-sm font-medium ${statusClass}`}>{statusLabel}</span>
+            {dbStatus.online && dbStatus.latencyMs !== undefined && (
+              <span className="text-sm text-muted-foreground">({dbStatus.latencyMs}ms)</span>
+            )}
+          </div>
+        ) : null}
 
         {testResult.status !== 'idle' && (
           <span className={`text-sm ${

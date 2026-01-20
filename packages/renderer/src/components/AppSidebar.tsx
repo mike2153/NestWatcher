@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Router, History, Settings, Layers, BellRing, Gauge, ListCheck, AlignVerticalJustifyEnd, MessageSquare, ShoppingCart, UserRound, LogOut, KeyRound, Rocket } from 'lucide-react';
+import { LayoutDashboard, Router, History, Settings, Layers, BellRing, Gauge, ListCheck, AlignVerticalJustifyEnd, MessageSquare, ShoppingCart, UserRound, LogOut, Rocket, Fan } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -13,12 +13,13 @@ import { cn } from '@/utils/cn';
 import { SettingsModal } from './SettingsModal';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { useAuth } from '@/contexts/AuthContext';
-import { useSubscriptionAuth } from '@/contexts/SubscriptionAuthContext';
+import woodtronLogo from '@/assets/woodtron.png';
+import type { DbStatus } from '../../../shared/src';
 
 const nav = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/jobs', label: 'Jobs', icon: ListCheck },
-  { to: '/router', label: 'Router', icon: Router },
+  { to: '/router', label: 'Router', icon: Fan },
   { to: '/history', label: 'History', icon: History },
   { to: '/grundner', label: 'Grundner', icon: AlignVerticalJustifyEnd },
   { to: '/allocated-material', label: 'Allocated', icon: Layers },
@@ -28,11 +29,19 @@ const nav = [
   { to: '/cnc-alarms', label: 'CNC Alarms', icon: BellRing },
 ];
 
+const sidebarItemBase =
+  'flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0';
+const sidebarItemCollapsible = 'group-data-[collapsible=icon]/sidebar-wrapper:justify-center group-data-[collapsible=icon]/sidebar-wrapper:px-2';
+// Match table row hover/selected highlight color across themes.
+const sidebarItemInactive = 'text-[var(--muted-foreground)] hover:bg-[var(--accent-blue-subtle)] hover:text-[var(--foreground)]';
+const sidebarItemActive = 'bg-[var(--primary)] text-[var(--primary-foreground)]';
+
 export function AppSidebar() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const { session, requireLogin, logout } = useAuth();
-  const { state: subscriptionState, logout: subscriptionLogout } = useSubscriptionAuth();
+  const [dbOfflineTooLong, setDbOfflineTooLong] = useState(false);
+  const dbOfflineTimerRef = useRef<number | null>(null);
 
   const openNcCatSignIn = useCallback(async () => {
     const res = await window.api.ncCatalyst.open();
@@ -41,19 +50,6 @@ export function AppSidebar() {
       console.error('Failed to open NC Catalyst:', res.error.message);
     }
   }, []);
-
-  const handleSubscriptionSignOut = useCallback(async () => {
-    await subscriptionLogout();
-  }, [subscriptionLogout]);
-
-  const canManageNcCatalystSubscription = useMemo(() => {
-    if (!session) return false;
-    if (session.role === 'admin') return true;
-    if (!subscriptionState?.authenticated) return true;
-    if (!subscriptionState.displayName) return false;
-    const normalize = (v: string) => v.trim().toLowerCase().replace(/\s+/g, ' ');
-    return normalize(session.displayName) === normalize(subscriptionState.displayName);
-  }, [session, subscriptionState?.authenticated, subscriptionState?.displayName]);
 
   // Note: We don't automatically close NC-Cat after sign-in from AppSidebar
   // because the user may want to use NC-Cat, not just sign in.
@@ -81,13 +77,58 @@ export function AppSidebar() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleDbStatus = (status: DbStatus) => {
+      if (status.online) {
+        setDbOfflineTooLong(false);
+        if (dbOfflineTimerRef.current != null) {
+          window.clearTimeout(dbOfflineTimerRef.current);
+          dbOfflineTimerRef.current = null;
+        }
+        return;
+      }
+
+      // Keep the dot green for the first 5 seconds of an outage, then turn red.
+      if (dbOfflineTimerRef.current == null) {
+        dbOfflineTimerRef.current = window.setTimeout(() => {
+          dbOfflineTimerRef.current = null;
+          setDbOfflineTooLong(true);
+        }, 5000);
+      }
+    };
+
+    let cancelled = false;
+    window.api.db.getStatus()
+      .then((res) => {
+        if (cancelled) return;
+        if (res.ok) handleDbStatus(res.value);
+      })
+      .catch(() => {});
+
+    const unsubscribe = window.api.db.subscribeStatus((status) => handleDbStatus(status));
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+      if (dbOfflineTimerRef.current != null) {
+        window.clearTimeout(dbOfflineTimerRef.current);
+        dbOfflineTimerRef.current = null;
+      }
+    };
+  }, []);
+
   return (
     <>
       <Sidebar>
         <SidebarHeader>
-          <div className="px-3 font-semibold text-xl">
+          <div className="px-3 font-semibold text-xl flex items-center gap-2 group-data-[collapsible=icon]/sidebar-wrapper:justify-center">
+            <img
+              src={woodtronLogo}
+              alt="Woodtron"
+              className="h-7 w-7 shrink-0"
+              draggable={false}
+            />
             <span className="group-data-[collapsible=icon]/sidebar-wrapper:hidden">Woodtron</span>
-            <span className="hidden group-data-[collapsible=icon]/sidebar-wrapper:inline">W</span>
           </div>
         </SidebarHeader>
         <SidebarContent>
@@ -100,14 +141,8 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.to}>
                   <NavLink
                     to={item.to}
-                    className={cn(
-                      'flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
-                      'group-data-[collapsible=icon]/sidebar-wrapper:justify-center group-data-[collapsible=icon]/sidebar-wrapper:px-2'
-                    )}
-                    style={({ isActive }) =>
-                      isActive
-                        ? { backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }
-                        : { color: 'var(--muted-foreground)' }
+                    className={({ isActive }) =>
+                      cn(sidebarItemBase, sidebarItemCollapsible, isActive ? sidebarItemActive : sidebarItemInactive)
                     }
                     title={showBadge ? `${item.label} (${badgeValue})` : item.label}
                   >
@@ -127,21 +162,8 @@ export function AppSidebar() {
         </SidebarContent>
         <SidebarFooter>
           {/* Subscription Auth Status */}
-          <div className="px-4 pb-2 text-xs text-muted-foreground space-y-1 group-data-[collapsible=icon]/sidebar-wrapper:hidden">
-            <div>
-              Signed in as{' '}
-              <span className="font-medium text-[var(--foreground)]">
-                {session?.displayName || session?.username || 'user'}
-              </span>
-            </div>
-            <div>
-              {subscriptionState?.authenticated
-                ? `NC Catalyst signed in as ${(() => {
-                  const raw = subscriptionState.displayName || subscriptionState.email || 'user';
-                  return raw.length > 15 ? `${raw.slice(0, 14)}…` : raw;
-                })()}`
-                : 'NC Catalyst not signed in'}
-            </div>
+          <div className="group-data-[collapsible=icon]/sidebar-wrapper:hidden">
+            
           </div>
           <SidebarMenu>
             {/* Open NC-Cat window */}
@@ -149,47 +171,15 @@ export function AppSidebar() {
                 <button
                   onClick={openNcCatSignIn}
                   className={cn(
-                    'flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
-                    'group-data-[collapsible=icon]/sidebar-wrapper:justify-center group-data-[collapsible=icon]/sidebar-wrapper:px-2'
+                    sidebarItemBase,
+                    sidebarItemCollapsible,
+                    sidebarItemInactive
                   )}
-                  style={{ color: 'var(--muted-foreground)' }}
                   title="Open NC Catalyst"
                 >
                   <Rocket />
                   <span className="truncate group-data-[collapsible=icon]/sidebar-wrapper:hidden">Open NC Catalyst</span>
                 </button>
-            </SidebarMenuItem>
-            {/* Subscription Sign In / Sign Out */}
-            <SidebarMenuItem>
-              {subscriptionState?.authenticated ? (
-                <button
-                  onClick={handleSubscriptionSignOut}
-                  disabled={!canManageNcCatalystSubscription}
-                  className={cn(
-                    'flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans disabled:opacity-60 disabled:hover:bg-transparent',
-                    'group-data-[collapsible=icon]/sidebar-wrapper:justify-center group-data-[collapsible=icon]/sidebar-wrapper:px-2'
-                  )}
-
-                  style={{ color: 'var(--muted-foreground)' }}
-                  title={canManageNcCatalystSubscription ? 'Sign out of NC Catalyst subscription' : 'Only the subscription owner or an admin can sign out'}
-                >
-                  <LogOut />
-                  <span className="truncate group-data-[collapsible=icon]/sidebar-wrapper:hidden">Sign Out</span>
-                </button>
-              ) : (
-                <button
-                  onClick={openNcCatSignIn}
-                  className={cn(
-                    'flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
-                    'group-data-[collapsible=icon]/sidebar-wrapper:justify-center group-data-[collapsible=icon]/sidebar-wrapper:px-2'
-                  )}
-                  style={{ color: 'var(--muted-foreground)' }}
-                  title="Sign in to NC Catalyst"
-                >
-                  <KeyRound />
-                  <span className="truncate group-data-[collapsible=icon]/sidebar-wrapper:hidden">Sign In</span>
-                </button>
-              )}
             </SidebarMenuItem>
             <SidebarMenuItem>
               <ThemeSwitcher />
@@ -199,10 +189,10 @@ export function AppSidebar() {
                 <button
                   onClick={() => setShowSettings(true)}
                   className={cn(
-                    'flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
-                    'group-data-[collapsible=icon]/sidebar-wrapper:justify-center group-data-[collapsible=icon]/sidebar-wrapper:px-2'
+                    sidebarItemBase,
+                    sidebarItemCollapsible,
+                    sidebarItemInactive
                   )}
-                  style={{ color: 'var(--muted-foreground)' }}
                   title="Settings"
                 >
                   <Settings />
@@ -210,15 +200,32 @@ export function AppSidebar() {
                 </button>
               </SidebarMenuItem>
             ) : null}
-
+            <div className={cn(sidebarItemBase, 'cursor-default select-none text-[var(--muted-foreground)]')}>
+              {session ? (
+                <span
+                  aria-label={dbOfflineTooLong ? 'Database disconnected' : 'Authenticated'}
+                  title={dbOfflineTooLong ? 'Database disconnected' : 'Authenticated'}
+                  className={cn(
+                    'inline-block size-2 rounded-full motion-reduce:animate-none animate-pulse',
+                    dbOfflineTooLong ? 'bg-red-500' : 'bg-emerald-500'
+                  )}
+                  style={{
+                    boxShadow: dbOfflineTooLong
+                      ? '0 0 10px rgba(239, 68, 68, 0.9)'
+                      : '0 0 10px rgba(16, 185, 129, 0.9)'
+                  }}
+                />
+              ) : null}
+              <span>Signed in as {session?.displayName || session?.username || 'user'}</span>
+            </div>
             <SidebarMenuItem>
               <button
                 onClick={() => (session ? logout() : requireLogin())}
                 className={cn(
-                  'flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors hover:bg-muted hover:text-foreground font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
-                  'group-data-[collapsible=icon]/sidebar-wrapper:justify-center group-data-[collapsible=icon]/sidebar-wrapper:px-2'
+                  sidebarItemBase,
+                  sidebarItemCollapsible,
+                  sidebarItemInactive
                 )}
-                style={{ color: 'var(--muted-foreground)' }}
                 title={session ? 'Logout' : 'Login'}
               >
                 {session ? <LogOut /> : <UserRound />}

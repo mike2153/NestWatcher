@@ -28,8 +28,8 @@ const DEFAULT_ORDERING: OrderingState = { includeReserved: false };
 type ColumnKey = keyof GrundnerState['tableColumns'];
 const COLUMN_LABELS: Array<{ key: ColumnKey; label: string }> = [
   { key: 'typeData', label: 'Type' },
-  { key: 'materialName', label: 'material name' },
-  { key: 'materialNumber', label: 'material number' },
+  { key: 'materialName', label: 'Material Name' },
+  { key: 'materialNumber', label: 'Material Number' },
   { key: 'customerId', label: 'Customer ID' },
   { key: 'lengthMm', label: 'Length' },
   { key: 'widthMm', label: 'Width' },
@@ -185,10 +185,14 @@ export function GrundnerSettings() {
     })();
   }, []);
 
-  const visibleKeys = COLUMN_LABELS
-    .map((c) => c.key)
-    .filter((key) => tableColumns[key].visible)
-    .sort((a, b) => tableColumns[a].order - tableColumns[b].order);
+  const visibleKeys = useMemo(
+    () =>
+      COLUMN_LABELS
+        .map((c) => c.key)
+        .filter((key) => tableColumns[key].visible)
+        .sort((a, b) => tableColumns[a].order - tableColumns[b].order),
+    [tableColumns]
+  );
 
   const previewTemplate = useMemo(() => buildPreviewTemplate(visibleKeys, tableColumns), [tableColumns, visibleKeys]);
 
@@ -248,7 +252,7 @@ export function GrundnerSettings() {
 
         const raw = res.value.csv;
         const withoutBom = raw.startsWith('\uFEFF') ? raw.slice(1) : raw;
-        setPreviewCsv(withoutBom);
+        setPreviewCsv((prev) => (prev === withoutBom ? prev : withoutBom));
         setPreviewLoading(false);
       })().catch((err) => {
         if (cancelled) return;
@@ -368,7 +372,7 @@ export function GrundnerSettings() {
     <div className="space-y-6">
       {/* Grundner Settings Section */}
       <div className="space-y-4">
-        <h4 className="text-sm font-semibold text-foreground/80 uppercase tracking-wide">Grundner Settings</h4>
+        <h4 className="text-base font-semibold text-foreground/80 tracking-wide">Grundner Settings</h4>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
           <div>
@@ -390,8 +394,8 @@ export function GrundnerSettings() {
 
       {/* Grundner Table Columns */}
       <div className="space-y-4">
-        <h4 className="text-sm font-semibold text-foreground/80 uppercase tracking-wide">Grundner Table Columns</h4>
-        <p className="text-xs text-muted-foreground">
+        <h4 className="text-base font-semibold text-foreground/80 tracking-wide">Grundner Table Columns</h4>
+        <p className="text-sm text-muted-foreground">
           Tick which columns should be shown on the Grundner page. Drag rows to change the visible column order.
           This does not affect CSV export templates.
         </p>
@@ -499,9 +503,8 @@ export function GrundnerSettings() {
         </div>
       </div>
 
-      {/* Ordering Settings Section */}
       <div className="space-y-4">
-        <h4 className="text-sm font-semibold text-foreground/80 uppercase tracking-wide">Ordering Settings</h4>
+        <h4 className="text-base font-semibold text-foreground/80 tracking-wide">Ordering Settings</h4>
 
         <div className="flex items-start gap-3">
           <input

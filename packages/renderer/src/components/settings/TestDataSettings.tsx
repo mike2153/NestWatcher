@@ -115,7 +115,7 @@ export function TestDataSettings() {
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        <h4 className="text-sm font-semibold text-foreground/80 uppercase tracking-wide">Test Data</h4>
+        <h4 className="text-base font-semibold text-foreground/80 tracking-wide">Test Data</h4>
 
         <div>
           <label className="flex items-center gap-2 text-sm font-medium mb-1">

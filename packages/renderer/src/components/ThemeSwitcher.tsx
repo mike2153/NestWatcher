@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Palette, ChevronsUpDown } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { ThemeModal } from './ThemeModal';
+import { cn } from '@/utils/cn';
 
 export function ThemeSwitcher() {
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -20,14 +21,18 @@ export function ThemeSwitcher() {
         <>
             <button
                 onClick={() => setIsModalOpen(true)}
-                className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-lg pl-4 pr-3 text-left text-base font-medium transition-all duration-200 text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-accent)]/50 hover:text-[var(--sidebar-foreground)] outline-none group group-data-[collapsible=icon]/sidebar-wrapper:justify-center group-data-[collapsible=icon]/sidebar-wrapper:px-2"
+                className={cn(
+                    'flex h-10 w-full items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 text-left text-sm font-medium transition-colors font-sans [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
+                    'text-[var(--muted-foreground)] hover:bg-[var(--accent-blue-subtle)] hover:text-[var(--foreground)]',
+                    'group-data-[collapsible=icon]/sidebar-wrapper:justify-center group-data-[collapsible=icon]/sidebar-wrapper:px-2'
+                )}
                 title="Change theme"
             >
-                <Palette className="size-4 shrink-0 transition-colors" />
-                <span className="ml-2 flex-1 truncate text-base font-medium group-data-[collapsible=icon]/sidebar-wrapper:hidden">
+                <Palette className="transition-colors" />
+                <span className="flex-1 truncate group-data-[collapsible=icon]/sidebar-wrapper:hidden">
                     {themeLabels[theme] || 'Theme'}
                 </span>
-                <ChevronsUpDown className="ml-auto size-4 opacity-50 group-data-[collapsible=icon]/sidebar-wrapper:hidden" />
+                <ChevronsUpDown className="ml-auto group-data-[collapsible=icon]/sidebar-wrapper:hidden" />
             </button>
 
             <ThemeModal
@@ -37,4 +42,3 @@ export function ThemeSwitcher() {
         </>
     );
 }
-

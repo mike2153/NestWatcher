@@ -193,16 +193,17 @@ export async function addJobToWorklist(key: string, machineId: number, actorName
           validationReport: report
         };
       }
-    } else if (validationOutcome.skipped) {
+    } else if ('skipped' in validationOutcome && validationOutcome.skipped) {
       pushAppMessage(
         'ncCat.validationSkipped',
         { folderName: leaf, reason: validationOutcome.reason ?? 'Validation skipped' },
         { source: 'worklist' }
       );
     } else {
+      const validationError = 'error' in validationOutcome ? validationOutcome.error : null;
       pushAppMessage(
         'ncCat.validationUnavailable',
-        { folderName: leaf, error: validationOutcome.error ?? 'Validation failed' },
+        { folderName: leaf, error: validationError ?? 'Validation failed' },
         { source: 'worklist' }
       );
     }

@@ -176,10 +176,10 @@ export function FolderPathsSettings() {
 
           <div>
             <label className="block text-sm font-medium mb-1">
-              Processed Jobs Root <span className="text-destructive"></span>
+              Validated Jobs Folder <span className="text-destructive"></span>
             </label>
             <p className="text-xs text-muted-foreground mb-2">
-              Validated Jobs - Database Folder
+              All jobs that pass validation are moved here for production.
             </p>
             <div className="flex gap-2">
               <input
@@ -196,7 +196,7 @@ export function FolderPathsSettings() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Quarantine Root</label>
+            <label className="block text-sm font-medium mb-1">Quarantine Folder</label>
             <p className="text-xs text-muted-foreground mb-2">
               Folder where jobs with validation errors are moved for review.
             </p>
@@ -255,7 +255,7 @@ export function FolderPathsSettings() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Archive Root</label>
+            <label className="block text-sm font-medium mb-1">Archive Folder</label>
             <p className="text-xs text-muted-foreground mb-2">
               Optional. Jobs may be moved here after completion to keep the Processed Jobs folder clean.
             </p>

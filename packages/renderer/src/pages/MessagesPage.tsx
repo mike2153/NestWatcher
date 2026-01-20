@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { AppMessage } from '../../../shared/src';
+import { formatAuDateTime } from '@/utils/datetime';
 
 function formatTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  return formatAuDateTime(date);
 }
 
 const toneClasses: Record<AppMessage['tone'], string> = {
@@ -99,4 +100,3 @@ export function MessagesPage() {
     </div>
   );
 }
-

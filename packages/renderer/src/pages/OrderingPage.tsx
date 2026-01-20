@@ -8,6 +8,7 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table';
 import { GlobalTable } from '@/components/table/GlobalTable';
 import { Button } from '@/components/ui/button';
 import type { OrderingRow } from '../../../shared/src';
+import { formatAuDate, formatAuDateTime } from '@/utils/datetime';
 
 const ORDERING_COL_WIDTH = {
   typeData: 12,
@@ -26,9 +27,8 @@ type CommentDrafts = Record<string, string>;
 function formatOrderedAt(value: string): string | null {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  const datePart = date.toLocaleDateString();
-  const timePart = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  return `${datePart}, ${timePart}`;
+  // Keep it consistent with AU date formats.
+  return formatAuDateTime(date);
 }
 
 export function OrderingPage() {
@@ -313,7 +313,7 @@ export function OrderingPage() {
           </div>
           {generatedAt ? (
             <div className="text-xs text-muted-foreground">
-              Updated {new Date(generatedAt).toLocaleString()}
+              Updated {formatAuDate(new Date(generatedAt))}
             </div>
           ) : null}
         </div>

@@ -137,8 +137,14 @@ export function InventoryExportSettings() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    // React StrictMode runs effects twice in dev. Without a cancellation guard, the "first" async
+    // request can resolve after the user starts typing and overwrite their in-progress edits,
+    // which feels like the inputs are "locked" or "snapping back".
+    let cancelled = false;
     (async () => {
       const res = await window.api.settings.get();
+      if (cancelled) return;
+
       if (!res.ok) {
         setLoadState({ status: 'error', message: res.error.message });
         return;
@@ -150,6 +156,10 @@ export function InventoryExportSettings() {
       setFileNameUi(parsed.scheduled.fileName ?? '');
       setLoadState({ status: 'ready' });
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const validation = useMemo(() => InventoryExportSettingsSchema.safeParse(draft), [draft]);
@@ -312,8 +322,8 @@ export function InventoryExportSettings() {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <h4 className="text-sm font-semibold text-foreground/80 uppercase tracking-wide">Custom CSV Template</h4>
-        <p className="text-xs text-muted-foreground">
+        <h4 className="text-base font-semibold text-foreground/80 tracking-wide">Custom CSV Template</h4>
+        <p className="text-sm text-muted-foreground">
           This template controls the columns used by scheduled exports and by the &quot;Export Custom CSV&quot; button.
         </p>
       </div>
@@ -574,7 +584,7 @@ export function InventoryExportSettings() {
         </div>
 
         <div className="space-y-3 w-full">
-          <h5 className="text-sm font-semibold">Preview</h5>
+          <h5 className="text-base font-semibold">Preview</h5>
           <div className="rounded-md border border-border bg-muted/20 p-3">
             {previewLoading ? (
               <div className="text-sm text-muted-foreground">Generating preview...</div>
@@ -625,7 +635,7 @@ export function InventoryExportSettings() {
       </div>
  
        <div className="space-y-2 pt-2">
-        <h4 className="text-sm font-semibold text-foreground/80 uppercase tracking-wide">Scheduled Export</h4>
+        <h4 className="text-base font-semibold text-foreground/80  tracking-wide">Scheduled Export</h4>
         <p className="text-xs text-muted-foreground">
           When enabled, the app exports the custom template on a timer.
         </p>

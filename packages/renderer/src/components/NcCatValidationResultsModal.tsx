@@ -4,6 +4,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '../utils/cn';
+import { formatAuDateTime } from '@/utils/datetime';
 
 type NcCatValidationResultsModalProps = {
   open: boolean;
@@ -34,7 +35,7 @@ function StatusBadge({ status, label }: StatusBadgeProps) {
 function formatReportTimestamp(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString();
+  return formatAuDateTime(date);
 }
 
 type GroupedMessage = {
