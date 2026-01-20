@@ -17,6 +17,8 @@ type LoadState =
 const FIELD_OPTIONS: Array<{ value: InventoryExportFieldKey; label: string }> = [
   { value: 'typeData', label: 'Type' },
   { value: 'customerId', label: 'Customer ID' },
+  { value: 'materialName', label: 'Material Name' },
+  { value: 'materialNumber', label: 'Material Number' },
   { value: 'lengthMm', label: 'Length' },
   { value: 'widthMm', label: 'Width' },
   { value: 'thicknessMm', label: 'Thickness' },
@@ -26,6 +28,39 @@ const FIELD_OPTIONS: Array<{ value: InventoryExportFieldKey; label: string }> = 
   { value: 'stockAvailable', label: 'Available' },
   { value: 'lastUpdated', label: 'Last Updated' }
 ];
+
+const CUSTOM_FIELD_VALUE = '__custom__';
+
+function defaultHeaderForField(field: InventoryExportFieldKey): string {
+  switch (field) {
+    case 'typeData':
+      return 'type data';
+    case 'customerId':
+      return 'customer id';
+    case 'materialName':
+      return 'material name';
+    case 'materialNumber':
+      return 'material number';
+    case 'lengthMm':
+      return 'length';
+    case 'widthMm':
+      return 'width';
+    case 'thicknessMm':
+      return 'thickness';
+    case 'preReserved':
+      return 'pre reserved';
+    case 'stock':
+      return 'stock';
+    case 'reservedStock':
+      return 'reserved stock';
+    case 'stockAvailable':
+      return 'stock av';
+    case 'lastUpdated':
+      return 'last updated';
+    default:
+      return field;
+  }
+}
 
 function pathToLabel(path: Array<string | number>): string {
   if (!path.length) return 'settings';
@@ -333,12 +368,17 @@ export function InventoryExportSettings() {
                   <th className="p-2 w-8">On</th>
                   <th className="p-2 w-45">Column Name</th>
                   <th className="p-2 w-20">Maps To</th>
+                  <th className="p-2 w-45">Default Value</th>
                   <th className="p-2 w-10">Order</th>
+                  <th className="p-2 w-10">Remove</th>
                 </tr>
               </thead>
               <tbody>
                 {draft.template.columns.map((col, idx) => (
-                  <tr key={`${col.field}-${idx}`} className="border-t border-border">
+                  <tr
+                    key={`${col.kind}-${col.kind === 'field' ? col.field : 'custom'}-${idx}`}
+                    className="border-t border-border"
+                  >
                     <td className="p-2">
                       <input
                         type="checkbox"
@@ -355,8 +395,9 @@ export function InventoryExportSettings() {
                     </td>
                     <td className="p-2">
                       <input
-                        className="w-1/2 min-w-45 px-2 py-1 border border-border rounded-md bg-background"
-                        value={col.header}
+                        type="text"
+                        className="w-full min-w-45 px-2 py-1 border border-border rounded-md bg-background"
+                        value={col.header ?? ''}
                         onChange={(e) => {
                           const header = e.target.value;
                           setDraft((prev) => {
@@ -371,22 +412,79 @@ export function InventoryExportSettings() {
                     <td className="p-2">
                       <select
                         className="w-full min-w-20 px-2 py-1 border border-border rounded-md bg-background"
-                        value={col.field}
+                        value={col.kind === 'custom' ? CUSTOM_FIELD_VALUE : col.field}
                         onChange={(e) => {
-                          const field = e.target.value as InventoryExportFieldKey;
+                          const value = e.target.value;
                           setDraft((prev) => {
                             const nextCols = [...prev.template.columns];
-                            nextCols[idx] = { ...nextCols[idx], field };
+                            if (value === CUSTOM_FIELD_VALUE) {
+                              nextCols[idx] = {
+                                kind: 'custom',
+                                enabled: nextCols[idx].enabled,
+                                header: nextCols[idx].header,
+                                defaultValue: ''
+                              };
+                            } else {
+                              const field = value as InventoryExportFieldKey;
+                              nextCols[idx] = {
+                                kind: 'field',
+                                enabled: nextCols[idx].enabled,
+                                header: defaultHeaderForField(field),
+                                field
+                              };
+                            }
                             return { ...prev, template: { ...prev.template, columns: nextCols } };
                           });
                         }}
                       >
+                        <option value={CUSTOM_FIELD_VALUE}>Custom</option>
                         {FIELD_OPTIONS.map((opt) => (
                           <option key={opt.value} value={opt.value}>
                             {opt.label}
                           </option>
                         ))}
                       </select>
+                    </td>
+                    <td className="p-2">
+                      {col.kind === 'custom' ? (
+                        <input
+                          type="text"
+                          className="w-full min-w-45 px-2 py-1 border border-border rounded-md bg-background"
+                          value={col.defaultValue ?? ''}
+                          onChange={(e) => {
+                            const defaultValue = e.target.value;
+                            setDraft((prev) => {
+                              const nextCols = [...prev.template.columns];
+                              const current = nextCols[idx];
+                              if (current.kind !== 'custom') return prev;
+                              nextCols[idx] = { ...current, defaultValue };
+                              return { ...prev, template: { ...prev.template, columns: nextCols } };
+                            });
+                          }}
+                          placeholder="(blank)"
+                        />
+                      ) : col.kind === 'field' && col.field === 'lastUpdated' && col.enabled ? (
+                        <input
+                          type="text"
+                          className="w-full min-w-45 px-2 py-1 border border-border rounded-md bg-background"
+                          value={draft.template.lastUpdatedFormat ?? ''}
+                          onChange={(e) => {
+                            const lastUpdatedFormat = e.target.value;
+                            setDraft((prev) => ({
+                              ...prev,
+                              template: {
+                                ...prev.template,
+                                lastUpdatedFormat
+                              }
+                            }));
+                          }}
+                          placeholder="hh:mm dd.mm.yyyy"
+                          spellCheck={false}
+                          title="Format for Last Updated (tokens: hh mm ss dd yyyy yy)"
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </td>
                     <td className="p-2">
                       <div className="flex items-center gap-1">
@@ -412,10 +510,66 @@ export function InventoryExportSettings() {
                         </Button>
                       </div>
                     </td>
+                    <td className="p-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="destructive"
+                        className="h-7 px-2"
+                        onClick={() => {
+                          setDraft((prev) => {
+                            const nextCols = prev.template.columns.filter((_, i) => i !== idx);
+                            return { ...prev, template: { ...prev.template, columns: nextCols } };
+                          });
+                        }}
+                        title="Remove column"
+                      >
+                        Remove
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                setDraft((prev) => ({
+                  ...prev,
+                  template: {
+                    ...prev.template,
+                    columns: [
+                      ...prev.template.columns,
+                      { kind: 'custom', enabled: true, header: 'Custom', defaultValue: '' }
+                    ]
+                  }
+                }));
+              }}
+            >
+              Add Custom Column
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setDraft((prev) => ({
+                  ...prev,
+                  template: {
+                    ...prev.template,
+                    columns: [
+                      ...prev.template.columns,
+                      { kind: 'field', enabled: false, header: defaultHeaderForField('typeData'), field: 'typeData' }
+                    ]
+                  }
+                }));
+              }}
+            >
+              Add Field Column
+            </Button>
           </div>
         </div>
 

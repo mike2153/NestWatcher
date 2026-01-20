@@ -2122,66 +2122,48 @@ function cleanupPendingGrundnerConflicts(now = Date.now()) {
   }
 }
 
-function indexOfHeader(header: string[], candidates: string[]): number {
-  const lower = header.map((h) => stripCsvCell(h).toLowerCase());
-  for (const cand of candidates) {
-    const i = lower.findIndex((h) => h === cand.toLowerCase());
-    if (i !== -1) return i;
-  }
-  return -1;
-}
-
 function parseGrundnerCsv(raw: string): GrundnerCsvRow[] {
   const rows = parseCsvContent(raw);
   if (!rows.length) return [];
-  const header = rows[0];
-  const hasHeader = header.some((c) => /[A-Za-z]/.test(c));
-  const body = hasHeader ? rows.slice(1) : rows;
-
-  let idxType = -1,
-    idxCust = -1,
-    idxLen = -1,
-    idxWid = -1,
-    idxThk = -1,
-    idxStock = -1,
-    idxAvail = -1,
-    idxReserved = -1;
-  if (hasHeader) {
-    idxType = indexOfHeader(header, ['type_data', 'type']);
-    idxCust = indexOfHeader(header, ['customer_id', 'customer']);
-    idxLen = indexOfHeader(header, ['length_mm', 'length']);
-    idxWid = indexOfHeader(header, ['width_mm', 'width']);
-    idxThk = indexOfHeader(header, ['thickness_mm', 'thickness']);
-    idxStock = indexOfHeader(header, ['stock']);
-    idxAvail = indexOfHeader(header, ['stock_available', 'available']);
-    // CSV may label this as 'reserved stock' (with space) or underscores
-    idxReserved = indexOfHeader(header, ['reserved_stock', 'reserved stock', 'reserved']);
-  } else {
-    // Fallback positions if no header present
-    idxType = 0;
-    idxCust = 1;
-    idxLen = 3;
-    idxWid = 4;
-    idxThk = 5;
-    idxStock = 7;
-    idxAvail = 8;
-    // Grundner CSV spec: column 15 (1-based) => index 14 (0-based)
-    idxReserved = 14;
-  }
-
+  // Grundner stock.csv has no headers; all indices are 0-based.
+  // Format (semicolon-delimited):
+  //  0 type_data
+  //  1 material name
+  //  2 length
+  //  3 width
+  //  4 thickness
+  //  5 material number
+  //  6 stock
+  //  7 stock av
+  //  14 reserved stock
+  //  15 customer ID
   const out: GrundnerCsvRow[] = [];
-  for (const row of body) {
-    const typeData = normalizeNumber(row[idxType]);
-    const customerIdRaw = idxCust >= 0 ? stripCsvCell(row[idxCust]) : '';
+  for (const row of rows) {
+    const typeData = normalizeNumber(row[0]);
+    const materialNameRaw = stripCsvCell(row[1] ?? '');
+    const materialName = materialNameRaw ? materialNameRaw : null;
+    const materialNumber = normalizeNumber(row[5]);
+    const customerIdRaw = stripCsvCell(row[15] ?? '');
     const customerId = customerIdRaw ? customerIdRaw : null;
-    const lengthMm = normalizeNumber(row[idxLen]);
-    const widthMm = normalizeNumber(row[idxWid]);
-    const thicknessMm = normalizeNumber(row[idxThk]);
-    const stock = normalizeNumber(row[idxStock]);
-    const stockAvailable = normalizeNumber(row[idxAvail]);
-    const reservedStock = normalizeNumber(row[idxReserved]);
+    const lengthMm = normalizeNumber(row[2]);
+    const widthMm = normalizeNumber(row[3]);
+    const thicknessMm = normalizeNumber(row[4]);
+    const stock = normalizeNumber(row[6]);
+    const stockAvailable = normalizeNumber(row[7]);
+    const reservedStock = normalizeNumber(row[14]);
     if (typeData == null) continue;
-    out.push({ typeData, customerId, lengthMm, widthMm, thicknessMm, stock, stockAvailable, reservedStock });
+    out.push({
+      typeData,
+      customerId,
+      materialName,
+      materialNumber,
+      lengthMm,
+      widthMm,
+      thicknessMm,
+      stock,
+      stockAvailable,
+      reservedStock
+    });
   }
   return out;
 }

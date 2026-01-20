@@ -173,6 +173,8 @@ CREATE TABLE public.grundner (
     id integer NOT NULL,
     type_data integer NOT NULL,
     customer_id character varying(50),
+    material_name text,
+    material_number integer,
     length_mm integer,
     width_mm integer,
     thickness_mm integer,
@@ -1121,4 +1123,3 @@ ALTER TABLE ONLY public.ordering_status
 --
 -- PostgreSQL database dump complete
 --
-

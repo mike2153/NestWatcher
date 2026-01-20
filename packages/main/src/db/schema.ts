@@ -93,6 +93,8 @@ export const grundner = pgTable('grundner', {
   id: serial('id').primaryKey(),
   typeData: integer('type_data').notNull(),
   customerId: varchar('customer_id', { length: 50 }),
+  materialName: text('material_name'),
+  materialNumber: integer('material_number'),
   lengthMm: integer('length_mm'),
   widthMm: integer('width_mm'),
   thicknessMm: integer('thickness_mm'),

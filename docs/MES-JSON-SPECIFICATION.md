@@ -134,7 +134,7 @@ Each entry in the `files` array represents one processed NC file.
 
 ```json
 {
-  "ncRuntime": 245.67,
+  "ncEstRuntime": 245.67,
   "sheetLoadTime": 60,
   "partCount": 12,
   "yieldPercentage": 87.34
@@ -143,7 +143,7 @@ Each entry in the `files` array represents one processed NC file.
 
 | Field | Type | Unit | Description |
 |-------|------|------|-------------|
-| `ncRuntime` | Number | seconds | Estimated machining time for the NC program (2 decimal places) |
+| `ncEstRuntime` | Number | seconds | Estimated machining time for the NC program (2 decimal places) |
 | `sheetLoadTime` | Number | seconds | Fixed time allocated for loading a sheet onto the CNC machine (configurable in settings, default 60) |
 | `partCount` | Number | - | Total number of parts detected in the nest |
 | `yieldPercentage` | Number | % | Percentage of sheet area utilized by parts (2 decimal places) |
@@ -384,7 +384,7 @@ palletAdjustedVolumeM3 = (totalPartVolume / utilizationEfficiency%) / 1,000,000,
         "name": "18mm Laminate Oak",
         "sheetSize": { "x": 2800, "y": 1200, "z": 18 }
       },
-      "ncRuntime": 312.45,
+      "ncEstRuntime": 312.45,
       "sheetLoadTime": 60,
       "partCount": 8,
       "yieldPercentage": 82.34,

@@ -9,6 +9,8 @@ type GrundnerRowDb = {
   id: number;
   type_data: number | null;
   customer_id: string | null;
+  material_name: string | null;
+  material_number: number | null;
   length_mm: number | null;
   width_mm: number | null;
   thickness_mm: number | null;
@@ -30,6 +32,8 @@ function mapRow(row: GrundnerRowDb): GrundnerRow {
     id: row.id,
     typeData: row.type_data,
     customerId: row.customer_id,
+    materialName: row.material_name,
+    materialNumber: row.material_number,
     lengthMm: row.length_mm,
     widthMm: row.width_mm,
     thicknessMm: row.thickness_mm,
@@ -48,8 +52,10 @@ export async function listGrundner(req: GrundnerListReq) {
 
   if (filter.search && filter.search.trim()) {
     const search = `%${filter.search.trim()}%`;
-    params.push(search, search);
-    where.push(`(CAST(type_data AS TEXT) ILIKE $${params.length - 1} OR customer_id ILIKE $${params.length})`);
+    params.push(search);
+    where.push(
+      `(CAST(type_data AS TEXT) ILIKE $1 OR customer_id ILIKE $1 OR COALESCE(material_name, '') ILIKE $1 OR CAST(material_number AS TEXT) ILIKE $1)`
+    );
   }
   if (filter.onlyAvailable) {
     where.push('COALESCE(stock_available, 0) > 0');
@@ -69,7 +75,7 @@ export async function listGrundner(req: GrundnerListReq) {
   params.push(Math.min(Math.max(limit, 1), 500));
 
   const sql = `
-    SELECT id, type_data, customer_id, length_mm, width_mm, thickness_mm,
+    SELECT id, type_data, customer_id, material_name, material_number, length_mm, width_mm, thickness_mm,
            stock, stock_available, reserved_stock, pre_reserved, last_updated
     FROM public.grundner
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
@@ -85,7 +91,7 @@ export async function listGrundner(req: GrundnerListReq) {
 
 export async function listGrundnerAll(): Promise<GrundnerRow[]> {
   const sql = `
-    SELECT id, type_data, customer_id, length_mm, width_mm, thickness_mm,
+    SELECT id, type_data, customer_id, material_name, material_number, length_mm, width_mm, thickness_mm,
            stock, stock_available, reserved_stock, pre_reserved, last_updated
     FROM public.grundner
     ORDER BY type_data ASC, customer_id ASC NULLS LAST
@@ -102,7 +108,7 @@ export async function listGrundnerPreview(limit: number): Promise<GrundnerRow[]>
   const boundedLimit = Math.min(Math.max(Math.trunc(limit), 1), 50);
 
   const sql = `
-    SELECT id, type_data, customer_id, length_mm, width_mm, thickness_mm,
+    SELECT id, type_data, customer_id, material_name, material_number, length_mm, width_mm, thickness_mm,
            stock, stock_available, reserved_stock, pre_reserved, last_updated
     FROM public.grundner
     ORDER BY type_data ASC, customer_id ASC NULLS LAST
@@ -172,6 +178,8 @@ export async function resyncGrundnerReserved(id?: number) {
 export type GrundnerCsvRow = {
   typeData: number | null;
   customerId: string | null;
+  materialName: string | null;
+  materialNumber: number | null;
   lengthMm: number | null;
   widthMm: number | null;
   thicknessMm: number | null;
@@ -186,7 +194,18 @@ export async function upsertGrundnerInventory(
   rows: GrundnerCsvRow[]
 ): Promise<{ inserted: number; updated: number; deleted: number; changed: GrundnerChangedRow[] }> {
   if (!rows.length) return { inserted: 0, updated: 0, deleted: 0, changed: [] };
-  const columns = ['type_data', 'customer_id', 'length_mm', 'width_mm', 'thickness_mm', 'stock', 'stock_available', 'reserved_stock'] as const;
+  const columns = [
+    'type_data',
+    'customer_id',
+    'material_name',
+    'material_number',
+    'length_mm',
+    'width_mm',
+    'thickness_mm',
+    'stock',
+    'stock_available',
+    'reserved_stock'
+  ] as const;
   const chunkSize = 200; // avoid huge single statements
   let inserted = 0;
   let updated = 0;
@@ -202,6 +221,8 @@ export async function upsertGrundnerInventory(
         params.push(
           r.typeData,
           r.customerId,
+          r.materialName,
+          r.materialNumber,
           r.lengthMm,
           r.widthMm,
           r.thicknessMm,
@@ -217,6 +238,8 @@ export async function upsertGrundnerInventory(
         INSERT INTO public.grundner (${columns.join(', ')}, last_updated)
         VALUES ${tuples}
         ON CONFLICT (type_data, customer_id) DO UPDATE SET
+          material_name = EXCLUDED.material_name,
+          material_number = EXCLUDED.material_number,
           length_mm = EXCLUDED.length_mm,
           width_mm = EXCLUDED.width_mm,
           thickness_mm = EXCLUDED.thickness_mm,
@@ -225,6 +248,8 @@ export async function upsertGrundnerInventory(
           reserved_stock = EXCLUDED.reserved_stock,
           last_updated = now()
         WHERE (
+          COALESCE(grundner.material_name, '') IS DISTINCT FROM COALESCE(EXCLUDED.material_name, '') OR
+          COALESCE(grundner.material_number, -1) IS DISTINCT FROM COALESCE(EXCLUDED.material_number, -1) OR
           COALESCE(grundner.length_mm, -1) IS DISTINCT FROM EXCLUDED.length_mm OR
           COALESCE(grundner.width_mm, -1) IS DISTINCT FROM EXCLUDED.width_mm OR
           COALESCE(grundner.thickness_mm, -1) IS DISTINCT FROM EXCLUDED.thickness_mm OR

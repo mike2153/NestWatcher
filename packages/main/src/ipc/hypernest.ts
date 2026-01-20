@@ -1171,17 +1171,13 @@ export function registerNcCatalystIpc() {
             0
           );
 
-          const runtimeSeconds = Number.isFinite(fileEntry.ncEstRuntime)
-            ? fileEntry.ncEstRuntime
-            : Number.isFinite(fileEntry.ncRuntime)
-              ? fileEntry.ncRuntime
-              : null;
+          const estimatedRuntimeSeconds = Number.isFinite(fileEntry.ncEstRuntime) ? fileEntry.ncEstRuntime : null;
 
           // Upsert nc_stats with MES data
           try {
             await upsertNcStats({
               jobKey,
-              ncEstRuntime: runtimeSeconds != null ? Math.round(runtimeSeconds) : null,
+              ncEstRuntime: estimatedRuntimeSeconds != null ? Math.round(estimatedRuntimeSeconds) : null,
               yieldPercentage: fileEntry.yieldPercentage,
               wasteOffcutM2: fileEntry.wasteOffcutM2,
               wasteOffcutDustM3: fileEntry.wasteOffcutDustM3,

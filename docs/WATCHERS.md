@@ -140,6 +140,10 @@ On `CNC_FINISH`, it can also trigger Nestpick forwarding.
 - Imports `stock.csv` into `public.grundner`.
 - Triggers renderer refresh for Grundner and allocated material pages.
 
+**stock.csv notes**
+- The file is semicolon-delimited and has no header row.
+- NestWatcher expects `type_data` in column 1 and `customer ID` in column 16 (1-based indexing).
+
 ---
 
 ## 6. Sanity pollers

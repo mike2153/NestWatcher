@@ -156,8 +156,8 @@ export interface NcCatSubmitValidationReq {
       filename: string;
       folderName: string;
       folderPath: string;
-      // Runtime in seconds (may be float).
-      ncRuntime: number;
+      // Estimated runtime in seconds (may be float).
+      ncEstRuntime: number;
       yieldPercentage: number;
       usableOffcuts: Array<{ x: number; y: number; z: number }>;
       wasteOffcutM2: number;

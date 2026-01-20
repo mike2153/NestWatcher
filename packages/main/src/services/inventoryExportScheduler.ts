@@ -42,6 +42,8 @@ function hashInventory(rows: GrundnerRow[], settings: InventoryExportSettings): 
     h.update(String(row.id ?? ''), 'utf8'); h.update('\0', 'utf8');
     h.update(String(row.typeData ?? ''), 'utf8'); h.update('\0', 'utf8');
     h.update(String(row.customerId ?? ''), 'utf8'); h.update('\0', 'utf8');
+    h.update(String(row.materialName ?? ''), 'utf8'); h.update('\0', 'utf8');
+    h.update(String(row.materialNumber ?? ''), 'utf8'); h.update('\0', 'utf8');
     h.update(String(row.lengthMm ?? ''), 'utf8'); h.update('\0', 'utf8');
     h.update(String(row.widthMm ?? ''), 'utf8'); h.update('\0', 'utf8');
     h.update(String(row.thicknessMm ?? ''), 'utf8'); h.update('\0', 'utf8');

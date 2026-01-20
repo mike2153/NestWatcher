@@ -383,7 +383,7 @@ export interface MesFileData {
   folderName: string;
   folderPath: string;
 
-  ncRuntime: number;           // seconds
+  ncEstRuntime: number;        // seconds (estimated)
   yieldPercentage: number;     // %
 
   usableOffcuts: MesOffcut[];

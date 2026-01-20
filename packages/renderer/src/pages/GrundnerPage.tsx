@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/button';
 // Percent widths for Grundner table columns
 const GRUNDNER_COL_PCT = {
   typeData: 8,
+  materialName: 16,
+  materialNumber: 12,
   customerId: 16,
   lengthMm: 8,
   widthMm: 8,
@@ -56,6 +58,48 @@ export function GrundnerPage() {
   const lastLoadedAtRef = useRef<number>(0);
   const lastAutoRefreshAtRef = useRef<number>(0);
   const [pendingAutoRefresh, setPendingAutoRefresh] = useState(false);
+  const [tableColumns, setTableColumns] = useState({
+    typeData: { visible: true, order: 1 },
+    materialName: { visible: false, order: 2 },
+    materialNumber: { visible: false, order: 3 },
+    customerId: { visible: true, order: 4 },
+    lengthMm: { visible: true, order: 5 },
+    widthMm: { visible: true, order: 6 },
+    thicknessMm: { visible: true, order: 7 },
+    preReserved: { visible: true, order: 8 },
+    stock: { visible: true, order: 9 },
+    reservedStock: { visible: true, order: 10 },
+    stockAvailable: { visible: true, order: 11 },
+    lastUpdated: { visible: true, order: 12 }
+  });
+
+  useEffect(() => {
+    (async () => {
+      const res = await window.api.settings.get();
+      if (!res.ok) return;
+      const next = res.value.grundner?.tableColumns;
+      if (next) {
+        setTableColumns((prev) => {
+          const record = next && typeof next === 'object' && !Array.isArray(next) ? (next as Record<string, unknown>) : null;
+          const out = { ...prev };
+          for (const key of Object.keys(prev) as Array<keyof typeof prev>) {
+            const value = record?.[key as string];
+            if (typeof value === 'boolean') {
+              out[key] = { ...out[key], visible: value };
+              continue;
+            }
+            if (value && typeof value === 'object' && !Array.isArray(value)) {
+              const col = value as Record<string, unknown>;
+              const visible = typeof col.visible === 'boolean' ? col.visible : out[key].visible;
+              const order = typeof col.order === 'number' && Number.isInteger(col.order) && col.order >= 1 ? col.order : out[key].order;
+              out[key] = { visible, order };
+            }
+          }
+          return out;
+        });
+      }
+    })();
+  }, []);
 
   const totalStock = useMemo(() => rows.reduce((sum, row) => sum + (row.stock ?? 0), 0), [rows]);
   const totalAvailable = useMemo(() => rows.reduce((sum, row) => sum + (row.stockAvailable ?? 0), 0), [rows]);
@@ -183,81 +227,132 @@ export function GrundnerPage() {
   }, [pendingAutoRefresh, editing, loading, load]);
   // Percentage-based column widths; normalized automatically by GlobalTable
 
-  const columns = useMemo<ColumnDef<GrundnerRow>[]>(() => [
-    {
-      id: 'typeData',
-      accessorKey: 'typeData',
-      header: 'Type',
-      cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      meta: { widthPercent: GRUNDNER_COL_PCT.typeData, minWidthPx: 80 }
-    },
-    {
-      id: 'customerId',
-      accessorKey: 'customerId',
-      header: 'Customer ID',
-      cell: (ctx) => ctx.getValue<string | null>() ?? '',
-      meta: { widthPercent: GRUNDNER_COL_PCT.customerId, minWidthPx: 160 }
-    },
-    {
-      id: 'lengthMm',
-      accessorKey: 'lengthMm',
-      header: 'Length',
-      cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      meta: { widthPercent: GRUNDNER_COL_PCT.lengthMm, minWidthPx: 60 }
-    },
-    {
-      id: 'widthMm',
-      accessorKey: 'widthMm',
-      header: 'Width',
-      cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      meta: { widthPercent: GRUNDNER_COL_PCT.widthMm, minWidthPx: 80 }
-    },
-    {
-      id: 'thicknessMm',
-      accessorKey: 'thicknessMm',
-      header: 'Thickness',
-      cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      meta: { widthPercent: GRUNDNER_COL_PCT.thicknessMm, minWidthPx: 80 }
-    },
-    {
-      id: 'preReserved',
-      accessorKey: 'preReserved',
-      header: 'Pre-Reserved',
-      cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      meta: { widthPercent: GRUNDNER_COL_PCT.preReserved, minWidthPx: 100 }
-    },
-    {
-      id: 'stock',
-      accessorKey: 'stock',
-      header: 'Stock',
-      cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      meta: { widthPercent: GRUNDNER_COL_PCT.stock, minWidthPx: 80 }
-    },
-    {
-      id: 'reservedStock',
-      accessorKey: 'reservedStock',
-      header: 'Locked',
-      cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      meta: { widthPercent: GRUNDNER_COL_PCT.reservedStock, minWidthPx: 100 }
-    },
-    {
-      id: 'stockAvailable',
-      accessorKey: 'stockAvailable',
-      header: 'Available',
-      cell: (ctx) => ctx.getValue<number | null>() ?? '',
-      meta: { widthPercent: GRUNDNER_COL_PCT.stockAvailable, minWidthPx: 100 }
-    },
-    {
-      id: 'lastUpdated',
-      accessorKey: 'lastUpdated',
-      header: 'Last Updated',
-      cell: (ctx) => {
-        const v = ctx.getValue<string | null>();
-        return v ? formatTimestamp(v) : '';
+  const columns = useMemo<ColumnDef<GrundnerRow>[]>(() => {
+    const all: ColumnDef<GrundnerRow>[] = [
+      {
+        id: 'typeData',
+        accessorKey: 'typeData',
+        header: 'Type',
+        cell: (ctx) => ctx.getValue<number | null>() ?? '',
+        meta: { widthPercent: GRUNDNER_COL_PCT.typeData, minWidthPx: 80 }
       },
-      meta: { widthPercent: GRUNDNER_COL_PCT.lastUpdated, minWidthPx: 140 }
-    },
-  ], []);
+      {
+        id: 'materialName',
+        accessorKey: 'materialName',
+        header: 'Material Name',
+        cell: (ctx) => ctx.getValue<string | null>() ?? '',
+        meta: { widthPercent: GRUNDNER_COL_PCT.materialName, minWidthPx: 120 }
+      },
+      {
+        id: 'materialNumber',
+        accessorKey: 'materialNumber',
+        header: 'Material #',
+        cell: (ctx) => ctx.getValue<number | null>() ?? '',
+        meta: { widthPercent: GRUNDNER_COL_PCT.materialNumber, minWidthPx:80 }
+      },
+      {
+        id: 'customerId',
+        accessorKey: 'customerId',
+        header: 'Customer ID',
+        cell: (ctx) => ctx.getValue<string | null>() ?? '',
+        meta: { widthPercent: GRUNDNER_COL_PCT.customerId, minWidthPx: 160 }
+      },
+      {
+        id: 'lengthMm',
+        accessorKey: 'lengthMm',
+        header: 'Length',
+        cell: (ctx) => ctx.getValue<number | null>() ?? '',
+        meta: { widthPercent: GRUNDNER_COL_PCT.lengthMm, minWidthPx: 60 }
+      },
+      {
+        id: 'widthMm',
+        accessorKey: 'widthMm',
+        header: 'Width',
+        cell: (ctx) => ctx.getValue<number | null>() ?? '',
+        meta: { widthPercent: GRUNDNER_COL_PCT.widthMm, minWidthPx: 80 }
+      },
+      {
+        id: 'thicknessMm',
+        accessorKey: 'thicknessMm',
+        header: 'Thickness',
+        cell: (ctx) => ctx.getValue<number | null>() ?? '',
+        meta: { widthPercent: GRUNDNER_COL_PCT.thicknessMm, minWidthPx: 80 }
+      },
+      {
+        id: 'preReserved',
+        accessorKey: 'preReserved',
+        header: 'Pre-Reserved',
+        cell: (ctx) => ctx.getValue<number | null>() ?? '',
+        meta: { widthPercent: GRUNDNER_COL_PCT.preReserved, minWidthPx: 100 }
+      },
+      {
+        id: 'stock',
+        accessorKey: 'stock',
+        header: 'Stock',
+        cell: (ctx) => ctx.getValue<number | null>() ?? '',
+        meta: { widthPercent: GRUNDNER_COL_PCT.stock, minWidthPx: 80 }
+      },
+      {
+        id: 'reservedStock',
+        accessorKey: 'reservedStock',
+        header: 'Locked',
+        cell: (ctx) => ctx.getValue<number | null>() ?? '',
+        meta: { widthPercent: GRUNDNER_COL_PCT.reservedStock, minWidthPx: 100 }
+      },
+      {
+        id: 'stockAvailable',
+        accessorKey: 'stockAvailable',
+        header: 'Available',
+        cell: (ctx) => ctx.getValue<number | null>() ?? '',
+        meta: { widthPercent: GRUNDNER_COL_PCT.stockAvailable, minWidthPx: 100 }
+      },
+      {
+        id: 'lastUpdated',
+        accessorKey: 'lastUpdated',
+        header: 'Last Updated',
+        cell: (ctx) => {
+          const v = ctx.getValue<string | null>();
+          return v ? formatTimestamp(v) : '';
+        },
+        meta: { widthPercent: GRUNDNER_COL_PCT.lastUpdated, minWidthPx: 140 }
+      }
+    ];
+
+    const visible = all.filter((col) => {
+      const id = String(col.id ?? '');
+      if (id === 'typeData') return tableColumns.typeData.visible;
+      if (id === 'materialName') return tableColumns.materialName.visible;
+      if (id === 'materialNumber') return tableColumns.materialNumber.visible;
+      if (id === 'customerId') return tableColumns.customerId.visible;
+      if (id === 'lengthMm') return tableColumns.lengthMm.visible;
+      if (id === 'widthMm') return tableColumns.widthMm.visible;
+      if (id === 'thicknessMm') return tableColumns.thicknessMm.visible;
+      if (id === 'preReserved') return tableColumns.preReserved.visible;
+      if (id === 'stock') return tableColumns.stock.visible;
+      if (id === 'reservedStock') return tableColumns.reservedStock.visible;
+      if (id === 'stockAvailable') return tableColumns.stockAvailable.visible;
+      if (id === 'lastUpdated') return tableColumns.lastUpdated.visible;
+      return true;
+    });
+
+    const orderFor = (id: string): number => {
+      if (id === 'typeData') return tableColumns.typeData.order;
+      if (id === 'materialName') return tableColumns.materialName.order;
+      if (id === 'materialNumber') return tableColumns.materialNumber.order;
+      if (id === 'customerId') return tableColumns.customerId.order;
+      if (id === 'lengthMm') return tableColumns.lengthMm.order;
+      if (id === 'widthMm') return tableColumns.widthMm.order;
+      if (id === 'thicknessMm') return tableColumns.thicknessMm.order;
+      if (id === 'preReserved') return tableColumns.preReserved.order;
+      if (id === 'stock') return tableColumns.stock.order;
+      if (id === 'reservedStock') return tableColumns.reservedStock.order;
+      if (id === 'stockAvailable') return tableColumns.stockAvailable.order;
+      if (id === 'lastUpdated') return tableColumns.lastUpdated.order;
+      return Number.MAX_SAFE_INTEGER;
+    };
+
+    return visible.sort((a, b) => orderFor(String(a.id ?? '')) - orderFor(String(b.id ?? '')));
+  }, [tableColumns]);
 
   const table = useReactTable({
     data: rows,
@@ -307,6 +402,3 @@ export function GrundnerPage() {
     </div>
   );
 }
-
-
-

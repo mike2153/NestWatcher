@@ -36,7 +36,22 @@ type InventoryExportState = Settings['inventoryExport'];
 
 const DEFAULT_PATHS: PathsState = { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' };
 const DEFAULT_TEST: TestState = { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' };
-const DEFAULT_GRUNDNER: GrundnerState = {};
+const DEFAULT_GRUNDNER: GrundnerState = {
+  tableColumns: {
+    typeData: { visible: true, order: 1 },
+    materialName: { visible: false, order: 2 },
+    materialNumber: { visible: false, order: 3 },
+    customerId: { visible: true, order: 4 },
+    lengthMm: { visible: true, order: 5 },
+    widthMm: { visible: true, order: 6 },
+    thicknessMm: { visible: true, order: 7 },
+    preReserved: { visible: true, order: 8 },
+    stock: { visible: true, order: 9 },
+    reservedStock: { visible: true, order: 10 },
+    stockAvailable: { visible: true, order: 11 },
+    lastUpdated: { visible: true, order: 12 }
+  }
+};
 const DEFAULT_ORDERING: OrderingState = { includeReserved: false };
 const DEFAULT_INVENTORY_EXPORT: InventoryExportState = InventoryExportSettingsSchema.parse(undefined);
 
@@ -910,5 +925,3 @@ export function SettingsPage() {
     </div>
   );
 }
-
-

@@ -28,6 +28,8 @@ export const CURRENT_SETTINGS_VERSION = 1 as const;
 export const InventoryExportFieldKey = z.enum([
   'typeData',
   'customerId',
+  'materialName',
+  'materialNumber',
   'lengthMm',
   'widthMm',
   'thicknessMm',
@@ -45,12 +47,29 @@ export const InventoryExportDelimiter = z
   .max(1, 'Delimiter must be exactly 1 character')
   .refine((value) => value !== '\r' && value !== '\n', 'Delimiter cannot be a newline');
 
+const InventoryExportFieldColumnSchema = z.object({
+  kind: z.literal('field'),
+  enabled: z.boolean().default(true),
+  header: z.string().default(''),
+  field: InventoryExportFieldKey
+});
+
+const InventoryExportCustomColumnSchema = z.object({
+  kind: z.literal('custom'),
+  enabled: z.boolean().default(true),
+  header: z.string().default(''),
+  defaultValue: z.string().default('')
+});
+
 export const InventoryExportColumnSchema = z
-  .object({
-    enabled: z.boolean().default(true),
-    header: z.string().default(''),
-    field: InventoryExportFieldKey
-  })
+  .preprocess((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+    const record = value as Record<string, unknown>;
+    if (!('kind' in record) && 'field' in record) {
+      return { kind: 'field', ...record };
+    }
+    return value;
+  }, z.discriminatedUnion('kind', [InventoryExportFieldColumnSchema, InventoryExportCustomColumnSchema]))
   .superRefine((col, ctx) => {
     if (col.enabled && !col.header.trim()) {
       ctx.addIssue({
@@ -64,17 +83,20 @@ export type InventoryExportColumn = z.infer<typeof InventoryExportColumnSchema>;
 
 export const InventoryExportTemplateSchema = z.object({
   delimiter: InventoryExportDelimiter.default(','),
+  // Formatting string for the `lastUpdated` field in CSV exports.
+  // Supported tokens (any combination): hh:mm:ss hh:mm dd/mm/yyyy dd/mm/yy dd.mm.yyyy dd.mm.yy
+  lastUpdatedFormat: z.string().default('hh:mm dd.mm.yyyy'),
   columns: z.array(InventoryExportColumnSchema).default([
-    { enabled: true, header: 'Type', field: 'typeData' },
-    { enabled: true, header: 'Customer ID', field: 'customerId' },
-    { enabled: true, header: 'Length', field: 'lengthMm' },
-    { enabled: true, header: 'Width', field: 'widthMm' },
-    { enabled: true, header: 'Thickness', field: 'thicknessMm' },
-    { enabled: true, header: 'Pre-Reserved', field: 'preReserved' },
-    { enabled: true, header: 'Stock', field: 'stock' },
-    { enabled: true, header: 'Reserved', field: 'reservedStock' },
-    { enabled: true, header: 'Available', field: 'stockAvailable' },
-    { enabled: true, header: 'Last Updated', field: 'lastUpdated' }
+    { kind: 'field', enabled: true, header: 'Type', field: 'typeData' },
+    { kind: 'field', enabled: true, header: 'Customer ID', field: 'customerId' },
+    { kind: 'field', enabled: true, header: 'Length', field: 'lengthMm' },
+    { kind: 'field', enabled: true, header: 'Width', field: 'widthMm' },
+    { kind: 'field', enabled: true, header: 'Thickness', field: 'thicknessMm' },
+    { kind: 'field', enabled: true, header: 'Pre-Reserved', field: 'preReserved' },
+    { kind: 'field', enabled: true, header: 'Stock', field: 'stock' },
+    { kind: 'field', enabled: true, header: 'Reserved', field: 'reservedStock' },
+    { kind: 'field', enabled: true, header: 'Available', field: 'stockAvailable' },
+    { kind: 'field', enabled: true, header: 'Last Updated', field: 'lastUpdated' }
   ])
 }).default({});
 export type InventoryExportTemplate = z.infer<typeof InventoryExportTemplateSchema>;
@@ -211,7 +233,22 @@ export const SettingsSchema = z.object({
     useTestDataMode: z.boolean().default(false),
     sheetIdMode: z.enum(['type_data', 'customer_id']).default('type_data')
   }).default({ testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' }),
-  grundner: z.object({}).default({}),
+  grundner: z.object({
+    tableColumns: z.object({
+      typeData: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(1) }).default({}),
+      materialName: z.object({ visible: z.boolean().default(false), order: z.number().int().min(1).default(2) }).default({}),
+      materialNumber: z.object({ visible: z.boolean().default(false), order: z.number().int().min(1).default(3) }).default({}),
+      customerId: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(4) }).default({}),
+      lengthMm: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(5) }).default({}),
+      widthMm: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(6) }).default({}),
+      thicknessMm: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(7) }).default({}),
+      preReserved: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(8) }).default({}),
+      stock: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(9) }).default({}),
+      reservedStock: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(10) }).default({}),
+      stockAvailable: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(11) }).default({}),
+      lastUpdated: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(12) }).default({})
+    }).default({})
+  }).default({}),
   ordering: z.object({
     includeReserved: z.boolean().default(false)
   }).default({ includeReserved: false }),
@@ -516,6 +553,8 @@ export const GrundnerRow = z.object({
   id: z.number().int(),
   typeData: z.number().int().nullable(),
   customerId: z.string().nullable(),
+  materialName: z.string().nullable(),
+  materialNumber: z.number().int().nullable(),
   lengthMm: z.number().int().nullable(),
   widthMm: z.number().int().nullable(),
   thicknessMm: z.number().int().nullable(),
