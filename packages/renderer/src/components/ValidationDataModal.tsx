@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
-import { ChevronDown, FileText, FileSpreadsheet } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { ChevronDown, Clock, Drill, FileSpreadsheet, FileText, Percent, Route, Trash, Wrench } from 'lucide-react';
 import type { ValidationDataRes, AggregatedValidationDataRes } from '../../../shared/src';
 
 type ValidationDataModalProps = {
@@ -824,42 +825,53 @@ export function ValidationDataModal({ open, onOpenChange, jobKey, jobKeys }: Val
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="right" className="w-[880px] max-w-[95vw] overflow-y-auto">
-          <SheetHeader>
-            <div className="flex items-center justify-between gap-4">
-              <SheetTitle>{isAggregated ? 'Aggregated Job Stats' : 'Job Stats'}</SheetTitle>
-              <div className="flex items-center gap-3">
-                {isAggregated && aggregatedData && (
-                  <span className="text-lg font-semibold text-muted-foreground">{aggregatedData.jobCount} jobs</span>
-                )}
-              <div className="relative">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" disabled={!canExport}>
-                      Export
-                      <ChevronDown className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onSelect={handleExportPDF}>
-                      <FileText className="h-4 w-4 mr-2" />
-                      Export as PDF
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={handleExportCSV}>
-                      <FileSpreadsheet className="h-4 w-4 mr-2" />
-                      Export as CSV
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+      <SheetContent
+        side="right"
+        className="w-[920px] max-w-[96vw] overflow-y-auto p-0 bg-[var(--background)] border-l border-[var(--border)]"
+      >
+        <SheetHeader className="px-4 py-4 border-b border-[var(--border)]">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1 min-w-0">
+              <SheetTitle className="text-xl font-semibold text-[var(--foreground)]">
+                {isAggregated ? 'Aggregated Job Stats' : 'Job Stats'}
+              </SheetTitle>
+              {isAggregated ? (
+                <SheetDescription className="text-sm text-[var(--foreground-muted)]">
+                  {aggregatedData
+                    ? `${aggregatedData.jobCount} job${aggregatedData.jobCount === 1 ? '' : 's'}`
+                    : 'Multiple jobs'}
+                </SheetDescription>
+              ) : (
+                <SheetDescription className="text-sm text-[var(--foreground-muted)]">
+                  {jobKey ? `Job: ${jobKey}` : 'Select a job to view statistics'}
+                </SheetDescription>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 shrink-0">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" disabled={!canExport}>
+                    Export
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={handleExportPDF}>
+                    <FileText className="h-4 w-4 mr-2" />
+                    Export as PDF
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={handleExportCSV}>
+                    <FileSpreadsheet className="h-4 w-4 mr-2" />
+                    Export as CSV
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
-          {!isAggregated && (
-            <SheetDescription>{jobKey ? `Job: ${jobKey}` : 'Select a job to view MES data'}</SheetDescription>
-          )}
         </SheetHeader>
 
-        <div className="mt-4 space-y-4">
+        <div className="px-4 py-4 space-y-4">
           {loading && <p className="text-sm text-muted-foreground">Loading...</p>}
           {error && <p className="text-sm text-destructive">{error}</p>}
           {!loading && !error && !data && !aggregatedData && (
@@ -867,7 +879,7 @@ export function ValidationDataModal({ open, onOpenChange, jobKey, jobKeys }: Val
           )}
 
           {isAggregated && aggregatedData ? (
-            <AggregatedContent data={aggregatedData} jobKeys={jobKeys} />
+            <AggregatedContent data={aggregatedData} jobKeys={jobKeys ?? []} />
           ) : data ? (
             <SingleJobContent data={data} />
           ) : null}
@@ -877,258 +889,303 @@ export function ValidationDataModal({ open, onOpenChange, jobKey, jobKeys }: Val
   );
 }
 
-function SingleJobContent({ data }: { data: ValidationDataRes }) {
+type PickableBadgeProps = {
+  value: boolean | null;
+};
+
+function PickableBadge({ value }: PickableBadgeProps) {
+  const label = value == null ? 'Unknown' : value ? 'Yes' : 'No';
   return (
-    <div className="space-y-6">
+    <Badge
+      variant="outline"
+      className={cn(
+        'text-[10px] h-5 px-2 py-0 rounded-md',
+        value === true &&
+          'bg-[var(--status-success-bg)] text-[var(--status-success-text)] border-[var(--status-success-border)]',
+        value === false &&
+          'bg-[var(--status-error-bg)] text-[var(--status-error-text)] border-[var(--status-error-border)]',
+        value == null && 'bg-[var(--muted)]/20 text-muted-foreground border-border'
+      )}
+    >
+      {label}
+    </Badge>
+  );
+}
+
+type StatTileProps = {
+  label: string;
+  value: string;
+  icon?: ReactNode;
+};
+
+function StatTile({ label, value, icon }: StatTileProps) {
+  return (
+    <div className="border rounded p-2 bg-[var(--card)]">
+      {icon ? (
+        <div className="flex items-center gap-1 mb-0.5">
+          {icon}
+          <p className="text-[10px] text-muted-foreground">{label}</p>
+        </div>
+      ) : (
+        <p className="text-[10px] text-muted-foreground mb-0.5">{label}</p>
+      )}
+      <p className="text-xs font-semibold">{value}</p>
+    </div>
+  );
+}
+
+type ToolUsageLike = Array<{ toolNumber: string; toolName: string; cuttingDistanceMeters: number }>;
+type DrillUsageLike = Array<{
+  drillNumber: string;
+  drillName: string;
+  holeCount: number;
+  drillDistanceMeters: number;
+}>;
+
+function ToolUsageTable({ tools }: { tools: ToolUsageLike }) {
+  if (!tools.length) return null;
+  return (
+    <div>
+      <p className="text-xs font-semibold mb-1.5 flex items-center gap-1.5">
+        <Wrench className="h-3.5 w-3.5" /> Tool Usage
+      </p>
+      <table className="w-full text-[10px] border border-border rounded">
+        <thead className="bg-muted/50">
+          <tr>
+            <th className="text-left px-2 py-1.5 text-xs">#</th>
+            <th className="text-left px-2 py-1.5 text-xs">Tool</th>
+            <th className="text-left px-2 py-1.5 text-xs">Distance (m)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tools.map((tool, idx) => (
+            <tr key={`${tool.toolNumber}-${idx}`} className="border-t border-border">
+              <td className="px-2 py-1.5">{tool.toolNumber}</td>
+              <td className="px-2 py-1.5">{tool.toolName}</td>
+              <td className="px-2 py-1.5">{formatNumber(tool.cuttingDistanceMeters, 2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function DrillUsageTable({ drills }: { drills: DrillUsageLike }) {
+  if (!drills.length) return null;
+  return (
+    <div>
+      <p className="text-xs font-semibold mb-1.5 flex items-center gap-1.5">
+        <Drill className="h-3.5 w-3.5" /> Drill Usage
+      </p>
+      <table className="w-full text-[10px] border border-border rounded">
+        <thead className="bg-muted/50">
+          <tr>
+            <th className="text-left px-2 py-1.5 text-xs">#</th>
+            <th className="text-left px-2 py-1.5 text-xs">Drill</th>
+            <th className="text-left px-2 py-1.5 text-xs">Holes</th>
+            <th className="text-left px-2 py-1.5 text-xs">Distance (m)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {drills.map((drill, idx) => (
+            <tr key={`${drill.drillNumber}-${idx}`} className="border-t border-border">
+              <td className="px-2 py-1.5">{drill.drillNumber}</td>
+              <td className="px-2 py-1.5">{drill.drillName}</td>
+              <td className="px-2 py-1.5">{drill.holeCount}</td>
+              <td className="px-2 py-1.5">{formatNumber(drill.drillDistanceMeters, 2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SingleJobContent({ data }: { data: ValidationDataRes }) {
+  const nestPick = data.nestPick;
+  const failedParts = nestPick?.failedParts?.map((p) => p.partNumber) ?? [];
+  const oversizedParts = nestPick?.partsTooLargeForPallet?.map((p) => p.partNumber) ?? [];
+  const pickableValue = nestPick?.canAllBePicked ?? null;
+
+  return (
+    <div className="space-y-3">
       {data.mesOutputVersion ? (
-        <span className="text-xs text-muted-foreground">MES version {data.mesOutputVersion}</span>
+        <div className="text-xs text-muted-foreground">MES version {data.mesOutputVersion}</div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3">
-        <SummaryCard label="Estimated Runtime" value={formatSeconds(data.ncEstRuntime)} />
-        <SummaryCard label="Yield" value={`${formatNumber(data.yieldPercentage, 2)} %`} />
-        <SummaryCard label="Cutting Distance" value={`${formatNumber(data.cuttingDistanceMeters, 2)} m`} />
-        <SummaryCard label="Waste Offcut" value={`${formatNumber(data.wasteOffcutM2, 2)} m²`} />
+      <ToolUsageTable tools={data.toolUsage} />
+      <DrillUsageTable drills={data.drillUsage} />
+
+      <div>
+        <p className="text-xs font-semibold mb-1.5">Summary Statistics</p>
+        <div className="grid grid-cols-2 gap-2">
+          <StatTile
+            label="Runtime"
+            value={formatSeconds(data.ncEstRuntime)}
+            icon={<Clock className="h-3 w-3 text-muted-foreground" />}
+          />
+          <StatTile
+            label="Yield"
+            value={`${formatNumber(data.yieldPercentage, 1)}%`}
+            icon={<Percent className="h-3 w-3 text-muted-foreground" />}
+          />
+          <StatTile
+            label="Cutting Distance"
+            value={`${formatNumber(data.cuttingDistanceMeters, 2)} m`}
+            icon={<Route className="h-3 w-3 text-muted-foreground" />}
+          />
+          <StatTile
+            label="Waste Offcut"
+            value={`${formatNumber(data.wasteOffcutM2, 2)} m²`}
+            icon={<Trash className="h-3 w-3 text-muted-foreground" />}
+          />
+        </div>
       </div>
 
-      {data.toolUsage?.length ? (
-        <div className="space-y-2">
-          <p className="text-sm font-semibold">Tool Usage</p>
-          <table className="w-full text-sm border border-border rounded">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-left px-3 py-2">#</th>
-                <th className="text-left px-3 py-2">Tool</th>
-                <th className="text-left px-3 py-2">Distance (m)</th>
-                <th className="text-left px-3 py-2">Dust</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.toolUsage.map((tool, idx) => {
-                const dust = formatVolumeForTable(tool.toolDustM3);
-                return (
-                  <tr key={`${tool.toolNumber}-${idx}`} className="border-t border-border">
-                    <td className="px-3 py-2">{tool.toolNumber}</td>
-                    <td className="px-3 py-2">{tool.toolName}</td>
-                    <td className="px-3 py-2">{formatNumber(tool.cuttingDistanceMeters, 2)}</td>
-                    <td className="px-3 py-2">{dust.value} {dust.unit}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      <div>
+        <p className="text-xs font-semibold mb-1.5">Dust Statistics</p>
+        <div className="grid grid-cols-2 gap-2">
+          <StatTile label="Waste Offcut Dust" value={formatVolume(data.wasteOffcutDustM3)} />
+          <StatTile label="Total Tool Dust" value={formatVolume(data.totalToolDustM3)} />
+          <StatTile label="Total Drill Dust" value={formatVolume(data.totalDrillDustM3)} />
+          <StatTile label="Total Sheet Dust" value={formatVolume(data.sheetTotalDustM3)} />
         </div>
-      ) : null}
+      </div>
 
-      {data.drillUsage?.length ? (
-        <div className="space-y-2">
-          <p className="text-sm font-semibold">Drill Usage</p>
-          <table className="w-full text-sm border border-border rounded">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-left px-3 py-2">#</th>
-                <th className="text-left px-3 py-2">Drill</th>
-                <th className="text-left px-3 py-2">Holes</th>
-                <th className="text-left px-3 py-2">Distance (m)</th>
-                <th className="text-left px-3 py-2">Dust</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.drillUsage.map((drill, idx) => {
-                const dust = formatVolumeForTable(drill.drillDustM3);
-                return (
-                  <tr key={`${drill.drillNumber}-${idx}`} className="border-t border-border">
-                    <td className="px-3 py-2">{drill.drillNumber}</td>
-                    <td className="px-3 py-2">{drill.drillName}</td>
-                    <td className="px-3 py-2">{drill.holeCount}</td>
-                    <td className="px-3 py-2">{formatNumber(drill.drillDistanceMeters, 2)}</td>
-                    <td className="px-3 py-2">{dust.value} {dust.unit}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
-
-      {data.nestPick ? (
-        <div className="space-y-2">
-          <p className="text-sm font-semibold">NestPick</p>
-          <div className="rounded border p-3 text-sm space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="font-medium">All parts pickable:</span>
-              <Badge
-                variant={data.nestPick.canAllBePicked ? 'default' : 'destructive'}
-                className={data.nestPick.canAllBePicked ? 'bg-green-600 hover:bg-green-600/80' : ''}
-              >
-                {data.nestPick.canAllBePicked ? 'Yes' : 'No'}
-              </Badge>
-            </div>
-            <div>
-              <span className="font-medium">Failed parts:</span>{' '}
-              {data.nestPick.failedParts.length ? data.nestPick.failedParts.length : '0'}
-            </div>
-            <div>
-              <span className="font-medium">Oversized parts:</span>{' '}
-              {data.nestPick.partsTooLargeForPallet.length ? data.nestPick.partsTooLargeForPallet.length : '0'}
-            </div>
-            <div>
-              <span className="font-medium">Pallet Adjusted Volume:</span>{' '}
-              {formatNumber(data.nestPick.palletAdjustedVolumeM3, 5)} m³
-            </div>
+      <div>
+        <p className="text-xs font-semibold mb-1.5">NestPick Analysis</p>
+        <div className="rounded border p-3 space-y-2.5 text-[10px] bg-[var(--card)]">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-xs">All parts pickable:</span>
+            <PickableBadge value={pickableValue} />
           </div>
+
+          {nestPick ? (
+            <>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <span className="text-[10px] text-muted-foreground">Failed parts:</span>
+                  <p className="font-medium text-xs">{failedParts.length}</p>
+                  {failedParts.length > 0 && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">{failedParts.join(', ')}</p>
+                  )}
+                </div>
+                <div>
+                  <span className="text-[10px] text-muted-foreground">Oversized parts:</span>
+                  <p className="font-medium text-xs">{oversizedParts.length}</p>
+                  {oversizedParts.length > 0 && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">{oversizedParts.join(', ')}</p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <span className="text-[10px] text-muted-foreground">Pallet Adjusted Volume:</span>
+                <p className="font-medium text-xs">{formatNumber(nestPick.palletAdjustedVolumeM3, 5)} m³</p>
+              </div>
+            </>
+          ) : (
+            <div className="text-[10px] text-muted-foreground">NestPick data not available for this job.</div>
+          )}
         </div>
-      ) : null}
+      </div>
 
       {data.usableOffcuts?.length ? (
-        <div className="space-y-2">
-          <p className="text-sm font-semibold">Usable Offcuts</p>
-          <table className="w-full text-sm border border-border rounded">
+        <div>
+          <p className="text-xs font-semibold mb-1.5">Usable Offcuts</p>
+          <table className="w-full text-[10px] border border-border rounded">
             <thead className="bg-muted/50">
               <tr>
-                <th className="text-left px-3 py-2">X (mm)</th>
-                <th className="text-left px-3 py-2">Y (mm)</th>
-                <th className="text-left px-3 py-2">Z (mm)</th>
+                <th className="text-left px-2 py-1.5 text-xs">X (mm)</th>
+                <th className="text-left px-2 py-1.5 text-xs">Y (mm)</th>
+                <th className="text-left px-2 py-1.5 text-xs">Z (mm)</th>
               </tr>
             </thead>
             <tbody>
               {data.usableOffcuts.map((offcut, idx) => (
                 <tr key={`${offcut.x}-${offcut.y}-${offcut.z}-${idx}`} className="border-t border-border">
-                  <td className="px-3 py-2">{offcut.x}</td>
-                  <td className="px-3 py-2">{offcut.y}</td>
-                  <td className="px-3 py-2">{offcut.z}</td>
+                  <td className="px-2 py-1.5">{offcut.x}</td>
+                  <td className="px-2 py-1.5">{offcut.y}</td>
+                  <td className="px-2 py-1.5">{offcut.z}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       ) : null}
-
-      <div className="grid grid-cols-2 gap-3">
-        <SummaryCard label="Waste Offcut Dust" value={formatVolume(data.wasteOffcutDustM3)} />
-        <SummaryCard label="Total Tool Dust" value={formatVolume(data.totalToolDustM3)} />
-        <SummaryCard label="Total Drill Dust" value={formatVolume(data.totalDrillDustM3)} />
-        <SummaryCard label="Total Sheet Dust" value={formatVolume(data.sheetTotalDustM3)} />
-      </div>
     </div>
   );
 }
 
 function AggregatedContent({ data, jobKeys }: { data: AggregatedValidationDataRes; jobKeys: string[] }) {
   return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <p className="text-sm font-semibold">Jobs Included</p>
-        <div className="rounded border p-3 text-sm max-h-32 overflow-y-auto">
-          <ul className="space-y-1">
-            {jobKeys.map((key) => (
-              <li key={key} className="text-muted-foreground">{key}</li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <SummaryCard label="Total Runtime" value={formatSeconds(data.totalNcEstRuntime)} />
-        <SummaryCard label="Avg Yield" value={`${formatNumber(data.avgYieldPercentage, 2)} %`} />
-        <SummaryCard label="Total Cutting Distance" value={`${formatNumber(data.totalCuttingDistanceMeters, 2)} m`} />
-        <SummaryCard label="Total Waste Offcut" value={`${formatNumber(data.totalWasteOffcutM2, 2)} m²`} />
-      </div>
-
-      {data.toolUsage?.length ? (
-        <div className="space-y-2">
-          <p className="text-sm font-semibold">Aggregated Tool Usage</p>
-          <table className="w-full text-sm border border-border rounded">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-left px-3 py-2">#</th>
-                <th className="text-left px-3 py-2">Tool</th>
-                <th className="text-left px-3 py-2">Total Distance (m)</th>
-                <th className="text-left px-3 py-2">Total Dust</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.toolUsage.map((tool, idx) => {
-                const dust = formatVolumeForTable(tool.toolDustM3);
-                return (
-                  <tr key={`${tool.toolNumber}-${idx}`} className="border-t border-border">
-                    <td className="px-3 py-2">{tool.toolNumber}</td>
-                    <td className="px-3 py-2">{tool.toolName}</td>
-                    <td className="px-3 py-2">{formatNumber(tool.cuttingDistanceMeters, 2)}</td>
-                    <td className="px-3 py-2">{dust.value} {dust.unit}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+    <div className="space-y-3">
+      {jobKeys.length ? (
+        <div>
+          <p className="text-xs font-semibold mb-1.5">Jobs Included</p>
+          <div className="rounded border p-3 text-[10px] max-h-32 overflow-y-auto bg-[var(--card)]">
+            <ul className="space-y-1">
+              {jobKeys.map((key) => (
+                <li key={key} className="text-muted-foreground break-all">{key}</li>
+              ))}
+            </ul>
+          </div>
         </div>
       ) : null}
 
-      {data.drillUsage?.length ? (
-        <div className="space-y-2">
-          <p className="text-sm font-semibold">Aggregated Drill Usage</p>
-          <table className="w-full text-sm border border-border rounded">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-left px-3 py-2">#</th>
-                <th className="text-left px-3 py-2">Drill</th>
-                <th className="text-left px-3 py-2">Total Holes</th>
-                <th className="text-left px-3 py-2">Total Distance (m)</th>
-                <th className="text-left px-3 py-2">Total Dust</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.drillUsage.map((drill, idx) => {
-                const dust = formatVolumeForTable(drill.drillDustM3);
-                return (
-                  <tr key={`${drill.drillNumber}-${idx}`} className="border-t border-border">
-                    <td className="px-3 py-2">{drill.drillNumber}</td>
-                    <td className="px-3 py-2">{drill.drillName}</td>
-                    <td className="px-3 py-2">{drill.holeCount}</td>
-                    <td className="px-3 py-2">{formatNumber(drill.drillDistanceMeters, 2)}</td>
-                    <td className="px-3 py-2">{dust.value} {dust.unit}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
+      <ToolUsageTable tools={data.toolUsage} />
+      <DrillUsageTable drills={data.drillUsage} />
 
-      <div className="space-y-2">
-        <p className="text-sm font-semibold">NestPick Summary</p>
-        <div className="rounded border p-3 text-sm space-y-1">
+      <div>
+        <p className="text-xs font-semibold mb-1.5">Summary Statistics</p>
+        <div className="grid grid-cols-2 gap-2">
+          <StatTile
+            label="Total Runtime"
+            value={formatSeconds(data.totalNcEstRuntime)}
+            icon={<Clock className="h-3 w-3 text-muted-foreground" />}
+          />
+          <StatTile
+            label="Avg Yield"
+            value={`${formatNumber(data.avgYieldPercentage, 2)}%`}
+            icon={<Percent className="h-3 w-3 text-muted-foreground" />}
+          />
+          <StatTile
+            label="Total Cutting Distance"
+            value={`${formatNumber(data.totalCuttingDistanceMeters, 2)} m`}
+            icon={<Route className="h-3 w-3 text-muted-foreground" />}
+          />
+          <StatTile
+            label="Total Waste Offcut"
+            value={`${formatNumber(data.totalWasteOffcutM2, 2)} m²`}
+            icon={<Trash className="h-3 w-3 text-muted-foreground" />}
+          />
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold mb-1.5">Dust Statistics</p>
+        <div className="grid grid-cols-2 gap-2">
+          <StatTile label="Total Waste Offcut Dust" value={formatVolume(data.totalWasteOffcutDustM3)} />
+          <StatTile label="Total Tool Dust" value={formatVolume(data.totalToolDustM3)} />
+          <StatTile label="Total Drill Dust" value={formatVolume(data.totalDrillDustM3)} />
+          <StatTile label="Total Sheet Dust" value={formatVolume(data.totalSheetDustM3)} />
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold mb-1.5">NestPick Analysis</p>
+        <div className="rounded border p-3 space-y-2.5 text-[10px] bg-[var(--card)]">
           <div className="flex items-center gap-2">
-            <span className="font-medium">All parts pickable:</span>
-            <Badge
-              variant={data.allPartsPickable ? 'default' : 'destructive'}
-              className={data.allPartsPickable ? 'bg-green-600 hover:bg-green-600/80' : ''}
-            >
-              {data.allPartsPickable ? 'Yes' : 'No'}
-            </Badge>
+            <span className="font-medium text-xs">All parts pickable:</span>
+            <PickableBadge value={data.allPartsPickable} />
           </div>
           <div>
-            <span className="font-medium">Total Pallet Adjusted Volume:</span>{' '}
-            {formatNumber(data.totalPalletAdjustedVolumeM3, 5)} m³
+            <span className="text-[10px] text-muted-foreground">Pallet Adjusted Volume:</span>
+            <p className="font-medium text-xs">{formatNumber(data.totalPalletAdjustedVolumeM3, 5)} m³</p>
           </div>
         </div>
       </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <SummaryCard label="Total Waste Offcut Dust" value={formatVolume(data.totalWasteOffcutDustM3)} />
-        <SummaryCard label="Total Tool Dust" value={formatVolume(data.totalToolDustM3)} />
-        <SummaryCard label="Total Drill Dust" value={formatVolume(data.totalDrillDustM3)} />
-        <SummaryCard label="Total Sheet Dust" value={formatVolume(data.totalSheetDustM3)} />
-      </div>
-    </div>
-  );
-}
-
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded border border-border bg-muted/30 p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-lg font-semibold">{value}</p>
     </div>
   );
 }

@@ -567,7 +567,7 @@ export function AppLayout() {
         </div>
       )}
       {showDiagnostics && (
-        <div className="fixed right-4 top-16 bottom-4 z-40 w-[800px] rounded border border-[var(--border)] bg-[var(--card)] shadow-lg flex flex-col min-h-0">
+        <div className="fixed right-4 top-16 bottom-4 z-40 w-[1040px] rounded border border-[var(--border)] bg-[var(--card)] shadow-lg flex flex-col min-h-0">
           <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2">
             <div className="text-sm font-semibold text-[var(--foreground)]">Diagnostics</div>
             <div className="flex items-center gap-2">
@@ -767,10 +767,10 @@ export function AppLayout() {
                       </div>
                     )}
                     {logError && <div className="text-xs text-[var(--status-error-text)]">{logError}</div>}
-                    <div className="flex-1 min-h-0 overflow-auto rounded border border-[var(--border)] bg-[var(--background)]">
+                    <div className="flex-1 min-h-380 min-h-[380px] overflow-y-scroll rounded border border-[var(--border)] bg-[var(--background)]">
                       <pre
                         key={logSelectedFile ?? 'none'}
-                        className="w-max min-w-full px-2 py-2 font-sans text-xs leading-snug whitespace-pre text-[var(--foreground)]"
+                        className="w-max min-w-full px-2 py-2 font-sans text-xs leading-snug whitespace-pre text-[var(--foreground)] font-semibold"
                       >
                         {logLoading
                           ? 'Loading log...'

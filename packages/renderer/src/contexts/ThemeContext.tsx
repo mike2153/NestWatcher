@@ -29,6 +29,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const root = document.documentElement;
     root.classList.remove('dark', 'sunset', 'forest', 'supabase', 'nccat-light');
     root.classList.add(theme);
+
+    // Also add 'dark' class for dark themes so Tailwind's dark: prefix works
+    // Light themes: sunset, nccat-light
+    // Dark themes: dark, forest, supabase
+    const isDarkTheme = theme === 'dark' || theme === 'forest' || theme === 'supabase';
+    if (isDarkTheme && theme !== 'dark') {
+      root.classList.add('dark');
+    }
+
     localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
