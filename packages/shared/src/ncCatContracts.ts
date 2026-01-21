@@ -223,6 +223,32 @@ export interface NcCatHeadlessValidationFileInput {
   ncContent: string;
 }
 
+export interface NcCatHeadlessFileStats {
+  // Estimated runtime in seconds (may be float)
+  ncEstRuntime: number;
+  yieldPercentage: number;
+  usableOffcuts: Array<{ x: number; y: number; z: number }>;
+  wasteOffcutM2: number;
+  wasteOffcutDustM3: number;
+  TotalToolDustM3: number;
+  TotalDrillDustM3: number;
+  SheetTotalDustM3: number;
+  cuttingDistanceMeters: number;
+  toolUsage: Array<{
+    toolNumber: string;
+    toolName: string;
+    cuttingDistanceMeters: number;
+    toolDustM3: number;
+  }>;
+  drillUsage: Array<{
+    drillNumber: string;
+    drillName: string;
+    holeCount: number;
+    drillDistanceMeters: number;
+    drillDustM3: number;
+  }>;
+}
+
 export interface NcCatHeadlessValidationFileResult {
   filename: string;
   validation: {
@@ -231,6 +257,7 @@ export interface NcCatHeadlessValidationFileResult {
     errors: string[];
     syntax: string[];
   };
+  stats?: NcCatHeadlessFileStats;
 }
 
 export interface NcCatHeadlessValidateRequest {

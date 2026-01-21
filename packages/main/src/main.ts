@@ -20,7 +20,9 @@ import { registerMessagesIpc } from './ipc/messages';
 import { registerOrderingIpc } from './ipc/ordering';
 import { registerAuthIpc } from './ipc/auth';
 import { registerMesDataIpc } from './ipc/mesData';
+import { registerNcCatValidationReportsIpc } from './ipc/ncCatValidationReports';
 import { initWatchers, shutdownWatchers } from './services/watchers';
+import { initMesValidationScanner, stopMesValidationScanner } from './services/mesValidation';
 import { startDbWatchdog, stopDbWatchdog } from './services/dbWatchdog';
 import { syncInventoryExportScheduler, stopInventoryExportScheduler } from './services/inventoryExportScheduler';
 import { logger } from './logger';
@@ -101,6 +103,7 @@ app.whenReady().then(async () => {
   registerMessagesIpc();
   registerOrderingIpc();
   registerMesDataIpc();
+  registerNcCatValidationReportsIpc();
 
   try {
     await initializeDiagnostics();
@@ -115,6 +118,7 @@ app.whenReady().then(async () => {
   }
 
   initWatchers();
+  initMesValidationScanner();
 
   try {
     syncInventoryExportScheduler();
@@ -168,5 +172,11 @@ app.on('will-quit', async () => {
     stopNcCatBackgroundWindow();
   } catch (err) {
     logger.error({ err }, 'Failed to stop NC-Cat background window');
+  }
+
+  try {
+    stopMesValidationScanner();
+  } catch (err) {
+    logger.error({ err }, 'Failed to stop MES validation scanner');
   }
 });

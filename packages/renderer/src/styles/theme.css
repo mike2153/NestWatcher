@@ -66,7 +66,7 @@
     --ring-glow: 0 0 0 3px rgba(45, 212, 191, 0.25);
 
     /* Sidebar - Elevated surface for contrast */
-    --sidebar: hsl(200 14% 12%);
+    --sidebar: hsl(200 14% 7%);
     --sidebar-foreground: hsl(40 20% 92%);
     --sidebar-accent: hsl(200 15% 15%);
     --sidebar-accent-foreground: hsl(172 66% 60%);
@@ -77,13 +77,13 @@
     --status-success-text: hsl(150 50% 50%);
     --status-success-border: hsl(150 30% 25%);
 
-    --status-warning-bg: hsl(35 30% 14%);
-    --status-warning-text: hsl(35 80% 60%);
-    --status-warning-border: hsl(35 40% 30%);
+    --status-warning-bg: hsl(35 45% 22%);
+    --status-warning-text: hsl(35 90% 75%);
+    --status-warning-border: hsl(35 45% 32%);
 
-    --status-error-bg: hsl(350 30% 14%);
-    --status-error-text: hsl(350 70% 65%);
-    --status-error-border: hsl(350 40% 30%);
+    --status-error-bg: hsl(350 40% 22%);
+    --status-error-text: hsl(350 85% 78%);
+    --status-error-border: hsl(350 40% 34%);
 
     --status-info-bg: hsl(190 30% 14%);
     --status-info-text: hsl(190 80% 60%);
@@ -181,13 +181,13 @@
     --status-success-text: #2d6b45;
     --status-success-border: #c5d9c9;
 
-    --status-warning-bg: #ebe3d0;
-    --status-warning-text: #8a6b1a;
-    --status-warning-border: #dcd4c0;
+    --status-warning-bg: #f4c058;
+    --status-warning-text: #ffffff;
+    --status-warning-border: #db8f1f;
 
-    --status-error-bg: #e8d8d8;
-    --status-error-text: #a84444;
-    --status-error-border: #d9c8c8;
+    --status-error-bg: #f49a9a;
+    --status-error-text: #ffffff;
+    --status-error-border: #de6f6f;
 
     --status-info-bg: #d8e0e8;
     --status-info-text: #3a6080;
@@ -277,12 +277,12 @@
     --status-success-text: hsl(140 50% 50%);
     --status-success-border: hsl(140 30% 25%);
 
-    --status-warning-bg: hsl(40 30% 14%);
-    --status-warning-text: hsl(40 80% 60%);
+    --status-warning-bg: hsl(40 40% 20%);
+    --status-warning-text: hsl(40 90% 72%);
     --status-warning-border: hsl(40 40% 30%);
 
-    --status-error-bg: hsl(0 30% 14%);
-    --status-error-text: hsl(0 70% 65%);
+    --status-error-bg: hsl(0 40% 20%);
+    --status-error-text: hsl(0 85% 75%);
     --status-error-border: hsl(0 40% 30%);
 
     --status-info-bg: hsl(190 30% 14%);
@@ -372,13 +372,13 @@
     --status-success-text: #3ecf8e;
     --status-success-border: rgba(62, 207, 142, 0.3);
 
-    --status-warning-bg: rgba(251, 191, 36, 0.1);
-    --status-warning-text: #fbbf24;
-    --status-warning-border: rgba(251, 191, 36, 0.3);
+    --status-warning-bg: rgba(251, 191, 36, 0.22);
+    --status-warning-text: #f5d78a;
+    --status-warning-border: rgba(251, 191, 36, 0.45);
 
-    --status-error-bg: rgba(244, 63, 94, 0.1);
-    --status-error-text: #f43f5e;
-    --status-error-border: rgba(244, 63, 94, 0.3);
+    --status-error-bg: rgba(244, 63, 94, 0.2);
+    --status-error-text: #f3a5b6;
+    --status-error-border: rgba(244, 63, 94, 0.45);
 
     --status-info-bg: rgba(62, 207, 142, 0.08);
     --status-info-text: #3ecf8e;
@@ -470,11 +470,11 @@
     --status-success-border: hsl(152 40% 80%);
 
     --status-warning-bg: hsl(38 92% 90%);
-    --status-warning-text: hsl(38 80% 35%);
+    --status-warning-text: #000000;
     --status-warning-border: hsl(38 50% 80%);
 
     --status-error-bg: hsl(0 72% 92%);
-    --status-error-text: hsl(0 72% 45%);
+    --status-error-text: #000000;
     --status-error-border: hsl(0 40% 80%);
 
     --status-info-bg: hsl(190 40% 95%);

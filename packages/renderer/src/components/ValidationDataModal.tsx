@@ -824,14 +824,14 @@ export function ValidationDataModal({ open, onOpenChange, jobKey, jobKeys }: Val
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-[880px] max-w-[95vw] overflow-y-auto">
-        <SheetHeader>
-          <div className="flex items-center justify-between gap-4">
-            <SheetTitle>{isAggregated ? 'Aggregated NC File Statistics' : 'MES Data'}</SheetTitle>
-            <div className="flex items-center gap-3">
-              {isAggregated && aggregatedData && (
-                <span className="text-lg font-semibold text-muted-foreground">{aggregatedData.jobCount} jobs</span>
-              )}
+        <SheetContent side="right" className="w-[880px] max-w-[95vw] overflow-y-auto">
+          <SheetHeader>
+            <div className="flex items-center justify-between gap-4">
+              <SheetTitle>{isAggregated ? 'Aggregated Job Stats' : 'Job Stats'}</SheetTitle>
+              <div className="flex items-center gap-3">
+                {isAggregated && aggregatedData && (
+                  <span className="text-lg font-semibold text-muted-foreground">{aggregatedData.jobCount} jobs</span>
+                )}
               <div className="relative">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -863,7 +863,7 @@ export function ValidationDataModal({ open, onOpenChange, jobKey, jobKeys }: Val
           {loading && <p className="text-sm text-muted-foreground">Loading...</p>}
           {error && <p className="text-sm text-destructive">{error}</p>}
           {!loading && !error && !data && !aggregatedData && (
-            <p className="text-sm text-muted-foreground">No MES data available.</p>
+            <p className="text-sm text-muted-foreground">No stats available.</p>
           )}
 
           {isAggregated && aggregatedData ? (

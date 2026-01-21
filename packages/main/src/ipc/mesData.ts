@@ -16,7 +16,7 @@ export function registerMesDataIpc() {
     }
     const record = await getNcStats(parsed.data.key);
     if (!record) {
-      return err(createAppError('mes.notFound', 'No MES data found for this job.'));
+      return err(createAppError('mes.notFound', 'No stats found for this job.'));
     }
     return ok<ValidationDataRes, AppError>(record);
   });
@@ -28,7 +28,7 @@ export function registerMesDataIpc() {
     }
     const record = await getAggregatedNcStats(parsed.data.keys);
     if (!record) {
-      return err(createAppError('mes.notFound', 'No MES data found for these jobs.'));
+      return err(createAppError('mes.notFound', 'No stats found for these jobs.'));
     }
     return ok<AggregatedValidationDataRes, AppError>(record);
   });

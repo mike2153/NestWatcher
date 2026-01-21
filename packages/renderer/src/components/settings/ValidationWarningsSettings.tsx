@@ -62,8 +62,8 @@ export function ValidationWarningsSettings() {
               Show Validation Warnings
             </label>
             <p className="text-xs text-muted-foreground mt-1">
-              When enabled, validation results from NC-Cat will pop up after jobs are ingested.
-              Staging will always show the validation results to the user who staged the job.
+              When enabled, validation results from NC-Cat will pop up automatically after jobs are ingested.
+              The Validations button is always available to view recent results.
             </p>
           </div>
         </div>

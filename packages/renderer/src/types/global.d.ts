@@ -57,6 +57,8 @@ import type {
   AggregatedValidationDataReq,
   AggregatedValidationDataRes,
   NcCatValidationReport,
+  NcCatValidationReportsListReq,
+  NcCatValidationReportsListRes,
   OpenJobInSimulatorRes,
   SubscriptionAuthState,
   SubscriptionLoginReq,
@@ -88,6 +90,7 @@ declare global {
       validation: {
         getData: (req: ValidationDataReq) => Promise<Result<ValidationDataRes, AppError>>;
         getAggregatedData: (req: AggregatedValidationDataReq) => Promise<Result<AggregatedValidationDataRes, AppError>>;
+        listHeadlessReports: (req: NcCatValidationReportsListReq) => Promise<Result<NcCatValidationReportsListRes, AppError>>;
         subscribeHeadlessResults: (listener: (payload: NcCatValidationReport) => void) => () => void;
       };
       settings: {
@@ -210,4 +213,3 @@ declare global {
 }
 
 export {};
-

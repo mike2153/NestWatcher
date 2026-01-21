@@ -5,7 +5,7 @@ import { Worker } from 'worker_threads';
 import { logger } from '../logger';
 import { pushAppMessage } from './messages';
 import { runHeadlessValidationWithRetry } from './ncCatHeadless';
-import { broadcastNcCatValidationReport } from './ncCatValidationResults';
+import { broadcastNcCatValidationReport, persistNcCatValidationReport } from './ncCatValidationResults';
 import {
   registerWatcher,
   watcherReady,
@@ -291,6 +291,7 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
       break;
     }
     case 'ncCatValidationReport': {
+      void persistNcCatValidationReport(message.report);
       broadcastNcCatValidationReport(message.report);
       break;
     }

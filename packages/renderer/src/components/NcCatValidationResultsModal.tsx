@@ -1,5 +1,11 @@
 import type { NcCatValidationReport } from '../../../shared/src';
 import { useEffect, useMemo, useState } from 'react';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger
+} from '@/components/ui/accordion';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,6 +17,9 @@ type NcCatValidationResultsModalProps = {
   onOpenChange: (open: boolean) => void;
   latestReport: NcCatValidationReport | null;
   historyReports: NcCatValidationReport[];
+  loading?: boolean;
+  loadError?: string | null;
+  onRefresh?: () => void;
 };
 
 type StatusBadgeProps = {
@@ -41,14 +50,6 @@ function formatReportTimestamp(iso: string): string {
 type GroupedMessage = {
   header: string;
   lines: string[];
-  type: 'error' | 'warning' | 'syntax';
-};
-
-type CategoryGroup = {
-  category: string;
-  errors: GroupedMessage[];
-  warnings: GroupedMessage[];
-  syntax: GroupedMessage[];
 };
 
 function toTitleCase(str: string): string {
@@ -65,6 +66,9 @@ function getMessageHeader(message: string): string {
   if (!trimmed) return 'Unknown';
 
   let coreIssue = trimmed;
+  if (/tool\s*path\s*out\s*of\s*bounds/i.test(coreIssue)) {
+    return 'Tool Path Out Of Bounds';
+  }
   coreIssue = coreIssue.replace(/^[A-Z]\d+\s+/, '');
 
   const colonIndex = coreIssue.indexOf(':');
@@ -81,7 +85,7 @@ function getMessageHeader(message: string): string {
   return toTitleCase(coreIssue);
 }
 
-function groupMessages(lines: string[], type: 'error' | 'warning' | 'syntax'): GroupedMessage[] {
+function groupMessages(lines: string[]): GroupedMessage[] {
   const map = new Map<string, string[]>();
   const order: string[] = [];
 
@@ -94,50 +98,62 @@ function groupMessages(lines: string[], type: 'error' | 'warning' | 'syntax'): G
     map.get(header)?.push(line);
   }
 
-  return order.map((header) => ({ header, lines: map.get(header) ?? [], type }));
+  return order.map((header) => ({ header, lines: map.get(header) ?? [] }));
 }
 
-function groupAllMessagesByCategory(
-  errors: string[],
-  warnings: string[],
-  syntax: string[]
-): CategoryGroup[] {
-  const categoryMap = new Map<string, CategoryGroup>();
+type CountTotals = {
+  errors: number;
+  warnings: number;
+};
 
-  const groupedErrors = groupMessages(errors, 'error');
-  const groupedWarnings = groupMessages(warnings, 'warning');
-  const groupedSyntax = groupMessages(syntax, 'syntax');
+function getFileCounts(file: NcCatValidationReport['files'][number]): CountTotals {
+  return {
+    errors: file.errors.length + file.syntax.length,
+    warnings: file.warnings.length
+  };
+}
 
-  // Combine all grouped messages
-  const allGrouped = [...groupedErrors, ...groupedWarnings, ...groupedSyntax];
+function getReportCounts(report: NcCatValidationReport): CountTotals {
+  return report.files.reduce<CountTotals>(
+    (totals, file) => {
+      const counts = getFileCounts(file);
+      totals.errors += counts.errors;
+      totals.warnings += counts.warnings;
+      return totals;
+    },
+    { errors: 0, warnings: 0 }
+  );
+}
 
-  for (const group of allGrouped) {
-    if (!categoryMap.has(group.header)) {
-      categoryMap.set(group.header, {
-        category: group.header,
-        errors: [],
-        warnings: [],
-        syntax: []
-      });
-    }
-    const cat = categoryMap.get(group.header)!;
-    if (group.type === 'error') {
-      cat.errors.push(group);
-    } else if (group.type === 'warning') {
-      cat.warnings.push(group);
-    } else {
-      cat.syntax.push(group);
-    }
-  }
+type CountBadgeProps = {
+  tone: 'errors' | 'warnings';
+  count: number;
+};
 
-  return Array.from(categoryMap.values());
+function CountBadge({ tone, count }: CountBadgeProps) {
+  if (count <= 0) return null;
+  const className =
+    tone === 'errors'
+      ? 'border-[var(--status-error-border)] bg-[var(--status-error-bg)] text-[var(--status-error-text)]'
+      : 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning-text)]';
+  return (
+    <Badge
+      variant="outline"
+      className={cn('text-xs font-semibold', className)}
+    >
+      {tone === 'errors' ? 'Errors' : 'Warnings'} {count}
+    </Badge>
+  );
 }
 
 export function NcCatValidationResultsModal({
   open,
   onOpenChange,
   latestReport,
-  historyReports
+  historyReports,
+  loading = false,
+  loadError = null,
+  onRefresh
 }: NcCatValidationResultsModalProps) {
   const [showAll, setShowAll] = useState(false);
 
@@ -175,28 +191,38 @@ export function NcCatValidationResultsModal({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-[920px] max-w-[96vw] overflow-y-auto">
+      <SheetContent
+        side="right"
+        className="w-[920px] max-w-[96vw] overflow-y-auto text-sidebar-foreground dark:text-[var(--foreground-subtle)]"
+        style={{ backgroundColor: 'var(--sidebar)' }}
+      >
         <SheetHeader>
           <div className="flex items-start justify-between gap-2">
             <div>
-              <SheetTitle>Validation Results</SheetTitle>
-              <SheetDescription>
+              <SheetTitle className="dark:text-[var(--foreground-subtle)]">Validation Results</SheetTitle>
+              <SheetDescription className="text-lg dark:text-[var(--foreground-subtle)]">
                 {summary.jobs > 0
                   ? `Jobs: ${summary.jobs} | Files: ${summary.files} | Errors: ${summary.errors} | Warnings: ${summary.warnings}`
                   : 'No validation results yet.'}
               </SheetDescription>
             </div>
 
-            {canSeeAll && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowAll((prev) => !prev)}
-                className="shrink-0"
-              >
-                {showAll ? 'Latest Only' : `See All (${historyReports.length})`}
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {onRefresh && (
+                <Button size="sm" onClick={onRefresh} className="shrink-0" disabled={loading}>
+                  {loading ? 'Loading...' : 'Refresh'}
+                </Button>
+              )}
+              {canSeeAll && (
+                <Button
+                  size="sm"
+                  onClick={() => setShowAll((prev) => !prev)}
+                  className="shrink-0"
+                >
+                  {showAll ? 'Latest Only' : `See All (${historyReports.length})`}
+                </Button>
+              )}
+            </div>
           </div>
         </SheetHeader>
 
@@ -205,159 +231,205 @@ export function NcCatValidationResultsModal({
           <StatusBadge status="warnings" label={`Warnings ${summary.warnings}`} />
           <StatusBadge status="pass" label={`Pass ${summary.pass}`} />
           {showAll && (
-            <div className="text-xs text-[var(--muted-foreground)]">Showing up to the last 50 jobs.</div>
+            <div className="text-xs text-[var(--muted-foreground)] dark:text-[var(--foreground-subtle)]">
+              Showing up to the last 50 jobs.
+            </div>
           )}
         </div>
 
         <div className="mt-4 space-y-3">
+          {loadError && (
+            <div className="rounded border border-[var(--status-error-border)] bg-[var(--status-error-bg)] p-3 text-sm text-[var(--status-error-text)]">
+              Failed to load validation history: {loadError}
+            </div>
+          )}
           {displayedReports.length === 0 && (
-            <div className="rounded border border-[var(--border)] bg-[var(--card)] p-3 text-sm text-[var(--muted-foreground)]">
+            <div className="rounded border border-[var(--border)] bg-[var(--card)] p-3 text-sm text-[var(--muted-foreground)] dark:text-[var(--foreground-subtle)]">
               Waiting for validation results...
             </div>
           )}
 
-          {displayedReports.map((report, index) => (
-            <details
-              key={`${report.reason}-${report.folderName}-${report.processedAt}-${index}`}
-              className="rounded border border-[var(--border)] bg-[var(--card)] p-3"
-              open={!showAll}
-            >
-              <summary className="flex cursor-pointer items-center justify-between gap-2 text-sm">
-                <div className="flex flex-col">
-                  <span className="font-medium text-[var(--foreground)]">{report.folderName}</span>
-                  <span className="text-xs text-[var(--muted-foreground)]">
-                    {formatReportTimestamp(report.processedAt)}
-                    {report.profileName ? ` | ${report.profileName}` : ''}
-                    {report.reason ? ` | ${report.reason}` : ''}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-[var(--muted-foreground)]">{report.files.length} file(s)</span>
-                  <StatusBadge status={report.overallStatus} />
-                </div>
-              </summary>
+          <Accordion
+            type="multiple"
+            defaultValue={!showAll && displayedReports.length === 1 ? ['latest-report'] : undefined}
+            className="space-y-3"
+          >
+            {displayedReports.map((report, index) => {
+              const reportKey = `report-${index}-${report.folderName}-${report.processedAt}`;
+              const reportCounts = getReportCounts(report);
 
-              <div className="mt-3 space-y-2">
-                {report.files.map((file) => {
-                  const categoryGroups = groupAllMessagesByCategory(
-                    file.errors,
-                    file.warnings,
-                    file.syntax
-                  );
-
-                  return (
-                    <div
-                      key={`${report.folderName}-${file.filename}`}
-                      className="rounded border border-[var(--border)] bg-[var(--background)] p-2"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm text-[var(--foreground)]">{file.filename}</span>
-                        <StatusBadge status={file.status} />
+              return (
+                <AccordionItem
+                  key={reportKey}
+                  value={!showAll && displayedReports.length === 1 ? 'latest-report' : reportKey}
+                  className="rounded overflow-hidden"
+                  style={{ backgroundColor: 'var(--sidebar)' }}
+                >
+                  <AccordionTrigger className="px-3 py-2 hover:no-underline">
+                    <div className="grid flex-1 grid-cols-[1fr_auto] items-center gap-3 text-left">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-semibold dark:text-[var(--foreground-subtle)]">
+                          {report.folderName}
+                        </span>
+                        <span className="text-xs text-[var(--muted-foreground)] dark:text-[var(--foreground-subtle)]">
+                          {formatReportTimestamp(report.processedAt)}
+                          {report.profileName ? ` | ${report.profileName}` : ''}
+                          {report.reason ? ` | ${report.reason}` : ''}
+                        </span>
                       </div>
+                      <div className="flex items-center gap-2">
+                        <CountBadge tone="errors" count={reportCounts.errors} />
+                        <CountBadge tone="warnings" count={reportCounts.warnings} />
+                        <span className="text-xs text-[var(--muted-foreground)] dark:text-[var(--foreground-subtle)]">
+                          {report.files.length} file(s)
+                        </span>
+                      </div>
+                    </div>
+                  </AccordionTrigger>
 
-                      {(file.errors.length > 0 || file.warnings.length > 0 || file.syntax.length > 0) && (
-                        <div className="mt-2 space-y-3">
-                          {categoryGroups.map((category) => (
-                            <details
-                              key={`cat-${category.category}`}
-                              className="rounded border border-[var(--border)] bg-[var(--card)] p-2"
-                            >
-                              <summary className="cursor-pointer font-semibold text-base text-[var(--foreground)]">
-                                {category.category}
-                                {category.errors.length + category.warnings.length + category.syntax.length > 1
-                                  ? ` (${category.errors.length + category.warnings.length + category.syntax.length})`
-                                  : ''}
-                              </summary>
+                  <AccordionContent className="px-3 pt-0">
+                    <Accordion type="multiple" className="space-y-2 pb-3">
+                      {report.files.map((file) => {
+                        const fileKey = `${report.folderName}-${file.filename}`;
+                        const fileCounts = getFileCounts(file);
+                        const errorGroups = groupMessages([...file.errors, ...file.syntax]);
+                        const warningGroups = groupMessages(file.warnings);
 
-                              <div className="mt-3 space-y-3">
-                                {category.errors.length > 0 && (
-                                  <div>
-                                    <div className="font-semibold text-base text-[var(--status-error-text)]">
-                                      Errors
-                                    </div>
-                                    <div className="mt-2 space-y-2">
-                                      {category.errors.map((group) => (
-                                        <details
-                                          key={`err-${group.header}`}
-                                          className="rounded border border-[var(--border)] bg-[var(--background)] p-2 ml-2"
-                                        >
-                                          <summary className="cursor-pointer font-medium text-base text-[var(--status-error-text)]">
-                                            {group.header}
-                                            {group.lines.length > 1 ? ` (${group.lines.length})` : ''}
-                                          </summary>
-                                          <ul className="mt-2 list-disc space-y-1 pl-5 text-base text-[var(--foreground)]">
-                                            {group.lines.map((line, idx) => (
-                                              <li key={`err-${group.header}-${idx}`}>{line}</li>
-                                            ))}
-                                          </ul>
-                                        </details>
-                                      ))}
-                                    </div>
+                        return (
+                          <AccordionItem
+                            key={fileKey}
+                            value={fileKey}
+                            className="rounded overflow-hidden"
+                            style={{ backgroundColor: 'var(--sidebar)' }}
+                          >
+                            <AccordionTrigger className="px-3 py-2 hover:no-underline">
+                              <div className="grid flex-1 grid-cols-[1fr_auto] items-center gap-3 text-left">
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="inline-block size-2 rounded-full bg-emerald-500"
+                                    aria-hidden="true"
+                                  />
+                                  <span className="text-sm font-medium dark:text-[var(--foreground-subtle)]">
+                                    {file.filename}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <CountBadge tone="errors" count={fileCounts.errors} />
+                                  <CountBadge tone="warnings" count={fileCounts.warnings} />
+                                </div>
+                              </div>
+                            </AccordionTrigger>
+
+                            <AccordionContent className="px-3 pt-2">
+                              <div className="space-y-2 pb-2">
+                                {fileCounts.errors === 0 && fileCounts.warnings === 0 && (
+                                  <div
+                                    className="rounded border border-[var(--border)] px-3 py-2 text-xs text-[var(--muted-foreground)] dark:text-[var(--foreground-subtle)]"
+                                    style={{ backgroundColor: 'var(--sidebar)' }}
+                                  >
+                                    No errors or warnings for this file.
                                   </div>
                                 )}
 
-                                {category.syntax.length > 0 && (
-                                  <div>
-                                    <div className="font-semibold text-base text-[var(--status-error-text)]">
-                                      Syntax
-                                    </div>
-                                    <div className="mt-2 space-y-2">
-                                      {category.syntax.map((group) => (
-                                        <details
-                                          key={`syntax-${group.header}`}
-                                          className="rounded border border-[var(--border)] bg-[var(--background)] p-2 ml-2"
-                                        >
-                                          <summary className="cursor-pointer font-medium text-base text-[var(--status-error-text)]">
-                                            {group.header}
-                                            {group.lines.length > 1 ? ` (${group.lines.length})` : ''}
-                                          </summary>
-                                          <ul className="mt-2 list-disc space-y-1 pl-5 text-base text-[var(--foreground)]">
-                                            {group.lines.map((line, idx) => (
-                                              <li key={`syntax-${group.header}-${idx}`}>{line}</li>
-                                            ))}
-                                          </ul>
-                                        </details>
-                                      ))}
-                                    </div>
-                                  </div>
+                                {fileCounts.errors > 0 && (
+                                  <Accordion
+                                    type="multiple"
+                                    className="space-y-2"
+                                  >
+                                    <AccordionItem
+                                      value="file-errors"
+                                      className="rounded border overflow-hidden border-[var(--border)]"
+                                    >
+                                      <AccordionTrigger
+                                        className="px-3 py-2 hover:no-underline text-[var(--status-error-text)] dark:text-[var(--foreground-muted)]"
+                                        style={{
+                                          backgroundColor: 'var(--status-error-bg)'
+                                        }}
+                                      >
+                                        <div className="grid flex-1 grid-cols-[1fr_auto] items-center gap-3 text-left">
+                                          <span className="text-sm font-semibold">
+                                            Errors {fileCounts.errors > 1 ? `(${fileCounts.errors})` : ''}
+                                          </span>
+                                        </div>
+                                      </AccordionTrigger>
+                                      <AccordionContent className="px-0 pt-0" contentClassName="pb-0">
+                                        <div className="divide-y divide-[var(--border)] border-t border-[var(--border)]">
+                                          {errorGroups.map((group) => (
+                                            <div
+                                              key={`err-${fileKey}-${group.header}`}
+                                              className="px-3 py-2"
+                                              style={{ backgroundColor: 'var(--sidebar)' }}
+                                            >
+                                              <div className="text-xs font-semibold text-[var(--foreground)] dark:text-[var(--foreground-subtle)]">
+                                                {group.header}
+                                                {group.lines.length > 1 ? ` (${group.lines.length})` : ''}
+                                              </div>
+                                              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-[var(--foreground)] dark:text-[var(--foreground-subtle)]">
+                                                {group.lines.map((line, idx) => (
+                                                  <li key={`err-${fileKey}-${group.header}-${idx}`}>{line}</li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </AccordionContent>
+                                    </AccordionItem>
+                                  </Accordion>
                                 )}
 
-                                {category.warnings.length > 0 && (
-                                  <div>
-                                    <div className="font-semibold text-base text-[var(--status-warning-text)]">
-                                      Warnings
-                                    </div>
-                                    <div className="mt-2 space-y-2">
-                                      {category.warnings.map((group) => (
-                                        <details
-                                          key={`warn-${group.header}`}
-                                          className="rounded border border-[var(--border)] bg-[var(--background)] p-2 ml-2"
-                                        >
-                                          <summary className="cursor-pointer font-medium text-base text-[var(--status-warning-text)]">
-                                            {group.header}
-                                            {group.lines.length > 1 ? ` (${group.lines.length})` : ''}
-                                          </summary>
-                                          <ul className="mt-2 list-disc space-y-1 pl-5 text-base text-[var(--foreground)]">
-                                            {group.lines.map((line, idx) => (
-                                              <li key={`warn-${group.header}-${idx}`}>{line}</li>
-                                            ))}
-                                          </ul>
-                                        </details>
-                                      ))}
-                                    </div>
-                                  </div>
+                                {fileCounts.warnings > 0 && (
+                                  <Accordion type="multiple" className="space-y-2">
+                                    <AccordionItem
+                                      value="file-warnings"
+                                      className="rounded border overflow-hidden border-[var(--border)]"
+                                    >
+                                      <AccordionTrigger
+                                        className="px-3 py-2 hover:no-underline text-[var(--status-warning-text)] dark:text-[var(--foreground-muted)]"
+                                        style={{
+                                          backgroundColor: 'var(--status-warning-bg)'
+                                        }}
+                                      >
+                                        <div className="grid flex-1 grid-cols-[1fr_auto] items-center gap-3 text-left">
+                                          <span className="text-sm font-semibold">
+                                            Warnings {fileCounts.warnings > 1 ? `(${fileCounts.warnings})` : ''}
+                                          </span>
+                                        </div>
+                                      </AccordionTrigger>
+                                      <AccordionContent className="px-0 pt-0" contentClassName="pb-0">
+                                        <div className="divide-y divide-[var(--border)] border-t border-[var(--border)]">
+                                          {warningGroups.map((group) => (
+                                            <div
+                                              key={`warn-${fileKey}-${group.header}`}
+                                              className="px-3 py-2"
+                                              style={{ backgroundColor: 'var(--sidebar)' }}
+                                            >
+                                              <div className="text-xs font-semibold text-[var(--foreground)] dark:text-[var(--foreground-subtle)]">
+                                                {group.header}
+                                                {group.lines.length > 1 ? ` (${group.lines.length})` : ''}
+                                              </div>
+                                              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-[var(--foreground)] dark:text-[var(--foreground-subtle)]">
+                                                {group.lines.map((line, idx) => (
+                                                  <li key={`warn-${fileKey}-${group.header}-${idx}`}>{line}</li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </AccordionContent>
+                                    </AccordionItem>
+                                  </Accordion>
                                 )}
                               </div>
-                            </details>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </details>
-          ))}
+                            </AccordionContent>
+                          </AccordionItem>
+                        );
+                      })}
+                    </Accordion>
+                  </AccordionContent>
+                </AccordionItem>
+              );
+            })}
+          </Accordion>
         </div>
       </SheetContent>
     </Sheet>

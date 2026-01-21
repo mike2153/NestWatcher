@@ -10,7 +10,8 @@ import type {
   Machine,
   MachineHealthCode,
   NcCatHeadlessValidationFileResult,
-  NcCatValidationReport
+  NcCatValidationReport,
+  ValidationResult
 } from '../../../shared/src';
 import { loadConfig } from '../services/config';
 import { logger } from '../logger';
@@ -21,6 +22,7 @@ import { listMachines } from '../repo/machinesRepo';
 import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLifecycle, resyncGrundnerPreReservedForMaterial } from '../repo/jobsRepo';
 import { bulkUpsertCncStats } from '../repo/cncStatsRepo';
 import type { CncStatsUpsert } from '../repo/cncStatsRepo';
+import { upsertNcStats } from '../repo/ncStatsRepo';
 import type {
   WatcherWorkerToMainMessage,
   MainToWatcherMessage,
@@ -3276,6 +3278,9 @@ async function processNcCatJobUnit(unit: NcCatJobUnit) {
     try {
       const ingestResult = await ingestProcessedJobsRoot();
       logger.info({ inserted: ingestResult.inserted, updated: ingestResult.updated }, 'nccat: triggered ingest after move');
+      if (validationResult.ok) {
+        await upsertNcStatsFromHeadlessResults(folderName, validationResult.results);
+      }
     } catch (ingestErr) {
       logger.warn({ err: ingestErr }, 'nccat: ingest failed after move');
     }
@@ -3415,6 +3420,9 @@ async function processNcCatJobUnit(unit: NcCatJobUnit) {
   try {
     const ingestResult = await ingestProcessedJobsRoot();
     logger.info({ inserted: ingestResult.inserted, updated: ingestResult.updated }, 'nccat: triggered ingest after move');
+    if (validationResult.ok) {
+      await upsertNcStatsFromHeadlessResults(looseFolderName, validationResult.results);
+    }
   } catch (ingestErr) {
     logger.warn({ err: ingestErr }, 'nccat: ingest failed after move');
   }
@@ -3426,6 +3434,48 @@ function enqueueNcCatJobUnit(unit: NcCatJobUnit) {
   ncCatQueuedKeys.add(key);
   ncCatQueue.push(unit);
   void processNcCatQueue();
+}
+
+function buildJobKeyFromNcCatFolder(folderName: string, filename: string): string {
+  const normalized = filename.replace(/\\/g, '/').replace(/^\/+/, '');
+  const segments = normalized.split('/').filter(Boolean);
+  const base = segments.pop() ?? normalized;
+  const baseNoExt = basename(base, extname(base)) || base;
+  const dir = segments.length ? `${segments.join('/')}/` : '';
+  return `${folderName}/${dir}${baseNoExt}`.slice(0, 100);
+}
+
+async function upsertNcStatsFromHeadlessResults(folderName: string, results: NcCatHeadlessValidationFileResult[]): Promise<void> {
+  for (const file of results) {
+    // Only store stats for jobs with no errors. Warnings are allowed.
+    if (file.validation.status === 'errors') continue;
+    if (!file.stats) continue;
+
+    const jobKey = buildJobKeyFromNcCatFolder(folderName, file.filename);
+    const stats = file.stats;
+
+    try {
+      await upsertNcStats({
+        jobKey,
+        ncEstRuntime: Number.isFinite(stats.ncEstRuntime) ? Math.round(stats.ncEstRuntime) : null,
+        yieldPercentage: Number.isFinite(stats.yieldPercentage) ? stats.yieldPercentage : null,
+        wasteOffcutM2: Number.isFinite(stats.wasteOffcutM2) ? stats.wasteOffcutM2 : null,
+        wasteOffcutDustM3: Number.isFinite(stats.wasteOffcutDustM3) ? stats.wasteOffcutDustM3 : null,
+        totalToolDustM3: Number.isFinite(stats.TotalToolDustM3) ? stats.TotalToolDustM3 : null,
+        totalDrillDustM3: Number.isFinite(stats.TotalDrillDustM3) ? stats.TotalDrillDustM3 : null,
+        sheetTotalDustM3: Number.isFinite(stats.SheetTotalDustM3) ? stats.SheetTotalDustM3 : null,
+        cuttingDistanceMeters: Number.isFinite(stats.cuttingDistanceMeters) ? stats.cuttingDistanceMeters : null,
+        usableOffcuts: stats.usableOffcuts ?? [],
+        toolUsage: stats.toolUsage ?? [],
+        drillUsage: stats.drillUsage ?? [],
+        validation: file.validation as ValidationResult,
+        nestPick: null,
+        mesOutputVersion: null
+      });
+    } catch (err) {
+      logger.warn({ err, jobKey, folderName }, 'nccat: failed to upsert nc_stats from headless stats');
+    }
+  }
 }
 
 async function processNcCatQueue() {

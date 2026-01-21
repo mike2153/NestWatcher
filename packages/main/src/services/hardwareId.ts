@@ -14,6 +14,7 @@ const execAsync = promisify(exec);
 
 // Cache the hardware ID since it won't change during runtime
 let cachedHardwareId: string | null = null;
+let cachedHardwareIdPromise: Promise<string> | null = null;
 
 /**
  * Get CPU ID on Windows using PowerShell
@@ -127,31 +128,41 @@ export async function getHardwareId(): Promise<string> {
     return cachedHardwareId;
   }
 
-  try {
-    const [cpuId, motherboardSerial] = await Promise.all([
-      getCpuId(),
-      getMotherboardSerial(),
-    ]);
-
-    logger.info(
-      { cpuId, motherboardSerial },
-      'Hardware identifiers collected'
-    );
-
-    cachedHardwareId = hashHardwareIds(cpuId, motherboardSerial);
-
-    logger.info({ hardwareId: cachedHardwareId }, 'Hardware ID generated');
-    logger.info(
-      `Hardware ID details (CPU + motherboard + hash): cpuId=${cpuId} motherboardSerial=${motherboardSerial} hardwareId=${cachedHardwareId}`
-    );
-
-    return cachedHardwareId;
-  } catch (error) {
-    logger.error({ error }, 'Failed to generate hardware ID');
-    // Generate a fallback that's at least consistent for this session
-    cachedHardwareId = `fallback-${createHash('sha256').update(Date.now().toString()).digest('hex')}`;
-    return cachedHardwareId;
+  // If multiple callers request the hardware ID at the same time during startup,
+  // ensure we only execute the PowerShell probes once.
+  if (cachedHardwareIdPromise) {
+    return cachedHardwareIdPromise;
   }
+
+  cachedHardwareIdPromise = (async () => {
+    try {
+      const [cpuId, motherboardSerial] = await Promise.all([
+        getCpuId(),
+        getMotherboardSerial(),
+      ]);
+
+      logger.info(
+        { cpuId, motherboardSerial },
+        'Hardware identifiers collected'
+      );
+
+      cachedHardwareId = hashHardwareIds(cpuId, motherboardSerial);
+
+      logger.info({ hardwareId: cachedHardwareId }, 'Hardware ID generated');
+      logger.info(
+        `Hardware ID details (CPU + motherboard + hash): cpuId=${cpuId} motherboardSerial=${motherboardSerial} hardwareId=${cachedHardwareId}`
+      );
+
+      return cachedHardwareId;
+    } catch (error) {
+      logger.error({ error }, 'Failed to generate hardware ID');
+      // Generate a fallback that's at least consistent for this session
+      cachedHardwareId = `fallback-${createHash('sha256').update(Date.now().toString()).digest('hex')}`;
+      return cachedHardwareId;
+    }
+  })();
+
+  return cachedHardwareIdPromise;
 }
 
 /**
@@ -159,4 +170,5 @@ export async function getHardwareId(): Promise<string> {
  */
 export function clearHardwareIdCache(): void {
   cachedHardwareId = null;
+  cachedHardwareIdPromise = null;
 }
