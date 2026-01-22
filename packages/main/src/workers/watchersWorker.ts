@@ -3,7 +3,7 @@ import { createHash } from 'crypto';
 import { existsSync, mkdirSync } from 'fs';
 import { promises as fsp } from 'fs';
 import type { Dirent } from 'fs';
-import { basename, dirname, extname, join, normalize, relative, sep } from 'path';
+import { basename, extname, join, normalize, relative, sep } from 'path';
 import type { PoolClient } from 'pg';
 import { parentPort } from 'worker_threads';
 import type {

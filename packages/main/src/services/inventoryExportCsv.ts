@@ -8,7 +8,6 @@ function formatTimestampForCsv(value: string): string {
 
   const hours = pad2(d.getHours());
   const minutes = pad2(d.getMinutes());
-  const seconds = pad2(d.getSeconds());
   const day = pad2(d.getDate());
   const month = pad2(d.getMonth() + 1);
   const year = String(d.getFullYear());

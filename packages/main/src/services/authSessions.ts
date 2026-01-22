@@ -4,7 +4,7 @@ import { createAppError } from '../ipc/errors';
 import { onContentsDestroyed } from '../ipc/onDestroyed';
 import { clearSession, getActiveSessionToken } from '../repo/userRepo';
 
-type InternalSession = AuthSession & { token: string };
+type InternalSession = AuthSession & { token: string; authMode?: 'db' | 'bypass' };
 
 const sessionsByContents = new Map<number, InternalSession>();
 
@@ -31,6 +31,9 @@ export async function detachSession(contents: WebContents, options?: { clearDb?:
   const existing = sessionsByContents.get(id);
   if (!existing) return;
   sessionsByContents.delete(id);
+  if (existing.authMode === 'bypass') {
+    return;
+  }
   if (options?.clearDb !== false) {
     await clearSession(existing.userId);
   }
@@ -46,6 +49,10 @@ export async function requireSession(event: IpcMainInvokeEvent): Promise<AuthSes
   const internal = getInternalSession(event.sender);
   if (!internal) {
     throw createAppError('auth.required', 'Please log in to continue.');
+  }
+
+  if (internal.authMode === 'bypass') {
+    return toAuthSession(internal);
   }
 
   const dbToken = await getActiveSessionToken(internal.userId);

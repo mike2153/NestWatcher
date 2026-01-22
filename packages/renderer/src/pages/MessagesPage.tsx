@@ -10,13 +10,13 @@ function formatTime(value: string): string {
 
 const toneClasses: Record<AppMessage['tone'], string> = {
   success:
-    'border-emerald-300 bg-emerald-50 text-emerald-900 dark:bg-gradient-to-r dark:from-emerald-400/25 dark:to-emerald-400/12 dark:border-emerald-400/50 dark:text-emerald-300',
+    'bg-gradient-to-r from-emerald-500/35 to-emerald-500/20 border-emerald-600/50 text-emerald-700 dark:from-emerald-400/25 dark:to-emerald-400/12 dark:border-emerald-400/50 dark:text-emerald-300',
   info:
-    'border-yellow-300 bg-yellow-50 text-yellow-900 dark:bg-gradient-to-r dark:from-amber-400/25 dark:to-amber-400/12 dark:border-amber-400/50 dark:text-amber-300',
+    'bg-gradient-to-r from-amber-500/35 to-amber-500/20 border-amber-600/50 text-amber-700 dark:from-amber-400/25 dark:to-amber-400/12 dark:border-amber-400/50 dark:text-amber-300',
   warning:
-    'border-red-200 bg-red-50 text-red-900 dark:bg-gradient-to-r dark:from-red-400/25 dark:to-red-400/12 dark:border-red-400/50 dark:text-red-300',
+    'bg-gradient-to-r from-amber-500/35 to-amber-500/20 border-amber-600/50 text-amber-700 dark:from-amber-400/25 dark:to-amber-400/12 dark:border-amber-400/50 dark:text-amber-300',
   error:
-    'border-red-300 bg-red-50 text-red-900 dark:bg-gradient-to-r dark:from-red-400/25 dark:to-red-400/12 dark:border-red-400/50 dark:text-red-300'
+    'bg-gradient-to-r from-red-500/35 to-red-500/20 border-red-600/50 text-red-700 dark:from-red-400/25 dark:to-red-400/12 dark:border-red-400/50 dark:text-red-300'
 };
 
 export function MessagesPage() {

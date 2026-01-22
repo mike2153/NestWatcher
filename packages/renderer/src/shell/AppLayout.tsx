@@ -7,6 +7,7 @@ import type {
   DiagnosticsLogSummary,
   DiagnosticsLogTailRes,
   DiagnosticsSnapshot,
+  DbStatus,
   MachineHealthEntry,
   NcCatValidationReport
 } from '../../../shared/src';
@@ -15,7 +16,7 @@ import { selectCurrentAlarms } from './alarmUtils';
 import { NcCatValidationResultsModal } from '@/components/NcCatValidationResultsModal';
 import { Button } from '@/components/ui/button';
 import { PanelLeft } from 'lucide-react';
-import { formatAuDate, formatAuDateTime, formatAuTime } from '@/utils/datetime';
+import { formatAuDateTime, formatAuTime } from '@/utils/datetime';
 
 // Nav is defined in AppSidebar; no local nav here.
 const PAGE_TITLES: Record<string, string> = {
@@ -54,6 +55,8 @@ export function AppLayout() {
   const pageTitle = PAGE_TITLES[pathname] || pathname;
   const isSettingsPage = false;
 
+  const [dbStatus, setDbStatus] = useState<DbStatus | null>(null);
+
   const [alarms, setAlarms] = useState<AlarmEntry[]>([]);
   const [dismissedAlarmIds, setDismissedAlarmIds] = useState<Set<string>>(new Set());
   const alarmTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -78,6 +81,29 @@ export function AppLayout() {
   const [validationResultsOpen, setValidationResultsOpen] = useState(false);
   const [validationReportsLoading, setValidationReportsLoading] = useState(false);
   const [validationReportsError, setValidationReportsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    window.api.db
+      .getStatus()
+      .then((res) => {
+        if (cancelled) return;
+        if (res.ok) setDbStatus(res.value);
+      })
+      .catch(() => {
+        // ignore; we'll rely on subscribe updates
+      });
+
+    const unsubscribe = window.api.db.subscribeStatus((status) => {
+      if (!cancelled) setDbStatus(status);
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
 
   const dismissAlarm = useCallback((id: string) => {
     const t = alarmTimers.current.get(id);
@@ -361,7 +387,6 @@ export function AppLayout() {
   }, [fetchLogTail, logLimit, logSelectedFile, showDiagnostics]);
 
   const activeAlarmCount = alarms.length;
-  const hasActiveAlarms = activeAlarmCount > 0;
   const diagnosticsWatchers = diagnostics?.watchers ?? [];
   const diagnosticsErrors = diagnostics?.recentErrors ?? [];
   const machineHealthEntries: MachineHealthEntry[] = diagnostics?.machineHealth ?? [];
@@ -373,11 +398,6 @@ export function AppLayout() {
   });
   const diagnosticsAlertCount =
     machineHealthAlerts.length + watcherIssues.length + (recentErrorIsFresh ? 1 : 0);
-  const hasDiagnosticsAlert = diagnosticsAlertCount > 0;
-  const selectedLogSummary = useMemo(
-    () => logList.find((item) => item.file === logSelectedFile) ?? null,
-    [logList, logSelectedFile]
-  );
   const logLines = useMemo(() => (logLinesLive ?? (logTail?.lines ? [...logTail.lines].reverse() : [])), [logLinesLive, logTail]);
   const logAvailable = logTail?.available ?? null;
   const validationAlertCount = useMemo(() => {
@@ -493,6 +513,17 @@ export function AppLayout() {
             </Button>
           </div>
         </header>
+
+        {dbStatus && !dbStatus.online ? (
+          <div className="flex items-center justify-between gap-3 border-b border-red-600/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-300">
+            <div>Offline Mode: database not connected</div>
+            {dbStatus.error ? (
+              <div className="max-w-[65ch] truncate text-xs opacity-80" title={dbStatus.error}>
+                {dbStatus.error}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         <main className={cn(isSettingsPage ? 'flex-1 min-h-0 overflow-auto' : 'flex-1 min-h-0 overflow-y-auto overflow-x-auto', 'p-4 min-w-0')}>
           <Outlet />

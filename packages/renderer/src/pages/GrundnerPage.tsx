@@ -101,9 +101,93 @@ export function GrundnerPage() {
     })();
   }, []);
 
-  const totalStock = useMemo(() => rows.reduce((sum, row) => sum + (row.stock ?? 0), 0), [rows]);
-  const totalAvailable = useMemo(() => rows.reduce((sum, row) => sum + (row.stockAvailable ?? 0), 0), [rows]);
-  const totalReserved = useMemo(() => rows.reduce((sum, row) => sum + (row.reservedStock ?? 0), 0), [rows]);
+  const displayRows = useMemo<GrundnerRow[]>(() => {
+    const normalizeCustomerId = (value: string | null): string => (value ?? '').trim().toLowerCase();
+    const keyFor = (row: GrundnerRow): string => `${row.typeData ?? 'null'}|${normalizeCustomerId(row.customerId)}`;
+
+    const groups = new Map<
+      string,
+      {
+        row: GrundnerRow;
+        ids: number[];
+        materialNameSet: Set<string>;
+        materialNumberSet: Set<number>;
+        lengthSet: Set<number>;
+        widthSet: Set<number>;
+        thicknessSet: Set<number>;
+        lastUpdatedMax: string | null;
+      }
+    >();
+
+    const addNullableNumber = (set: Set<number>, value: number | null) => {
+      if (typeof value === 'number' && Number.isFinite(value)) set.add(value);
+    };
+
+    for (const r of rows) {
+      const key = keyFor(r);
+      const existing = groups.get(key);
+      if (!existing) {
+        const customerIdTrimmed = (r.customerId ?? '').trim();
+        groups.set(key, {
+          row: {
+            ...r,
+            customerId: customerIdTrimmed ? customerIdTrimmed : null,
+            stock: r.stock ?? 0,
+            stockAvailable: r.stockAvailable ?? 0,
+            reservedStock: r.reservedStock ?? 0,
+            preReserved: r.preReserved ?? 0
+          },
+          ids: [r.id],
+          materialNameSet: new Set(r.materialName ? [r.materialName] : []),
+          materialNumberSet: new Set(typeof r.materialNumber === 'number' ? [r.materialNumber] : []),
+          lengthSet: new Set(typeof r.lengthMm === 'number' ? [r.lengthMm] : []),
+          widthSet: new Set(typeof r.widthMm === 'number' ? [r.widthMm] : []),
+          thicknessSet: new Set(typeof r.thicknessMm === 'number' ? [r.thicknessMm] : []),
+          lastUpdatedMax: r.lastUpdated
+        });
+        continue;
+      }
+
+      existing.ids.push(r.id);
+      existing.row.stock = (existing.row.stock ?? 0) + (r.stock ?? 0);
+      existing.row.stockAvailable = (existing.row.stockAvailable ?? 0) + (r.stockAvailable ?? 0);
+      existing.row.reservedStock = (existing.row.reservedStock ?? 0) + (r.reservedStock ?? 0);
+      existing.row.preReserved = (existing.row.preReserved ?? 0) + (r.preReserved ?? 0);
+
+      if (r.materialName) existing.materialNameSet.add(r.materialName);
+      addNullableNumber(existing.materialNumberSet, r.materialNumber);
+      addNullableNumber(existing.lengthSet, r.lengthMm);
+      addNullableNumber(existing.widthSet, r.widthMm);
+      addNullableNumber(existing.thicknessSet, r.thicknessMm);
+
+      if (!existing.lastUpdatedMax) {
+        existing.lastUpdatedMax = r.lastUpdated;
+      } else if (r.lastUpdated) {
+        existing.lastUpdatedMax = r.lastUpdated > existing.lastUpdatedMax ? r.lastUpdated : existing.lastUpdatedMax;
+      }
+    }
+
+    const pickSingle = <T,>(set: Set<T>): T | null => (set.size === 1 ? [...set][0] : null);
+
+    const result: GrundnerRow[] = [];
+    for (const { row, ids, materialNameSet, materialNumberSet, lengthSet, widthSet, thicknessSet, lastUpdatedMax } of groups.values()) {
+      result.push({
+        ...row,
+        id: Math.min(...ids),
+        materialName: materialNameSet.size <= 1 ? (pickSingle(materialNameSet) as string | null) : 'Mixed',
+        materialNumber: pickSingle(materialNumberSet),
+        lengthMm: pickSingle(lengthSet),
+        widthMm: pickSingle(widthSet),
+        thicknessMm: pickSingle(thicknessSet),
+        lastUpdated: lastUpdatedMax
+      });
+    }
+    return result;
+  }, [rows]);
+
+  const totalStock = useMemo(() => displayRows.reduce((sum, row) => sum + (row.stock ?? 0), 0), [displayRows]);
+  const totalAvailable = useMemo(() => displayRows.reduce((sum, row) => sum + (row.stockAvailable ?? 0), 0), [displayRows]);
+  const totalReserved = useMemo(() => displayRows.reduce((sum, row) => sum + (row.reservedStock ?? 0), 0), [displayRows]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -355,7 +439,7 @@ export function GrundnerPage() {
   }, [tableColumns]);
 
   const table = useReactTable({
-    data: rows,
+    data: displayRows,
     columns,
     state: { sorting },
     onSortingChange: setSorting,

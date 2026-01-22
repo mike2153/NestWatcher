@@ -1,5 +1,5 @@
 import { ok, err } from 'neverthrow';
-import type { AppError, PathValidationRes, Settings } from '../../../shared/src';
+import type { PathValidationRes, Settings } from '../../../shared/src';
 import { promises as fsp } from 'fs';
 import { resolve } from 'path';
 import { DbSettingsSchema, PathValidationReq, InventoryExportSettingsSchema } from '../../../shared/src';
