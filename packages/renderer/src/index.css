@@ -6,6 +6,8 @@
 /* Import Tailwind CSS */
 @import 'tailwindcss';
 
+@custom-variant dark ".dark &";
+
 /* Tailwind base layer integration */
 @layer base {
   * {

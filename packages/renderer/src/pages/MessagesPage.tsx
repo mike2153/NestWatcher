@@ -9,10 +9,14 @@ function formatTime(value: string): string {
 }
 
 const toneClasses: Record<AppMessage['tone'], string> = {
-  success: 'border-emerald-300 bg-emerald-50 text-emerald-900',
-  info: 'border-yellow-300 bg-yellow-50 text-yellow-900',
-  warning: 'border-red-200 bg-red-50 text-red-900',
-  error: 'border-red-300 bg-red-50 text-red-900'
+  success:
+    'border-emerald-300 bg-emerald-50 text-emerald-900 dark:bg-gradient-to-r dark:from-emerald-400/25 dark:to-emerald-400/12 dark:border-emerald-400/50 dark:text-emerald-300',
+  info:
+    'border-yellow-300 bg-yellow-50 text-yellow-900 dark:bg-gradient-to-r dark:from-amber-400/25 dark:to-amber-400/12 dark:border-amber-400/50 dark:text-amber-300',
+  warning:
+    'border-red-200 bg-red-50 text-red-900 dark:bg-gradient-to-r dark:from-red-400/25 dark:to-red-400/12 dark:border-red-400/50 dark:text-red-300',
+  error:
+    'border-red-300 bg-red-50 text-red-900 dark:bg-gradient-to-r dark:from-red-400/25 dark:to-red-400/12 dark:border-red-400/50 dark:text-red-300'
 };
 
 export function MessagesPage() {

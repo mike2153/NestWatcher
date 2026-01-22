@@ -1,12 +1,11 @@
 # Dark Theme Tailwind dark: Issue - Findings and Plan
 
 ## Summary
-The app applies theme classes to the root element, but Tailwind is not generating class-based dark styles. Because the OS theme is light, the dark variant never activates, so `dark:` utilities have no effect in all dark themes.
+The app applies theme classes to the root element, but Tailwind defaults to media-based dark mode when no config is loaded. Also, forcing the config via `@config` breaks layout because the config expects design-token CSS variables (spacing, font sizes, etc.) that are not defined. We need a class-based dark variant without enabling the config.
 
 ## Root cause
-Tailwind v4 is being loaded via `@tailwindcss/postcss`, but the renderer CSS does not point Tailwind at the local config file. Without that config, Tailwind uses its default `darkMode` setting (media). That means `dark:` becomes `@media (prefers-color-scheme: dark)` instead of `.dark ...`.
-
-Because the OS theme is light, the media query never matches, so `dark:` classes do nothing.
+- Without a config, Tailwind v4 uses media-based dark mode, so `dark:` only applies when the OS is dark.
+- Enabling the config via `@config` switches to class-based dark mode, but it also replaces Tailwind defaults with CSS-variable tokens like `var(--spacing-1)`. Those variables are not defined, so most layout utilities collapse and the UI looks unstyled.
 
 ## Evidence in repo
 - Theme classes are set on the root element:
@@ -20,17 +19,14 @@ Because the OS theme is light, the media query never matches, so `dark:` classes
   - `packages/renderer/src/components/NcCatValidationResultsModal.tsx` uses `dark:text-amber-300`
 
 ## Fix (no light theme changes)
-Force Tailwind to load the renderer config so `darkMode: 'class'` is honored.
+Keep Tailwind in zero-config mode (to preserve styling) and explicitly define a class-based `dark` variant.
 
 Recommended minimal change:
-- Add this line at the very top of `packages/renderer/src/index.css`, before `@import 'tailwindcss';`
-  - `@config "./tailwind.config.ts";`
-
-Alternative (if you prefer config discovery by filename):
-- Rename `packages/renderer/tailwind.config.ts` to `tailwind.config.cjs` and export via `module.exports`.
+- Add this line in `packages/renderer/src/index.css` after the `@import` lines:
+  - `@custom-variant dark ".dark &";`
 
 ## Rollout plan
-1) Apply the minimal `@config` line in `packages/renderer/src/index.css`.
+1) Add the `@custom-variant` line in `packages/renderer/src/index.css` after the `@import` lines.
 2) Run the app in dev mode.
 3) Switch to `dark`, `forest`, and `supabase` themes while keeping the OS theme light.
 4) Verify that `dark:` utilities are now class-based and visible.
