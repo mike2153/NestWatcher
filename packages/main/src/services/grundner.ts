@@ -1,19 +1,13 @@
-import { loadConfig } from './config';
-
 type GrundnerColumn = 'type_data' | 'customer_id';
 
-
+// NOTE: sheetIdMode is currently a placeholder setting.
+// We always use type_data as the canonical material key.
 export function getGrundnerLookupColumn(): GrundnerColumn {
-  const cfg = loadConfig();
-  return cfg.test.sheetIdMode === 'customer_id' ? 'customer_id' : 'type_data';
+  return 'type_data';
 }
 
-
-
-export function resolveMaterialKey(column: GrundnerColumn, row: { typeData: number | null; customerId: string | null }): string | null {
-  if (column === 'customer_id') {
-    return row.customerId?.trim() ?? null;
-  }
+export function resolveMaterialKey(_column: GrundnerColumn, row: { typeData: number | null; customerId: string | null }): string | null {
   if (row.typeData == null) return null;
   return String(row.typeData);
 }
+

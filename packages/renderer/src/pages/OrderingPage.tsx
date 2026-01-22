@@ -13,12 +13,14 @@ import { formatAuDate, formatAuDateTime } from '@/utils/datetime';
 const ORDERING_COL_WIDTH = {
   typeData: 12,
   customerId: 16,
+  material: 18,
   available: 10,
   required: 10,
   orderAmount: 12,
   reserved: 10,
   locked: 8,
   ordered: 14,
+  jobs: 18,
   comments: 18
 } as const;
 
@@ -144,6 +146,24 @@ export function OrderingPage() {
         meta: { widthPercent: ORDERING_COL_WIDTH.customerId, minWidthPx: 140 }
       },
       {
+        id: 'material',
+        header: 'Material',
+        accessorFn: (row) => row.materialLabel,
+        cell: ({ row }) => {
+          const item = row.original;
+          const raw = item.materialKey;
+          const label = item.materialLabel;
+          const hint = raw !== label ? `${label} (${raw})` : label;
+          return (
+            <span title={hint}>
+              {label}
+            </span>
+          );
+        },
+        sortingFn: 'alphanumeric',
+        meta: { widthPercent: ORDERING_COL_WIDTH.material, minWidthPx: 160 }
+      },
+      {
         id: 'effectiveAvailable',
         header: 'Available',
         accessorKey: 'effectiveAvailable',
@@ -207,6 +227,25 @@ export function OrderingPage() {
         meta: { widthPercent: ORDERING_COL_WIDTH.ordered, minWidthPx: 160 }
       },
       {
+        id: 'jobs',
+        header: 'Jobs',
+        accessorFn: (row) => row.pendingJobs?.length ?? 0,
+        cell: ({ row }) => {
+          const jobs = row.original.pendingJobs ?? [];
+          if (!jobs.length) return '';
+          const label = jobs.length === 1 ? 'job' : 'jobs';
+          const preview = jobs.slice(0, 5).map((j) => j.folder || j.key).join(' | ');
+          const more = jobs.length > 5 ? ` (+${jobs.length - 5})` : '';
+          return (
+            <span title={preview}>
+              {jobs.length} {label}{more}
+            </span>
+          );
+        },
+        sortingFn: 'basic',
+        meta: { widthPercent: ORDERING_COL_WIDTH.jobs, minWidthPx: 140 }
+      },
+      {
         id: 'comments',
         header: 'Comments',
         cell: ({ row }) => {
@@ -244,7 +283,8 @@ export function OrderingPage() {
     ];
 
     if (includeReserved) {
-      base.splice(5, 0, {
+      // Insert after "Order Amount" column.
+      base.splice(6, 0, {
         id: 'reserved',
         header: 'Reserved',
         accessorKey: 'reservedStock',

@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import type { JobStatus, JobsFilterOptions, JobsListReq } from '../../../shared/src';
 import { appendJobEvent } from './jobEventsRepo';
-import { getGrundnerLookupColumn } from '../services/grundner';
+
 import { withDb, type AppDb } from '../services/db';
 import { grundner, jobs, jobEvents } from '../db/schema';
 
@@ -77,30 +77,23 @@ async function syncGrundnerPreReservedCount(db: AppDb, material: string | null) 
   const trimmed = material?.trim();
   if (!trimmed) return;
 
-  const lookupColumn = getGrundnerLookupColumn();
-
-  let condition: SQL | null = null;
-  if (lookupColumn === 'customer_id') {
-    condition = eq(grundner.customerId, trimmed);
-  } else {
-    const numeric = Number(trimmed);
-    if (Number.isNaN(numeric)) {
-      return;
-    }
-    condition = eq(grundner.typeData, numeric);
+  const typeData = Number(trimmed);
+  if (!Number.isFinite(typeData)) {
+    return;
   }
 
-  if (!condition) return;
+  const materialIsNumeric = sql`TRIM(COALESCE(${jobs.material}, '')) ~ '^[0-9]+$'`;
+  const materialMatchesTypeData = sql`TRIM(${jobs.material})::int = ${typeData}`;
 
   const [{ count }] = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(jobs)
-    .where(and(eq(jobs.material, trimmed), eq(jobs.preReserved, true)));
+    .where(and(materialIsNumeric, materialMatchesTypeData, eq(jobs.preReserved, true)));
 
   await db
     .update(grundner)
     .set({ preReserved: count })
-    .where(condition);
+    .where(eq(grundner.typeData, typeData));
 }
 
 // Public helper to resync Grundner pre-reserved count for a single material.

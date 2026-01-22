@@ -28,6 +28,8 @@ function buildCsv(rows: OrderingRow[]): string {
   const header = [
     'Type Data',
     'Customer ID',
+    'Material Key',
+    'Material Label',
     'Available',
     'Required',
     'Order Amount',
@@ -36,14 +38,18 @@ function buildCsv(rows: OrderingRow[]): string {
     'Ordered',
     'Ordered By',
     'Ordered At',
-    'Comments'
+    'Comments',
+    'Pending Jobs'
   ];
 
   const lines = [header.map(escapeCsvCell).join(',')];
   for (const row of rows) {
+    const pendingJobs = row.pendingJobs?.map((j) => j.folder || j.key).join(' | ') ?? '';
     const line = [
       row.typeData != null ? String(row.typeData) : '',
       row.customerId ?? '',
+      row.materialKey,
+      row.materialLabel,
       String(row.effectiveAvailable),
       String(row.required),
       String(row.orderAmount),
@@ -52,7 +58,8 @@ function buildCsv(rows: OrderingRow[]): string {
       row.ordered ? 'Yes' : 'No',
       row.orderedBy ?? '',
       row.orderedAt ? new Date(row.orderedAt).toLocaleString() : '',
-      row.comments ?? ''
+      row.comments ?? '',
+      pendingJobs
     ];
     lines.push(line.map(escapeCsvCell).join(','));
   }

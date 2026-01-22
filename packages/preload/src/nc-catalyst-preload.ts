@@ -11,7 +11,16 @@ import type {
   NcCatSubmitValidationReq,
   NcCatSubmitValidationRes,
   SubscriptionAuthState,
-  OpenJobInSimulatorReq
+  OpenJobInSimulatorReq,
+  NcCatProfilesListRes,
+  NcCatProfile,
+  NcCatProfileSaveReq,
+  NcCatProfileSetActiveReq,
+  NcCatProfileDeleteReq,
+  NcCatAssignProfileReq,
+  NcCatAssignProfileRes,
+  NcCatProfileMachinesReq,
+  NcCatProfileMachinesRes
 } from '../../shared/src';
 import { type ResultEnvelope } from '../../shared/src/result';
 
@@ -156,6 +165,23 @@ const ncCatApi = {
   // Submit validation results to NestWatcher
   submitValidation: (req: NcCatSubmitValidationReq) =>
     invokeResult<NcCatSubmitValidationRes>('nc-catalyst:submit-validation', req),
+
+  // ---------------------------------------------------------------------------------
+  // NC-Cat Machine Profiles CRUD (stored in PostgreSQL)
+  // ---------------------------------------------------------------------------------
+  profiles: {
+    list: () => invokeResult<NcCatProfilesListRes>('nc-catalyst:profiles:list'),
+    save: (req: NcCatProfileSaveReq) => invokeResult<NcCatProfile>('nc-catalyst:profiles:save', req),
+    setActive: (req: NcCatProfileSetActiveReq) =>
+      invokeResult<null>('nc-catalyst:profiles:setActive', req),
+    delete: (req: NcCatProfileDeleteReq) => invokeResult<null>('nc-catalyst:profiles:delete', req),
+
+    // Profile ↔ Machine assignment
+    assign: (req: NcCatAssignProfileReq) =>
+      invokeResult<NcCatAssignProfileRes>('nc-catalyst:profiles:assign', req),
+    getMachines: (req: NcCatProfileMachinesReq) =>
+      invokeResult<NcCatProfileMachinesRes>('nc-catalyst:profiles:machines', req)
+  },
 
   // Listen for headless validation requests (NestWatcher -> NC-Cat)
   onValidationRequest: (listener: (payload: NcCatHeadlessValidateRequest) => void) => {

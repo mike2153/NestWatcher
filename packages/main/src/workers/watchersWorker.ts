@@ -269,13 +269,29 @@ function machineLabel(machine: Machine) {
   return machine.name ? `${machine.name} (#${machine.machineId})` : `Machine ${machine.machineId}`;
 }
 
-function nestpickProcessedWatcherName(machine: Machine) {
-  return `watcher:nestpick-processed:${machine.machineId}`;
+function nestpickCsvWatcherName(machine: Machine) {
+  return `watcher:nestpick-csv:${machine.machineId}`;
 }
 
-function nestpickProcessedWatcherLabel(machine: Machine) {
-  return `Nestpick Processed (${machineLabel(machine)})`;
+function nestpickCsvWatcherLabel(machine: Machine) {
+  return `Nestpick CSV (${machineLabel(machine)})`;
 }
+
+function shouldIgnoreShareTempFile(path: string): boolean {
+  const name = basename(path).toLowerCase();
+  // Network shares often create/delete temp files very quickly.
+  // Chokidar can emit lstat errors for these transient paths.
+  if (name.endsWith('.tmp')) return true;
+  if (name.includes('.tmp-')) return true;
+  return false;
+}
+
+function isBenignChokidarLstatTempError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  const lower = message.toLowerCase();
+  return lower.includes('lstat') && lower.includes('.tmp');
+}
+
 
 function nestpickUnstackWatcherName(machine: Machine) {
   return `watcher:nestpick-unstack:${machine.machineId}`;
@@ -1319,10 +1335,11 @@ async function handleNestpickProcessed(machine: Machine, path: string) {
     for (const base of bases) {
       const job = await findJobByNcBase(base);
       if (!job) {
-        logger.warn({ base, file: path }, 'watcher: nestpick processed job not found');
+        logger.warn({ base, file: path }, 'watcher: nestpick csv job not found');
         continue;
       }
-      const lifecycle = await updateLifecycle(job.key, 'NESTPICK_COMPLETE', { machineId: machine.machineId, source: 'nestpick-processed', payload: { file: path } });
+      const lifecycle = await updateLifecycle(job.key, 'NESTPICK_COMPLETE', { machineId: machine.machineId, source: 'nestpick-csv', payload: { file: path } });
+
       if (lifecycle.ok) {
         await appendJobEvent(job.key, 'nestpick:complete', { file: path }, machine.machineId);
         processedAny = true;
@@ -1343,7 +1360,8 @@ async function handleNestpickProcessed(machine: Machine, path: string) {
         }
 
         if (machine.nestpickEnabled) {
-          emitLifecycleStageMessage('NESTPICK_COMPLETE', job, base, machine, 'nestpick-processed');
+          emitLifecycleStageMessage('NESTPICK_COMPLETE', job, base, machine, 'nestpick-csv');
+
         }
       }
     }
@@ -1352,16 +1370,16 @@ async function handleNestpickProcessed(machine: Machine, path: string) {
       enqueueArchiveTask({
         source: path,
         archiveDir: join(machine.nestpickFolder, 'archive'),
-        watcherName: nestpickProcessedWatcherName(machine),
-        watcherLabel: nestpickProcessedWatcherLabel(machine),
+        watcherName: nestpickCsvWatcherName(machine),
+        watcherLabel: nestpickCsvWatcherLabel(machine),
         machineId: machine.machineId ?? null
       });
     } else {
       logger.warn({ file: path }, 'watcher: processed file already moved/deleted, skipping archive');
     }
 
-    recordWatcherEvent(nestpickProcessedWatcherName(machine), {
-      label: nestpickProcessedWatcherLabel(machine),
+    recordWatcherEvent(nestpickCsvWatcherName(machine), {
+      label: nestpickCsvWatcherLabel(machine),
       message: `Processed ${basename(path)}`
     });
     if (processedAny) {
@@ -1375,10 +1393,10 @@ async function handleNestpickProcessed(machine: Machine, path: string) {
       severity: 'warning',
       context: { file: path, machineId: machine.machineId }
     });
-    recordWatcherError(nestpickProcessedWatcherName(machine), err, {
+    recordWatcherError(nestpickCsvWatcherName(machine), err, {
       path,
       machineId: machine.machineId,
-      label: nestpickProcessedWatcherLabel(machine)
+      label: nestpickCsvWatcherLabel(machine)
     });
     logger.error({ err, file: path }, 'watcher: nestpick processed handling failed');
   }
@@ -2008,15 +2026,15 @@ async function setupNestpickWatchers() {
       if (!machine.nestpickEnabled || !machine.nestpickFolder) continue;
       const folder = machine.nestpickFolder;
       const processedPath = join(folder, NESTPICK_FILENAME);
-      const processedWatcherName = nestpickProcessedWatcherName(machine);
-      const processedWatcherLabel = nestpickProcessedWatcherLabel(machine);
+      const processedWatcherName = nestpickCsvWatcherName(machine);
+      const processedWatcherLabel = nestpickCsvWatcherLabel(machine);
       registerWatcher(processedWatcherName, processedWatcherLabel);
 
-      // Nestpick "processed" reports arrive in the same Nestpick folder (no subfolder).
-      // Watch only the expected file to avoid reacting to unrelated temp files like Stock.csv.tmp.
+      // Watch only the expected file to avoid reacting to unrelated files like Stock.csv.tmp.
       const processedWatcher = chokidar.watch(processedPath, {
         ignoreInitial: true,
         depth: 0,
+        ignored: shouldIgnoreShareTempFile,
         awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 250 }
       });
       trackWatcher(processedWatcher);
@@ -2029,6 +2047,10 @@ async function setupNestpickWatchers() {
       processedWatcher.on('add', handleProcessed);
       processedWatcher.on('change', handleProcessed);
       processedWatcher.on('error', (err) => {
+        if (isBenignChokidarLstatTempError(err)) {
+          logger.debug({ err, folder }, 'watcher: ignoring chokidar temp-file lstat error');
+          return;
+        }
         const code = (err as NodeJS.ErrnoException)?.code;
         setMachineHealthIssue({
           machineId: machine.machineId ?? null,
@@ -2042,7 +2064,7 @@ async function setupNestpickWatchers() {
           machineId: machine.machineId,
           label: processedWatcherLabel
         });
-        logger.error({ err, folder }, 'watcher: nestpick processed error');
+        logger.error({ err, folder }, 'watcher: nestpick csv error');
       });
       processedWatcher.on('ready', () => {
         watcherReady(processedWatcherName, processedWatcherLabel);
@@ -2057,8 +2079,10 @@ async function setupNestpickWatchers() {
       const reportWatcher = chokidar.watch(reportPath, {
         ignoreInitial: true,
         depth: 0,
+        ignored: shouldIgnoreShareTempFile,
         awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 250 }
       });
+
       trackWatcher(reportWatcher);
       const handleReport = stableProcess(
         (path) => handleNestpickUnstack(machine, path),
@@ -2068,6 +2092,10 @@ async function setupNestpickWatchers() {
       reportWatcher.on('add', handleReport);
       reportWatcher.on('change', handleReport);
       reportWatcher.on('error', (err) => {
+        if (isBenignChokidarLstatTempError(err)) {
+          logger.debug({ err, file: reportPath }, 'watcher: ignoring chokidar temp-file lstat error');
+          return;
+        }
         const code = (err as NodeJS.ErrnoException)?.code;
         setMachineHealthIssue({
           machineId: machine.machineId ?? null,
@@ -2083,6 +2111,7 @@ async function setupNestpickWatchers() {
         });
         logger.error({ err, folder: reportPath }, 'watcher: nestpick unstack error');
       });
+
       reportWatcher.on('ready', () => {
         watcherReady(unstackWatcherName, unstackWatcherLabel);
         clearMachineHealthIssue(machine.machineId ?? null, HEALTH_CODES.nestpickShare);
@@ -2494,55 +2523,51 @@ async function grundnerPollOnce(folder: string) {
     const hash = createHash('sha1').update(raw).digest('hex');
     if (grundnerLastHash === hash) return;
     grundnerLastHash = hash;
-    // Parse and then filter rows to the configured identity column to avoid
-    // creating Grundner records with missing keys (e.g., type-only without customer id in customer_id mode).
-    let items = parseGrundnerCsv(raw);
-    try {
-      const idCol = getGrundnerLookupColumn();
-      if (idCol === 'customer_id') {
-        items = items.filter((r) => (r.customerId ?? '').trim().length > 0);
+    // Parse Grundner stock.csv rows.
+    // Canonical identity is type_data; customer_id is optional display metadata.
+    const parsed = parseGrundnerCsv(raw).filter((r) => r.typeData != null);
+    if (!parsed.length) return;
+
+    // If multiple rows share a type_data, keep the one with a non-empty customer_id.
+    // This prevents "blank" customer IDs from shadowing a real one.
+    const itemsByType = new Map<number, GrundnerCsvRow>();
+    for (const item of parsed) {
+      const typeData = item.typeData as number;
+      const existing = itemsByType.get(typeData);
+      if (!existing) {
+        itemsByType.set(typeData, item);
+        continue;
       }
-    } catch {
-      // If settings lookup fails, proceed with unfiltered rows.
-    }
-    if (!items.length) return;
-    const keyFor = (row: { typeData: number | null; customerId: string | null }) =>
-      `${row.typeData ?? 'null'}::${row.customerId ?? 'null'}`;
-    const uniqueKeys = new Map<string, { typeData: number | null; customerId: string | null }>();
-    const itemsByKey = new Map<string, GrundnerCsvRow>();
-    for (const item of items) {
-      const key = keyFor(item);
-      uniqueKeys.set(key, { typeData: item.typeData ?? null, customerId: item.customerId ?? null });
-      itemsByKey.set(key, item);
-    }
-    const preReserved = new Map<string, number | null>();
-    if (uniqueKeys.size) {
-      const conditions: string[] = [];
-      const params: (number | string | null)[] = [];
-      let paramIndex = 1;
-      for (const value of uniqueKeys.values()) {
-        conditions.push(
-          `(public.grundner.type_data IS NOT DISTINCT FROM $${paramIndex}::int AND public.grundner.customer_id IS NOT DISTINCT FROM $${paramIndex + 1}::text)`
-        );
-        params.push(value.typeData, value.customerId);
-        paramIndex += 2;
+      const existingCustomer = (existing.customerId ?? '').trim();
+      const nextCustomer = (item.customerId ?? '').trim();
+      if (!existingCustomer && nextCustomer) {
+        itemsByType.set(typeData, item);
       }
+    }
+
+    const items = Array.from(itemsByType.values());
+    const typeDataValues = Array.from(itemsByType.keys());
+
+    // Snapshot previous reserved_stock so we can report meaningful changes.
+    const preReserved = new Map<number, number | null>();
+    if (typeDataValues.length) {
       try {
         const previousRows = await withClient((c) =>
           c
-            .query<{ type_data: number | null; customer_id: string | null; reserved_stock: number | null }>(
-              `SELECT type_data, customer_id, reserved_stock FROM public.grundner WHERE ${conditions.join(' OR ')}`,
-              params
+            .query<{ type_data: number; reserved_stock: number | null }>(
+              `SELECT type_data, reserved_stock FROM public.grundner WHERE type_data = ANY($1::int[])`,
+              [typeDataValues]
             )
             .then((r) => r.rows)
         );
         for (const row of previousRows) {
-          preReserved.set(keyFor({ typeData: row.type_data, customerId: row.customer_id }), row.reserved_stock);
+          preReserved.set(row.type_data, row.reserved_stock);
         }
       } catch (err) {
         recordWorkerError('grundner:pre-reserved', err);
       }
     }
+
     const result = await upsertGrundnerInventory(items);
     if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {
       scheduleRendererRefresh('grundner');
@@ -2550,13 +2575,17 @@ async function grundnerPollOnce(folder: string) {
     }
 
     if (result.changed.length) {
-      const changedKeys = new Set(result.changed.map((row) => keyFor(row)));
-      for (const item of items) {
-        const key = keyFor(item);
-        if (!changedKeys.has(key)) continue;
-        const oldReserved = preReserved.has(key) ? preReserved.get(key) : null;
+      const changedTypes = new Set(
+        result.changed
+          .map((row) => row.typeData)
+          .filter((value): value is number => typeof value === 'number')
+      );
+
+      for (const [typeData, item] of itemsByType.entries()) {
+        if (!changedTypes.has(typeData)) continue;
+        const oldReserved = preReserved.has(typeData) ? preReserved.get(typeData) : null;
         const newReserved = item.reservedStock;
-        const materialLabel = item.customerId?.trim() || (item.typeData != null ? String(item.typeData) : 'Unknown');
+        const materialLabel = item.customerId?.trim() || String(typeData);
         emitAppMessage(
           'grundner.stock.updated',
           {
@@ -2585,8 +2614,7 @@ async function grundnerPollOnce(folder: string) {
             }
             const label = row.material?.trim() || (row.typeData != null ? String(row.typeData) : 'Unknown');
             materialSet.add(label);
-            const key = keyFor({ typeData: row.typeData, customerId: row.customerId });
-            const reservedValue = itemsByKey.get(key)?.reservedStock ?? null;
+            const reservedValue = row.typeData != null ? itemsByType.get(row.typeData)?.reservedStock ?? null : null;
             const existing = byMaterial.get(label);
             if (existing) {
               existing.count += 1;

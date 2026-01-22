@@ -218,9 +218,10 @@ export async function upsertGrundnerInventory(
       const params: Array<string | number | null> = [];
       const tuples = batch.map((r, idx) => {
         const base = idx * columns.length;
+        const customerId = (r.customerId ?? '').trim();
         params.push(
           r.typeData,
-          r.customerId,
+          customerId.length ? customerId : '',
           r.materialName,
           r.materialNumber,
           r.lengthMm,
@@ -280,7 +281,10 @@ export async function upsertGrundnerInventory(
     // After upsert, delete rows not present in the current CSV to keep DB in exact sync
     try {
       const typeDataArr = rows.map((r) => (r.typeData == null ? null : r.typeData));
-      const customerIdArr = rows.map((r) => (r.customerId == null ? null : r.customerId));
+      const customerIdArr = rows.map((r) => {
+        const trimmed = (r.customerId ?? '').trim();
+        return trimmed.length ? trimmed : '';
+      });
       const delSql = `
         WITH incoming(type_data, customer_id) AS (
           SELECT UNNEST($1::int[]), UNNEST($2::text[])

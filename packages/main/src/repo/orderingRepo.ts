@@ -1,10 +1,9 @@
 import { withClient } from '../services/db';
-import { getGrundnerLookupColumn } from '../services/grundner';
 import { loadConfig } from '../services/config';
 import type { OrderingRow } from '../../../shared/src';
 
 type PendingJobRow = {
-  material: string | null;
+  type_data: number | null;
   required_count: number;
 };
 
@@ -16,7 +15,7 @@ type PendingJobSampleRow = {
 };
 
 type LockedJobRow = {
-  material: string | null;
+  type_data: number | null;
   locked_count: number;
 };
 
@@ -46,6 +45,36 @@ const UNKNOWN_KEY = '__UNKNOWN__';
 
 async function loadPendingJobSamples(materialKey: string, limit = 25): Promise<PendingJobSampleRow[]> {
   const normalizedLimit = Math.max(1, Math.min(200, Math.floor(limit)));
+
+  // "Unknown" includes jobs where we cannot safely derive a numeric type_data.
+  if (materialKey === UNKNOWN_KEY) {
+    return withClient((c) =>
+      c
+        .query<PendingJobSampleRow>(
+          `
+            SELECT key, folder, ncfile, material
+            FROM public.jobs
+            WHERE status = 'PENDING'
+              AND (
+                material IS NULL
+                OR btrim(material) = ''
+                OR NOT (btrim(material) ~ '^[0-9]+$')
+              )
+            ORDER BY dateadded DESC NULLS LAST, key
+            LIMIT $1
+          `,
+          [normalizedLimit]
+        )
+        .then((res) => res.rows ?? [])
+    );
+  }
+
+  const typeData = Number(materialKey);
+  if (!Number.isFinite(typeData)) {
+    return [];
+  }
+
+  // Guard the cast so non-numeric material strings don't crash the query.
   return withClient((c) =>
     c
       .query<PendingJobSampleRow>(
@@ -53,39 +82,46 @@ async function loadPendingJobSamples(materialKey: string, limit = 25): Promise<P
           SELECT key, folder, ncfile, material
           FROM public.jobs
           WHERE status = 'PENDING'
-            AND (
-              ($1 = $2 AND (material IS NULL OR btrim(material) = ''))
-              OR ($1 <> $2 AND btrim(material) = $1)
-            )
+            AND material IS NOT NULL
+            AND btrim(material) ~ '^[0-9]+$'
+            AND btrim(material)::int = $1::int
           ORDER BY dateadded DESC NULLS LAST, key
-          LIMIT $3
+          LIMIT $2
         `,
-        [materialKey, UNKNOWN_KEY, normalizedLimit]
+        [typeData, normalizedLimit]
       )
       .then((res) => res.rows ?? [])
   );
 }
 
-
 function normalizeMaterialKey(material: string | null | undefined): string {
   const trimmed = material?.trim();
   if (!trimmed) return UNKNOWN_KEY;
-  return trimmed;
+
+  // Canonical material key is always numeric type_data.
+  if (!/^[0-9]+$/.test(trimmed)) return UNKNOWN_KEY;
+  return String(Number(trimmed));
 }
 
 export async function computeOrderingRows(): Promise<OrderingComputation> {
   const includeReserved = loadConfig().ordering?.includeReserved ?? false;
 
-  // Get ALL pending jobs (not just pre-reserved) and locked jobs
+  // We always use numeric type_data as the canonical material key.
+  // Anything that cannot be parsed as a number becomes "Unknown".
   const [pendingRows, lockedRows] = await Promise.all([
     withClient((c) =>
       c
         .query<PendingJobRow>(
           `
-            SELECT material, COUNT(*)::int AS required_count
+            SELECT
+              CASE
+                WHEN TRIM(COALESCE(material, '')) ~ '^[0-9]+$' THEN TRIM(material)::int
+                ELSE NULL
+              END AS type_data,
+              COUNT(*)::int AS required_count
             FROM public.jobs
             WHERE status = 'PENDING'
-            GROUP BY material
+            GROUP BY 1
           `
         )
         .then((res) => res.rows)
@@ -94,11 +130,16 @@ export async function computeOrderingRows(): Promise<OrderingComputation> {
       c
         .query<LockedJobRow>(
           `
-            SELECT material, COUNT(*)::int AS locked_count
+            SELECT
+              CASE
+                WHEN TRIM(COALESCE(material, '')) ~ '^[0-9]+$' THEN TRIM(material)::int
+                ELSE NULL
+              END AS type_data,
+              COUNT(*)::int AS locked_count
             FROM public.jobs
             WHERE is_locked = TRUE
               AND status <> 'NESTPICK_COMPLETE'
-            GROUP BY material
+            GROUP BY 1
           `
         )
         .then((res) => res.rows)
@@ -107,31 +148,26 @@ export async function computeOrderingRows(): Promise<OrderingComputation> {
 
   const pendingByKey = new Map<string, number>();
   for (const row of pendingRows) {
-    pendingByKey.set(normalizeMaterialKey(row.material), row.required_count);
+    const key = row.type_data == null ? UNKNOWN_KEY : String(row.type_data);
+    pendingByKey.set(key, row.required_count);
   }
 
   const lockedByKey = new Map<string, number>();
   for (const row of lockedRows) {
-    lockedByKey.set(normalizeMaterialKey(row.material), row.locked_count);
+    const key = row.type_data == null ? UNKNOWN_KEY : String(row.type_data);
+    lockedByKey.set(key, row.locked_count);
   }
 
-  // Combine all materials from both pending and locked
   const allMaterialKeys = new Set<string>([
     ...Array.from(pendingByKey.keys()),
     ...Array.from(lockedByKey.keys())
   ]);
 
-  const lookupColumn = getGrundnerLookupColumn();
   const aggregated = Array.from(allMaterialKeys).map((materialKey) => {
     const pendingCount = pendingByKey.get(materialKey) ?? 0;
     const lockedCount = lockedByKey.get(materialKey) ?? 0;
-    // Get the raw material string from one of the original rows
-    const pendingRow = pendingRows.find(r => normalizeMaterialKey(r.material) === materialKey);
-    const lockedRow = lockedRows.find(r => normalizeMaterialKey(r.material) === materialKey);
-    const material = (pendingRow?.material ?? lockedRow?.material ?? '').trim();
 
     return {
-      material,
       materialKey,
       pendingCount: Math.max(pendingCount, 0),
       lockedCount: Math.max(lockedCount, 0)
@@ -139,29 +175,31 @@ export async function computeOrderingRows(): Promise<OrderingComputation> {
   });
 
   const numericKeys = new Set<number>();
-  const stringKeys = new Set<string>();
   for (const row of aggregated) {
     if (row.materialKey === UNKNOWN_KEY) continue;
-    if (lookupColumn === 'type_data') {
-      const parsed = Number(row.materialKey);
-      if (!Number.isNaN(parsed)) {
-        numericKeys.add(parsed);
-      }
-    } else {
-      stringKeys.add(row.materialKey);
+    const parsed = Number(row.materialKey);
+    if (Number.isFinite(parsed)) {
+      numericKeys.add(parsed);
     }
   }
 
   const grundnerRows = new Map<string, GrundnerSnapshotRow>();
-  if (lookupColumn === 'type_data' && numericKeys.size) {
+  if (numericKeys.size) {
     const values = Array.from(numericKeys);
     const rows = await withClient((c) =>
       c
         .query<GrundnerSnapshotRow>(
           `
-            SELECT id, type_data, customer_id, stock, stock_available, reserved_stock
+            SELECT DISTINCT ON (type_data)
+              id,
+              type_data,
+              customer_id,
+              stock,
+              stock_available,
+              reserved_stock
             FROM public.grundner
             WHERE type_data = ANY($1)
+            ORDER BY type_data, last_updated DESC NULLS LAST, id DESC
           `,
           [values]
         )
@@ -170,24 +208,6 @@ export async function computeOrderingRows(): Promise<OrderingComputation> {
     for (const row of rows) {
       if (row.type_data == null) continue;
       grundnerRows.set(String(row.type_data), row);
-    }
-  } else if (lookupColumn === 'customer_id' && stringKeys.size) {
-    const values = Array.from(stringKeys);
-    const rows = await withClient((c) =>
-      c
-        .query<GrundnerSnapshotRow>(
-          `
-            SELECT id, type_data, customer_id, stock, stock_available, reserved_stock
-            FROM public.grundner
-            WHERE customer_id = ANY($1)
-          `,
-          [values]
-        )
-        .then((res) => res.rows)
-    );
-    for (const row of rows) {
-      if (!row.customer_id) continue;
-      grundnerRows.set(row.customer_id.trim(), row);
     }
   }
 
@@ -225,41 +245,26 @@ export async function computeOrderingRows(): Promise<OrderingComputation> {
 
     const numericZeroed = (value: number | null | undefined): number => (value == null ? 0 : value);
 
-    // New calculation: shortage = pending - stockAvailable
-    // We consider ALL pending jobs, and check against available stock
     const pendingCount = entry.pendingCount;
     const lockedCount = entry.lockedCount;
-    const totalRequired = pendingCount;  // Total jobs that need material
+    const totalRequired = pendingCount;
 
-    // Use stockAvailable if provided, otherwise use stock
-    // stockAvailable accounts for reserved/locked quantities in Grundner
     const availableStock = stockAvailable !== null ? numericZeroed(stockAvailable) : numericZeroed(stock);
-
-    // Calculate how much we need to order
-    // This is the total needed minus what's available
     const orderAmount = totalRequired - availableStock;
 
-    // Only show materials with a shortage (orderAmount > 0)
     if (orderAmount <= 0) {
       continue;
     }
 
     const effectiveAvailable = availableStock;
 
-    const typeData = grundnerRow?.type_data ?? null;
+    const typeData = grundnerRow?.type_data ?? (baseKey === UNKNOWN_KEY ? null : Number(baseKey));
     const customerId = grundnerRow?.customer_id?.trim() ?? null;
-    const materialLabel =
-      baseKey === UNKNOWN_KEY
-        ? 'Unknown'
-        : lookupColumn === 'customer_id'
-          ? customerId ?? (entry.material || 'Unknown')
-          : typeData != null
-            ? String(typeData)
-            : entry.material || 'Unknown';
+    const materialLabel = baseKey === UNKNOWN_KEY ? 'Unknown' : String(typeData);
 
     items.push({
       id: grundnerRow?.id ?? null,
-      typeData,
+      typeData: typeData != null && Number.isFinite(typeData) ? typeData : null,
       customerId,
       materialKey: baseKey,
       materialLabel,
@@ -304,6 +309,32 @@ export async function computeOrderingRows(): Promise<OrderingComputation> {
     }
   }
 
+  // Help identify "Unknown" / unmatched ordering rows by attaching sample pending jobs.
+  // This avoids the situation where ordering shows blank Type Data / Customer ID and users
+  // can't tell which jobs are responsible.
+  const keysNeedingSamples = Array.from(
+    new Set(
+      items
+        .filter((item) => item.materialKey === UNKNOWN_KEY || (item.typeData == null && item.customerId == null))
+        .map((item) => item.materialKey)
+    )
+  );
+  if (keysNeedingSamples.length) {
+    const sampleLimit = 50;
+    for (const key of keysNeedingSamples) {
+      try {
+        const samples = await loadPendingJobSamples(key, sampleLimit);
+        for (const item of items) {
+          if (item.materialKey === key) {
+            item.pendingJobs = samples;
+          }
+        }
+      } catch {
+        // Best-effort only; ordering should still render even if sample query fails.
+      }
+    }
+  }
+
   // Order by order amount descending, then material label
   items.sort((a, b) => {
     if (b.orderAmount !== a.orderAmount) return b.orderAmount - a.orderAmount;
@@ -312,6 +343,7 @@ export async function computeOrderingRows(): Promise<OrderingComputation> {
 
   return { rows: items, includeReserved };
 }
+
 
 export async function listOrdering(): Promise<{ items: OrderingRow[]; includeReserved: boolean; generatedAt: string }> {
   const result = await computeOrderingRows();

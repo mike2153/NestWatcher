@@ -241,40 +241,36 @@ export function registerJobsIpc() {
     );
     if (rows.length === 0) return err(createAppError('jobs.notFound', 'No matching jobs found.'));
 
-    // Check stock availability before proceeding
-    const materialCounts = new Map<string, number>();
+    // Check stock availability before proceeding (type_data is the canonical key)
+    const typeDataCounts = new Map<number, number>();
+    let unknownCount = 0;
     for (const row of rows) {
-      const material = row.material?.trim() || '';
-      if (material) {
-        materialCounts.set(material, (materialCounts.get(material) || 0) + 1);
+      const raw = row.material?.trim() || '';
+      const typeData = Number(raw);
+      if (!raw || !Number.isFinite(typeData)) {
+        unknownCount += 1;
+        continue;
       }
+      typeDataCounts.set(typeData, (typeDataCounts.get(typeData) ?? 0) + 1);
     }
 
     // Get stock information from Grundner
     const stockShortfalls: Array<{ material: string; required: number; available: number }> = [];
-    for (const [material, requiredCount] of materialCounts.entries()) {
-      // Query Grundner for available stock
-      const stockResult = await withDb(async (db) => {
-        const lookupColumn = getGrundnerLookupColumn();
+    if (unknownCount > 0) {
+      stockShortfalls.push({ material: 'Unknown type data', required: unknownCount, available: 0 });
+    }
 
-        if (lookupColumn === 'type_data') {
-          const typeData = Number(material);
-          if (!Number.isNaN(typeData)) {
-            return await db
-              .select({ stock: grundner.stock, stockAvailable: grundner.stockAvailable })
-              .from(grundner)
-              .where(eq(grundner.typeData, typeData))
-              .limit(1);
-          }
-        } else {
-          return await db
-            .select({ stock: grundner.stock, stockAvailable: grundner.stockAvailable })
-            .from(grundner)
-            .where(eq(grundner.customerId, material))
-            .limit(1);
-        }
-        return [];
-      });
+    for (const [typeData, requiredCount] of typeDataCounts.entries()) {
+      // Query Grundner for available stock (by type_data only)
+      const stockResult = await withDb((db) =>
+        db
+          .select({
+            stock: sql<number | null>`MAX(${grundner.stock})`,
+            stockAvailable: sql<number | null>`MAX(${grundner.stockAvailable})`
+          })
+          .from(grundner)
+          .where(eq(grundner.typeData, typeData))
+      );
 
       const stockRow = stockResult[0];
       const availableStock = stockRow?.stockAvailable ?? stockRow?.stock ?? 0;
@@ -286,7 +282,8 @@ export function registerJobsIpc() {
           .from(jobs)
           .where(
             and(
-              eq(jobs.material, material),
+              sql`TRIM(COALESCE(${jobs.material}, '')) ~ '^[0-9]+$'`,
+              sql`TRIM(${jobs.material})::int = ${typeData}`,
               eq(jobs.isLocked, true),
               not(eq(jobs.status, 'NESTPICK_COMPLETE'))
             )
@@ -298,7 +295,7 @@ export function registerJobsIpc() {
 
       if (requiredCount > effectiveAvailable) {
         stockShortfalls.push({
-          material,
+          material: String(typeData),
           required: requiredCount,
           available: effectiveAvailable
         });

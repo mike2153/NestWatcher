@@ -49,27 +49,55 @@ function mapAllocated(row: AllocatedMaterialDb): AllocatedMaterialRow {
 }
 
 const LIST_SQL = `
-  SELECT grundner_id,
-         type_data,
-         customer_id,
-         length_mm,
-         width_mm,
-         thickness_mm,
-         stock,
-         stock_available,
-         reserved_stock,
-         pre_reserved,
-         job_key,
-         folder,
-         ncfile,
-         material,
-         job_pre_reserved,
-         job_is_locked,
-         updated_at,
-         allocated_at,
-         allocation_status
-    FROM public.allocated_material_view
-ORDER BY allocation_status DESC, allocated_at DESC NULLS LAST, job_key ASC
+  SELECT
+    g.id AS grundner_id,
+    g.type_data,
+    g.customer_id,
+    g.length_mm,
+    g.width_mm,
+    g.thickness_mm,
+    g.stock,
+    g.stock_available,
+    g.reserved_stock,
+    COALESCE(g.pre_reserved, 0) AS pre_reserved,
+    j.key AS job_key,
+    COALESCE(
+      NULLIF(TRIM(BOTH FROM j.folder), ''::text),
+      NULLIF(regexp_replace((j.key)::text, '^.*/([^/]+)/[^/]+$'::text, '\\1'::text), (j.key)::text)
+    ) AS folder,
+    j.ncfile,
+    j.material,
+    j.pre_reserved AS job_pre_reserved,
+    j.is_locked AS job_is_locked,
+    j.updated_at,
+    j.allocated_at,
+    CASE
+      WHEN j.is_locked THEN 'locked'::text
+      ELSE 'pre_reserved'::text
+    END AS allocation_status
+  FROM public.jobs j
+  LEFT JOIN LATERAL (
+    SELECT DISTINCT ON (type_data)
+      id,
+      type_data,
+      customer_id,
+      length_mm,
+      width_mm,
+      thickness_mm,
+      stock,
+      stock_available,
+      reserved_stock,
+      pre_reserved,
+      last_updated
+    FROM public.grundner
+    WHERE type_data = CASE
+      WHEN TRIM(COALESCE(j.material, '')) ~ '^[0-9]+$' THEN TRIM(j.material)::int
+      ELSE NULL
+    END
+    ORDER BY type_data, last_updated DESC NULLS LAST, id DESC
+  ) g ON true
+  WHERE (j.pre_reserved = TRUE OR j.is_locked = TRUE)
+  ORDER BY allocation_status DESC, allocated_at DESC NULLS LAST, job_key ASC
 `;
 
 export async function listAllocatedMaterial(): Promise<AllocatedMaterialRow[]> {
