@@ -34,6 +34,19 @@ import {
 } from './security';
 
 let win: BrowserWindow | null = null;
+let isQuitting = false;
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  });
+}
+
 
 function createWindow() {
   const state = getStoredWindowState();
@@ -74,7 +87,42 @@ function createWindow() {
   }
 }
 
+async function shutdownAppServices(reason: string) {
+  try {
+    await shutdownWatchers();
+  } catch (err) {
+    logger.error({ err }, 'Failed to stop watchers worker');
+  }
+
+  try {
+    stopDbWatchdog();
+  } catch (err) {
+    logger.error({ err }, 'Failed to stop DB watchdog');
+  }
+
+  try {
+    stopInventoryExportScheduler();
+  } catch (err) {
+    logger.error({ err }, 'Failed to stop inventory export scheduler');
+  }
+
+  try {
+    stopNcCatBackgroundWindow();
+  } catch (err) {
+    logger.error({ err }, 'Failed to stop NC-Cat background window');
+  }
+
+  try {
+    stopMesValidationScanner();
+  } catch (err) {
+    logger.error({ err }, 'Failed to stop MES validation scanner');
+  }
+
+  logger.info({ reason }, 'Shutdown services complete');
+}
+
 app.whenReady().then(async () => {
+
   const userDataPath = app.getPath('userData');
   process.env.WOODTRON_USER_DATA_PATH = userDataPath;
   process.env.WOODTRON_CONFIG_PATH = join(userDataPath, 'settings.json');
@@ -149,34 +197,34 @@ app.on('window-all-closed', () => {
 process.on('uncaughtException', (err) => logger.error({ err }, 'Uncaught exception'));
 process.on('unhandledRejection', (err) => logger.error({ err }, 'Unhandled rejection'));
 
+const handleProcessSignal = (signal: string) => {
+  if (isQuitting) return;
+  isQuitting = true;
+  void shutdownAppServices(signal).finally(() => {
+    app.exit(0);
+  });
+};
+
+process.on('SIGINT', () => handleProcessSignal('SIGINT'));
+process.on('SIGTERM', () => handleProcessSignal('SIGTERM'));
+
+app.on('before-quit', (event) => {
+  if (isQuitting) return;
+  isQuitting = true;
+  event.preventDefault();
+
+  for (const w of BrowserWindow.getAllWindows()) {
+    w.destroy();
+  }
+
+  void shutdownAppServices('before-quit').finally(() => {
+    app.exit(0);
+  });
+});
+
 app.on('will-quit', async () => {
-  try {
-    await shutdownWatchers();
-  } catch (err) {
-    logger.error({ err }, 'Failed to stop watchers worker');
+  if (!isQuitting) {
+    isQuitting = true;
   }
-
-  try {
-    stopDbWatchdog();
-  } catch (err) {
-    logger.error({ err }, 'Failed to stop DB watchdog');
-  }
-
-  try {
-    stopInventoryExportScheduler();
-  } catch (err) {
-    logger.error({ err }, 'Failed to stop inventory export scheduler');
-  }
-
-  try {
-    stopNcCatBackgroundWindow();
-  } catch (err) {
-    logger.error({ err }, 'Failed to stop NC-Cat background window');
-  }
-
-  try {
-    stopMesValidationScanner();
-  } catch (err) {
-    logger.error({ err }, 'Failed to stop MES validation scanner');
-  }
+  await shutdownAppServices('will-quit');
 });
