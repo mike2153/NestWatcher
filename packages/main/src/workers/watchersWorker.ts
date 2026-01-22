@@ -214,7 +214,9 @@ const PENDING_GRUNDNER_RELEASE_TTL_MS = 60_000;
 const pendingGrundnerConflicts = new Map<string, number>();
 const GRUNDNER_CONFLICT_GRACE_MS = 120_000;
 
+const NESTPICK_FILENAME = 'Nestpick.csv';
 const NESTPICK_UNSTACK_FILENAME = 'Report_FullNestpickUnstack.csv';
+
 
 const AUTOPAC_WATCHER_NAME = 'watcher:autopac';
 const AUTOPAC_WATCHER_LABEL = 'AutoPAC CSV Watcher';
@@ -247,6 +249,11 @@ const GRUNDNER_WATCHER_NAME = 'watcher:grundner';
 const GRUNDNER_WATCHER_LABEL = 'Grundner Stock Poller';
 let grundnerTimer: NodeJS.Timeout | null = null;
 let grundnerLastHash: string | null = null;
+
+// Nestpick file de-dupe: avoid treating our outbound Nestpick.csv as an inbound "processed" report.
+let lastNestpickCsvHash: string | null = null;
+let lastNestpickCsvWrittenAt = 0;
+
 
 type RefreshChannel = 'grundner' | 'allocated-material';
 const refreshTimers = new Map<RefreshChannel, NodeJS.Timeout>();
@@ -917,12 +924,19 @@ async function forwardToNestpick(base: string, job: Awaited<ReturnType<typeof fi
 
     const outDir = resolvedMachine.nestpickFolder;
     await ensureDir(outDir);
-    const outPath = join(outDir, 'Nestpick.csv');
+    const outPath = join(outDir, NESTPICK_FILENAME);
     await waitForNestpickSlot(outPath);
 
+    const csvContent = `${serializeCsv(rewritten)}\n`;
+    const csvHash = createHash('sha1').update(csvContent).digest('hex');
+
     const tempPath = `${outPath}.tmp-${Date.now()}`;
-    await fsp.writeFile(tempPath, `${serializeCsv(rewritten)}\n`, 'utf8');
+    await fsp.writeFile(tempPath, csvContent, 'utf8');
     await rename(tempPath, outPath);
+
+    lastNestpickCsvHash = csvHash;
+    lastNestpickCsvWrittenAt = Date.now();
+
 
     await appendJobEvent(job.key, 'nestpick:forwarded', { source: sourceCsv, dest: outPath }, resolvedMachine.machineId);
     await updateLifecycle(job.key, 'FORWARDED_TO_NESTPICK', { machineId: resolvedMachine.machineId, source: 'nestpick-forward', payload: { source: sourceCsv, dest: outPath } });
@@ -1287,7 +1301,19 @@ async function handleNestpickProcessed(machine: Machine, path: string) {
   try {
     await waitForStableFile(path);
     const raw = await readFile(path, 'utf8');
+
+    // If this is exactly the same content we just wrote as an outbound Nestpick.csv,
+    // do not treat it as an inbound "processed" report.
+    if (basename(path).toLowerCase() === NESTPICK_FILENAME.toLowerCase()) {
+      const hash = createHash('sha1').update(raw).digest('hex');
+      if (lastNestpickCsvHash && hash === lastNestpickCsvHash) {
+        logger.debug({ file: path, ageMs: Date.now() - lastNestpickCsvWrittenAt }, 'watcher: ignoring outbound Nestpick.csv change');
+        return;
+      }
+    }
+
     const rows = parseCsvContent(raw);
+
     const bases = extractBases(rows, basename(path));
     let processedAny = false;
     for (const base of bases) {
@@ -1981,42 +2007,48 @@ async function setupNestpickWatchers() {
     for (const machine of machines) {
       if (!machine.nestpickEnabled || !machine.nestpickFolder) continue;
       const folder = machine.nestpickFolder;
-      const processedDir = join(folder, 'processed');
+      const processedPath = join(folder, NESTPICK_FILENAME);
       const processedWatcherName = nestpickProcessedWatcherName(machine);
       const processedWatcherLabel = nestpickProcessedWatcherLabel(machine);
       registerWatcher(processedWatcherName, processedWatcherLabel);
-      const processedWatcher = chokidar.watch(processedDir, {
+
+      // Nestpick "processed" reports arrive in the same Nestpick folder (no subfolder).
+      // Watch only the expected file to avoid reacting to unrelated temp files like Stock.csv.tmp.
+      const processedWatcher = chokidar.watch(processedPath, {
         ignoreInitial: true,
-        depth: 1,
+        depth: 0,
         awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 250 }
       });
       trackWatcher(processedWatcher);
+
       const handleProcessed = stableProcess(
         (path) => handleNestpickProcessed(machine, path),
         500,
         { watcherName: processedWatcherName, watcherLabel: processedWatcherLabel }
       );
       processedWatcher.on('add', handleProcessed);
+      processedWatcher.on('change', handleProcessed);
       processedWatcher.on('error', (err) => {
         const code = (err as NodeJS.ErrnoException)?.code;
         setMachineHealthIssue({
           machineId: machine.machineId ?? null,
           code: HEALTH_CODES.nestpickShare,
-          message: `Processed folder unavailable${code ? ` (${code})` : ''}`,
+          message: `Nestpick folder unavailable${code ? ` (${code})` : ''}`,
           severity: 'critical',
-          context: { folder: processedDir, machineId: machine.machineId, code }
+          context: { folder, machineId: machine.machineId, code }
         });
         recordWatcherError(processedWatcherName, err, {
-          folder: processedDir,
+          folder,
           machineId: machine.machineId,
           label: processedWatcherLabel
         });
-        logger.error({ err, folder: processedDir }, 'watcher: nestpick processed error');
+        logger.error({ err, folder }, 'watcher: nestpick processed error');
       });
       processedWatcher.on('ready', () => {
         watcherReady(processedWatcherName, processedWatcherLabel);
         clearMachineHealthIssue(machine.machineId ?? null, HEALTH_CODES.nestpickShare);
       });
+
 
       const reportPath = join(folder, NESTPICK_UNSTACK_FILENAME);
       const unstackWatcherName = nestpickUnstackWatcherName(machine);

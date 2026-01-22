@@ -366,6 +366,7 @@ function spawnWorker() {
   try {
     const script = resolveWorkerPath();
     const instance = new Worker(script);
+    const threadId = instance.threadId;
     worker = instance;
     startupMode = true;
     startupLogged = false;
@@ -375,21 +376,22 @@ function spawnWorker() {
     instance.on('message', handleWorkerMessage);
     instance.on('error', (err) => {
       recordWorkerError('watchers-worker', err);
-      logger.error({ err }, 'watchers: worker thread error');
+      logger.error({ err, threadId }, 'watchers: worker thread error');
     });
     instance.on('exit', (code) => {
       worker = null;
       if (shuttingDown) {
+        logger.info({ code, threadId }, 'watchers: worker thread exited during shutdown');
         return;
       }
       if (code !== 0) {
         const err = new Error(`Watchers worker exited with code ${code}`);
         recordWorkerError('watchers-worker', err);
-        logger.error({ code }, 'watchers: worker exited unexpectedly');
+        logger.error({ code, threadId }, 'watchers: worker exited unexpectedly');
         scheduleRestart();
       }
     });
-    logger.info('watchers: worker thread started');
+    logger.info({ threadId }, 'watchers: worker thread started');
   } catch (err) {
     recordWorkerError('watchers-worker', err);
     logger.error({ err }, 'watchers: failed to start worker thread');
@@ -414,32 +416,41 @@ export async function shutdownWatchers(): Promise<void> {
   }
   const current = worker;
   if (!current) {
+    logger.info('watchers: shutdown requested with no active worker');
     return;
   }
+  const threadId = current.threadId;
   worker = null;
+
+  logger.info({ threadId }, 'watchers: shutdown requested; stopping worker thread');
 
   return new Promise((resolve) => {
     let finished = false;
     const finish = () => {
       if (finished) return;
       finished = true;
+      logger.info({ threadId }, 'watchers: shutdown complete; worker thread destroyed');
       resolve();
     };
 
     const timeout = setTimeout(() => {
+      logger.warn({ threadId }, 'watchers: shutdown timeout; forcing worker termination');
       current.terminate().then(finish, finish);
     }, 5_000);
 
-    current.once('exit', () => {
+    current.once('exit', (code) => {
+      logger.info({ code, threadId }, 'watchers: worker exit observed during shutdown');
       clearTimeout(timeout);
       finish();
     });
 
     try {
       const message: MainToWatcherMessage = { type: 'shutdown', reason: 'app-quit' };
+      logger.info({ threadId, message }, 'watchers: posting shutdown to worker');
       current.postMessage(message);
     } catch (err) {
       recordWorkerError('watchers-worker', err);
+      logger.warn({ err, threadId }, 'watchers: failed to post shutdown; forcing termination');
       clearTimeout(timeout);
       current.terminate().then(finish, finish);
     }

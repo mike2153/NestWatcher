@@ -269,8 +269,11 @@ export function stopNcCatBackgroundWindow(): void {
   stopAuthStateCheckInterval();
 
   if (ncCatBackgroundWin && !ncCatBackgroundWin.isDestroyed()) {
+    logger.info({ id: ncCatBackgroundWin.id }, 'NC-Cat background window: closing');
     ncCatBackgroundWin.close();
     ncCatBackgroundWin = null;
+  } else {
+    logger.info('NC-Cat background window: not running');
   }
 }
 

@@ -8,6 +8,13 @@ type PendingJobRow = {
   required_count: number;
 };
 
+type PendingJobSampleRow = {
+  key: string;
+  folder: string | null;
+  ncfile: string | null;
+  material: string | null;
+};
+
 type LockedJobRow = {
   material: string | null;
   locked_count: number;
@@ -36,6 +43,29 @@ type OrderingComputation = {
 };
 
 const UNKNOWN_KEY = '__UNKNOWN__';
+
+async function loadPendingJobSamples(materialKey: string, limit = 25): Promise<PendingJobSampleRow[]> {
+  const normalizedLimit = Math.max(1, Math.min(200, Math.floor(limit)));
+  return withClient((c) =>
+    c
+      .query<PendingJobSampleRow>(
+        `
+          SELECT key, folder, ncfile, material
+          FROM public.jobs
+          WHERE status = 'PENDING'
+            AND (
+              ($1 = $2 AND (material IS NULL OR btrim(material) = ''))
+              OR ($1 <> $2 AND btrim(material) = $1)
+            )
+          ORDER BY dateadded DESC NULLS LAST, key
+          LIMIT $3
+        `,
+        [materialKey, UNKNOWN_KEY, normalizedLimit]
+      )
+      .then((res) => res.rows ?? [])
+  );
+}
+
 
 function normalizeMaterialKey(material: string | null | undefined): string {
   const trimmed = material?.trim();

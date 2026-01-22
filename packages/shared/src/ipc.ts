@@ -635,6 +635,14 @@ export type AllocatedMaterialRow = z.infer<typeof AllocatedMaterialRow>;
 export const AllocatedMaterialListRes = z.object({ items: z.array(AllocatedMaterialRow) });
 export type AllocatedMaterialListRes = z.infer<typeof AllocatedMaterialListRes>;
 
+export const OrderingJobSample = z.object({
+  key: z.string(),
+  folder: z.string().nullable(),
+  ncfile: z.string().nullable(),
+  material: z.string().nullable()
+});
+export type OrderingJobSample = z.infer<typeof OrderingJobSample>;
+
 export const OrderingRow = z.object({
   id: z.number().int().nullable(),
   typeData: z.number().int().nullable(),
@@ -651,7 +659,8 @@ export const OrderingRow = z.object({
   ordered: z.boolean(),
   orderedBy: z.string().nullable(),
   orderedAt: z.string().nullable(),
-  comments: z.string().nullable()
+  comments: z.string().nullable(),
+  pendingJobs: z.array(OrderingJobSample).optional()
 });
 export type OrderingRow = z.infer<typeof OrderingRow>;
 

@@ -80,6 +80,20 @@ function createWindow() {
     win.show();
   });
 
+  win.on('closed', () => {
+    win = null;
+
+    // Darwin is macOS, not Linux.
+    // On Windows, closing the main window should quit the whole app.
+    // We do this explicitly because we also run hidden background windows (e.g. NC-Cat),
+    // which would otherwise keep the Electron process alive.
+    if (process.platform !== 'darwin' && !isQuitting) {
+      logger.info({ windowCount: BrowserWindow.getAllWindows().length }, 'Main window closed; quitting application');
+      app.quit();
+    }
+  });
+
+
   if (process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
@@ -88,6 +102,15 @@ function createWindow() {
 }
 
 async function shutdownAppServices(reason: string) {
+  logger.info(
+    {
+      reason,
+      windowCount: BrowserWindow.getAllWindows().length,
+      windows: BrowserWindow.getAllWindows().map((w) => ({ id: w.id, destroyed: w.isDestroyed() }))
+    },
+    'Shutdown services starting'
+  );
+
   try {
     await shutdownWatchers();
   } catch (err) {
@@ -200,7 +223,15 @@ process.on('unhandledRejection', (err) => logger.error({ err }, 'Unhandled rejec
 const handleProcessSignal = (signal: string) => {
   if (isQuitting) return;
   isQuitting = true;
+
+  const forceExitTimer = setTimeout(() => {
+    logger.error({ signal }, 'Forced exit after shutdown timeout');
+    process.exit(0);
+  }, 15_000);
+  if (typeof forceExitTimer.unref === 'function') forceExitTimer.unref();
+
   void shutdownAppServices(signal).finally(() => {
+    clearTimeout(forceExitTimer);
     app.exit(0);
   });
 };
@@ -213,11 +244,19 @@ app.on('before-quit', (event) => {
   isQuitting = true;
   event.preventDefault();
 
+  const forceExitTimer = setTimeout(() => {
+    logger.error('Forced exit after before-quit shutdown timeout');
+    process.exit(0);
+  }, 15_000);
+  if (typeof forceExitTimer.unref === 'function') forceExitTimer.unref();
+
   for (const w of BrowserWindow.getAllWindows()) {
+    logger.info({ id: w.id, destroyed: w.isDestroyed() }, 'Destroying BrowserWindow during shutdown');
     w.destroy();
   }
 
   void shutdownAppServices('before-quit').finally(() => {
+    clearTimeout(forceExitTimer);
     app.exit(0);
   });
 });
