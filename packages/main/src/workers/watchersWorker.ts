@@ -2428,7 +2428,6 @@ async function grundnerPollOnce(folder: string) {
     await rename(tmp, reqPath).catch(async () => {
       await fsp.writeFile(reqPath, '0\r\n!E', 'utf8');
     });
-    recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Request dropped' });
 
     // 2) Wait 3 seconds and check for reply
     await delay(3000);
