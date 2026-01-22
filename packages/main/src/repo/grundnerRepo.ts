@@ -249,13 +249,13 @@ export async function upsertGrundnerInventory(
           last_updated = now()
         WHERE (
           COALESCE(grundner.material_name, '') IS DISTINCT FROM COALESCE(EXCLUDED.material_name, '') OR
-          COALESCE(grundner.material_number, -1) IS DISTINCT FROM COALESCE(EXCLUDED.material_number, -1) OR
-          COALESCE(grundner.length_mm, -1) IS DISTINCT FROM EXCLUDED.length_mm OR
-          COALESCE(grundner.width_mm, -1) IS DISTINCT FROM EXCLUDED.width_mm OR
-          COALESCE(grundner.thickness_mm, -1) IS DISTINCT FROM EXCLUDED.thickness_mm OR
-          COALESCE(grundner.stock, -1) IS DISTINCT FROM EXCLUDED.stock OR
-          COALESCE(grundner.stock_available, -1) IS DISTINCT FROM EXCLUDED.stock_available OR
-          COALESCE(grundner.reserved_stock, -1) IS DISTINCT FROM EXCLUDED.reserved_stock
+          grundner.material_number IS DISTINCT FROM EXCLUDED.material_number OR
+          grundner.length_mm IS DISTINCT FROM EXCLUDED.length_mm OR
+          grundner.width_mm IS DISTINCT FROM EXCLUDED.width_mm OR
+          grundner.thickness_mm IS DISTINCT FROM EXCLUDED.thickness_mm OR
+          grundner.stock IS DISTINCT FROM EXCLUDED.stock OR
+          grundner.stock_available IS DISTINCT FROM EXCLUDED.stock_available OR
+          grundner.reserved_stock IS DISTINCT FROM EXCLUDED.reserved_stock
         )
         RETURNING
           (xmax = 0) AS inserted,

@@ -2428,10 +2428,14 @@ async function grundnerPollOnce(folder: string) {
     await rename(tmp, reqPath).catch(async () => {
       await fsp.writeFile(reqPath, '0\r\n!E', 'utf8');
     });
+    recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Request dropped' });
 
-    // 2) Wait 3 seconds and check for reply
-    await delay(3000);
-    if (!(await fileExists(stockPath))) return;
+    // 2) Wait 5 seconds and check for reply
+    await delay(5000);
+    if (!(await fileExists(stockPath))) {
+      recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Reply missing; will retry' });
+      return;
+    }
     await waitForStableFile(stockPath);
     if (!(await waitForFileRelease(stockPath))) {
       if (await fileExists(stockPath)) {
@@ -2439,12 +2443,21 @@ async function grundnerPollOnce(folder: string) {
       }
       return;
     }
-    await delay(2000);
+    await delay(10000);
+    if (!(await fileExists(stockPath))) {
+      recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Reply vanished before read; will retry' });
+      return;
+    }
     let raw = '';
     try {
       raw = await readFile(stockPath, 'utf8');
+      recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
+        label: GRUNDNER_WATCHER_LABEL,
+        message: 'Reply read',
+        context: { bytes: raw.length }
+      });
     } finally {
-      await unlinkWithRetry(stockPath);
+      await unlinkWithRetry(stockPath, 3, 2000);
     }
     const hash = createHash('sha1').update(raw).digest('hex');
     if (grundnerLastHash === hash) return;
@@ -2640,7 +2653,7 @@ function startGrundnerPoller(folder: string) {
   };
   // immediate + interval
   void run();
-  grundnerTimer = setInterval(run, 10_000);
+  grundnerTimer = setInterval(run, 30_000);
   if (typeof grundnerTimer.unref === 'function') grundnerTimer.unref();
   watcherReady(GRUNDNER_WATCHER_NAME, GRUNDNER_WATCHER_LABEL);
 }
