@@ -56,6 +56,8 @@ import type {
   AggregatedValidationDataReq,
   AggregatedValidationDataRes,
   ValidationWarningsListRes,
+  NcCatValidationReportsListReq,
+  NcCatValidationReportsListRes,
   NcCatValidationReport,
   AuthStateRes,
   AuthSuccessRes,
@@ -99,8 +101,22 @@ ipcRenderer.on('nc-catalyst:auth:requestState', () => {
 });
 
 // Normalize all IPC calls to return a simple { ok, value | error } envelope
-const invokeResult = <T>(channel: string, ...args: unknown[]): Promise<ResultEnvelope<T>> =>
-  ipcRenderer.invoke(channel, ...args) as Promise<ResultEnvelope<T>>;
+const invokeResult = async <T>(channel: string, ...args: unknown[]): Promise<ResultEnvelope<T>> => {
+  try {
+    return (await ipcRenderer.invoke(channel, ...args)) as ResultEnvelope<T>;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const hint = message.includes('No handler registered') ? ' (restart the app to load updated Main process IPC handlers)' : '';
+    return {
+      ok: false,
+      error: {
+        code: 'ipc.invokeFailed',
+        message: `IPC invoke failed for "${channel}": ${message}${hint}`,
+        details: { channel }
+      }
+    };
+  }
+};
 
 const api = {
   auth: {
@@ -120,6 +136,8 @@ const api = {
     getData: (input: ValidationDataReq) => invokeResult<ValidationDataRes>('validation:getData', input),
     getAggregatedData: (input: AggregatedValidationDataReq) => invokeResult<AggregatedValidationDataRes>('validation:getAggregatedData', input),
     getWarnings: () => invokeResult<ValidationWarningsListRes>('validation:getWarnings'),
+    listHeadlessReports: (input: NcCatValidationReportsListReq) =>
+      invokeResult<NcCatValidationReportsListRes>('validation:listHeadlessReports', input),
     subscribeHeadlessResults: (listener: (payload: NcCatValidationReport) => void) => {
       const channel = 'nc-catalyst:validation-results';
       const handler = (_event: Electron.IpcRendererEvent, payload: NcCatValidationReport) => {
@@ -430,6 +448,3 @@ const api = {
 } as const;
 
 contextBridge.exposeInMainWorld('api', api);
-
-
-

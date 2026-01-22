@@ -76,6 +76,8 @@ export function AppLayout() {
   const [latestValidationReport, setLatestValidationReport] = useState<NcCatValidationReport | null>(null);
   const [validationReportHistory, setValidationReportHistory] = useState<NcCatValidationReport[]>([]);
   const [validationResultsOpen, setValidationResultsOpen] = useState(false);
+  const [validationReportsLoading, setValidationReportsLoading] = useState(false);
+  const [validationReportsError, setValidationReportsError] = useState<string | null>(null);
 
   const dismissAlarm = useCallback((id: string) => {
     const t = alarmTimers.current.get(id);
@@ -215,16 +217,59 @@ export function AppLayout() {
     };
   }, [applyAlarms]);
 
-  const handleValidationReport = useCallback((report: NcCatValidationReport) => {
-    setLatestValidationReport(report);
-    setValidationReportHistory((prev) => {
-      const keyOf = (r: NcCatValidationReport) => `${r.reason}|${r.folderName}|${r.processedAt}`;
-      const key = keyOf(report);
-      const next = [report, ...prev.filter((r) => keyOf(r) !== key)];
-      return next.slice(0, 50);
-    });
-    setValidationResultsOpen(true);
-  }, []);
+  const validationKeyOf = useCallback((r: NcCatValidationReport) => `${r.reason}|${r.folderName}|${r.processedAt}`, []);
+
+  const mergeValidationReports = useCallback(
+    (primary: NcCatValidationReport[], secondary: NcCatValidationReport[]) => {
+      const seen = new Set<string>();
+      const next: NcCatValidationReport[] = [];
+      for (const list of [primary, secondary]) {
+        for (const r of list) {
+          const key = validationKeyOf(r);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          next.push(r);
+        }
+      }
+      return next;
+    },
+    [validationKeyOf]
+  );
+
+  const loadValidationReports = useCallback(async () => {
+    setValidationReportsLoading(true);
+    setValidationReportsError(null);
+    try {
+      const res = await window.api.validation.listHeadlessReports({ limit: 50 });
+      if (!res.ok) {
+        setValidationReportsError(res.error.message);
+        setValidationReportsLoading(false);
+        return;
+      }
+
+      setValidationReportHistory((prev) => {
+        const merged = mergeValidationReports(res.value.items, prev).slice(0, 50);
+        setLatestValidationReport(merged[0] ?? null);
+        return merged;
+      });
+    } catch (err) {
+      setValidationReportsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setValidationReportsLoading(false);
+    }
+  }, [mergeValidationReports]);
+
+  const handleValidationReport = useCallback(
+    (report: NcCatValidationReport) => {
+      setValidationReportHistory((prev) => {
+        const merged = mergeValidationReports([report], prev).slice(0, 50);
+        setLatestValidationReport(merged[0] ?? report);
+        return merged;
+      });
+      setValidationResultsOpen(true);
+    },
+    [mergeValidationReports]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -237,6 +282,10 @@ export function AppLayout() {
       unsubscribe?.();
     };
   }, [handleValidationReport]);
+
+  useEffect(() => {
+    void loadValidationReports();
+  }, [loadValidationReports]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -331,6 +380,14 @@ export function AppLayout() {
   );
   const logLines = useMemo(() => (logLinesLive ?? (logTail?.lines ? [...logTail.lines].reverse() : [])), [logLinesLive, logTail]);
   const logAvailable = logTail?.available ?? null;
+  const validationAlertCount = useMemo(() => {
+    if (!latestValidationReport) return 0;
+    let count = 0;
+    for (const file of latestValidationReport.files) {
+      if (file.status !== 'pass') count += 1;
+    }
+    return count;
+  }, [latestValidationReport]);
 
   // Keep a ref of the latest tail for equality checks
   useEffect(() => {
@@ -409,6 +466,23 @@ export function AppLayout() {
             <div className="page-title-gradient">{pageTitle}</div>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => {
+                setValidationResultsOpen(true);
+                void loadValidationReports();
+              }}
+              title={
+                validationReportsLoading
+                  ? 'Loading validation history...'
+                  : validationReportsError
+                    ? `Failed to load validations: ${validationReportsError}`
+                    : 'View NC-Cat validation results'
+              }
+            >
+              Validations
+              {validationAlertCount > 0 && <span className={diagnosticsBadgeClass}>{validationAlertCount}</span>}
+            </Button>
             <Button size="sm" variant="destructive" onClick={toggleAlarmPanel}>
               Alarms
               <span className={alarmBadgeClass}>{activeAlarmCount}</span>
@@ -429,6 +503,9 @@ export function AppLayout() {
           onOpenChange={setValidationResultsOpen}
           latestReport={latestValidationReport}
           historyReports={validationReportHistory}
+          loading={validationReportsLoading}
+          loadError={validationReportsError}
+          onRefresh={() => void loadValidationReports()}
         />
 
         {alarms.length > 0 && (
@@ -490,7 +567,7 @@ export function AppLayout() {
         </div>
       )}
       {showDiagnostics && (
-        <div className="fixed right-4 top-16 bottom-4 z-40 w-[800px] rounded border border-[var(--border)] bg-[var(--card)] shadow-lg flex flex-col min-h-0">
+        <div className="fixed right-4 top-16 bottom-4 z-40 w-[1040px] rounded border border-[var(--border)] bg-[var(--card)] shadow-lg flex flex-col min-h-0">
           <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2">
             <div className="text-sm font-semibold text-[var(--foreground)]">Diagnostics</div>
             <div className="flex items-center gap-2">
@@ -690,10 +767,10 @@ export function AppLayout() {
                       </div>
                     )}
                     {logError && <div className="text-xs text-[var(--status-error-text)]">{logError}</div>}
-                    <div className="flex-1 min-h-0 overflow-auto rounded border border-[var(--border)] bg-[var(--background)]">
+                    <div className="flex-1 min-h-380 min-h-[380px] overflow-y-scroll rounded border border-[var(--border)] bg-[var(--background)]">
                       <pre
                         key={logSelectedFile ?? 'none'}
-                        className="w-max min-w-full px-2 py-2 font-sans text-xs leading-snug whitespace-pre text-[var(--foreground)]"
+                        className="w-max min-w-full px-2 py-2 font-sans text-xs leading-snug whitespace-pre text-[var(--foreground)] font-semibold"
                       >
                         {logLoading
                           ? 'Loading log...'

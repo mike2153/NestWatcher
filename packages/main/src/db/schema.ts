@@ -143,6 +143,17 @@ export const ncCatProfiles = pgTable('nc_cat_profiles', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });
 
+export const validationReports = pgTable('validation_reports', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  reason: varchar('reason', { length: 50 }).notNull(),
+  folderName: varchar('folder_name', { length: 255 }).notNull(),
+  profileName: varchar('profile_name', { length: 255 }),
+  processedAt: timestamp('processed_at', { withTimezone: true }).notNull(),
+  overallStatus: varchar('overall_status', { length: 20 }).notNull(),
+  reportData: jsonb('report_data').$type<unknown>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow()
+});
+
 export const appUsers = pgTable('app_users', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   username: text('username').notNull(),
@@ -192,6 +203,7 @@ export const schema = {
   grundner,
   orderingStatus,
   ncStats,
+  validationReports,
   ncCatProfiles,
   allocatedMaterialView,
   jobStatusEnum,

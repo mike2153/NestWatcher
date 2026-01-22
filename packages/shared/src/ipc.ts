@@ -409,7 +409,17 @@ export const WorklistCollisionInfo = z.object({
 });
 export type WorklistCollisionInfo = z.infer<typeof WorklistCollisionInfo>;
 
-const NcCatValidationReportSchema = z.custom<NcCatValidationReport>();
+export const NcCatValidationReportSchema = z.custom<NcCatValidationReport>();
+
+export const NcCatValidationReportsListReq = z.object({
+  limit: z.number().int().min(1).max(200).default(50)
+});
+export type NcCatValidationReportsListReq = z.infer<typeof NcCatValidationReportsListReq>;
+
+export const NcCatValidationReportsListRes = z.object({
+  items: z.array(NcCatValidationReportSchema)
+});
+export type NcCatValidationReportsListRes = z.infer<typeof NcCatValidationReportsListRes>;
 
 export const WorklistAddSuccess = z.object({
   ok: z.literal(true),

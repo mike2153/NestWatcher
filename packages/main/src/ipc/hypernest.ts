@@ -1157,23 +1157,31 @@ export function registerNcCatalystIpc() {
         );
 
         // Process each file entry and create job + nc_stats
-        const jobKeys: string[] = [];
+        // Trigger ingest to pick up the new files and create job records
+        // This reuses the existing ingest logic which handles job creation properly
+        try {
+          const { ingestProcessedJobsRoot } = await import('../services/ingest');
+          const ingestResult = await ingestProcessedJobsRoot();
+          logger.info(
+            { inserted: ingestResult.inserted, updated: ingestResult.updated },
+            'NC-Cat submit-validation: triggered ingest'
+          );
+        } catch (ingestErr) {
+          logger.warn({ err: ingestErr }, 'NC-Cat submit-validation: ingest failed');
+        }
 
+        // Upsert nc_stats with MES data after ingest so that the FK to jobs.key exists.
+        // Only store stats when the job has no validation errors (warnings are allowed).
         for (const fileEntry of req.validationPayload.files) {
-          // Build job key from folder and filename
+          if (fileEntry.validation.status === 'errors') continue;
+
+          // Build job key from folder + filename.
           const baseNoExt = basename(fileEntry.filename, extname(fileEntry.filename));
           const jobKey = `${req.folderName}/${baseNoExt}`.slice(0, 100);
-          jobKeys.push(jobKey);
 
-          // Calculate cutting distance from tool usage
-          const cuttingDistance = fileEntry.toolUsage.reduce(
-            (sum, t) => sum + (t.cuttingDistanceMeters || 0),
-            0
-          );
-
+          const cuttingDistance = fileEntry.toolUsage.reduce((sum, t) => sum + (t.cuttingDistanceMeters || 0), 0);
           const estimatedRuntimeSeconds = Number.isFinite(fileEntry.ncEstRuntime) ? fileEntry.ncEstRuntime : null;
 
-          // Upsert nc_stats with MES data
           try {
             await upsertNcStats({
               jobKey,
@@ -1195,31 +1203,19 @@ export function registerNcCatalystIpc() {
 
             logger.debug({ jobKey }, 'NC-Cat submit-validation: upserted nc_stats');
           } catch (statsErr) {
-            logger.warn(
-              { err: statsErr, jobKey },
-              'NC-Cat submit-validation: failed to upsert nc_stats'
-            );
-            // Continue processing other files
+            logger.warn({ err: statsErr, jobKey }, 'NC-Cat submit-validation: failed to upsert nc_stats');
           }
-        }
-
-        // Trigger ingest to pick up the new files and create job records
-        // This reuses the existing ingest logic which handles job creation properly
-        try {
-          const { ingestProcessedJobsRoot } = await import('../services/ingest');
-          const ingestResult = await ingestProcessedJobsRoot();
-          logger.info(
-            { inserted: ingestResult.inserted, updated: ingestResult.updated },
-            'NC-Cat submit-validation: triggered ingest'
-          );
-        } catch (ingestErr) {
-          logger.warn({ err: ingestErr }, 'NC-Cat submit-validation: ingest failed');
         }
 
         // Check for warnings to notify
         const hasWarnings = req.validationPayload.files.some(
           (f) => f.validation.status === 'warnings'
         );
+
+        const jobKeys = req.validationPayload.files.map((fileEntry) => {
+          const baseNoExt = basename(fileEntry.filename, extname(fileEntry.filename));
+          return `${req.folderName}/${baseNoExt}`.slice(0, 100);
+        });
 
         if (hasWarnings) {
           const warningFiles = req.validationPayload.files

@@ -18,6 +18,7 @@ import { withClient } from './db';
 import { placeOrderSawCsv } from './orderSaw';
 import { pushAppMessage } from './messages';
 import { runHeadlessValidationWithRetry } from './ncCatHeadless';
+import { persistNcCatValidationReport } from './ncCatValidationResults';
 
 const OVERWRITE_PATTERNS: RegExp[] = [
   /^planit.*\.csv$/i,
@@ -186,6 +187,7 @@ export async function addJobToWorklist(key: string, machineId: number, actorName
         files: filesSummary
       };
       validationReport = report;
+      void persistNcCatValidationReport(report);
       if (overallStatus === 'errors') {
         return {
           ok: false,
