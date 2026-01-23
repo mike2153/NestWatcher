@@ -88,12 +88,13 @@ if (wlPreview === 'react') {
       <ThemeProvider>
         <StartupLoadingScreen
           status="Starting application..."
+          statusCompleteAtMs={4000}
           steps={[
             'Connecting to database',
             'Checking user authentication',
             'Loading machine profiles',
           ]}
-          durationMs={3000}
+          durationMs={6000}
         />
       </ThemeProvider>
     </React.StrictMode>

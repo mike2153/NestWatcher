@@ -16,6 +16,37 @@ export function AuthRequiredPage() {
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Keep the auth-required screen visually consistent with the app boot splash.
+  // This is intentionally NOT tied to the user's selected app theme.
+  const fixedThemeStyle = useMemo(
+    () =>
+      ({
+        '--background': '#0b0d10',
+        '--background-body': '#0b0d10',
+        '--foreground': '#e7e9ee',
+        '--card': 'rgba(20, 23, 30, 0.75)',
+        '--border': 'rgba(255, 255, 255, 0.08)',
+        '--muted': 'rgba(231, 233, 238, 0.12)',
+        '--muted-foreground': 'rgba(231, 233, 238, 0.72)',
+
+        '--primary': 'rgb(244 63 94)',
+        '--primary-foreground': '#0b0d10',
+        '--ring': 'rgb(244 63 94)',
+
+        // Background atmosphere (matching NC-Cat's splash)
+        '--splash-glow-red': 'rgba(244, 63, 94, 0.12)',
+        '--splash-glow-blue': 'rgba(59, 130, 246, 0.08)',
+
+        // Inline status banners
+        '--splash-banner-bg': 'rgba(231, 233, 238, 0.06)',
+        '--splash-banner-border': 'rgba(255, 255, 255, 0.10)',
+        '--splash-danger-bg': 'rgba(244, 63, 94, 0.14)',
+        '--splash-danger-border': 'rgba(244, 63, 94, 0.35)',
+        '--splash-danger-text': 'rgba(251, 113, 133, 0.95)',
+      }) as React.CSSProperties,
+    []
+  );
+
   const requireSubscription = import.meta.env.VITE_REQUIRE_SUBSCRIPTION_AUTH === 'true';
   const hasAccess = requireSubscription
     ? isSubscriptionSatisfied(subscriptionState)
@@ -90,16 +121,24 @@ export function AuthRequiredPage() {
   const status = useMemo(() => {
     if (error) {
       return (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+        <div className="rounded-xl border border-[var(--splash-danger-border)] bg-[var(--splash-danger-bg)] px-4 py-3 text-sm text-[var(--splash-danger-text)]">
           {error}
         </div>
       );
     }
     if (subscriptionLoading) {
-      return <div className="rounded-xl border border-border bg-secondary px-4 py-3 text-sm">Checking subscription…</div>;
+      return (
+        <div className="rounded-xl border border-[var(--splash-banner-border)] bg-[var(--splash-banner-bg)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
+          Checking subscription…
+        </div>
+      );
     }
     if (!opening) return null;
-    return <div className="rounded-xl border border-border bg-secondary px-4 py-3 text-sm">Opening NC Catalyst…</div>;
+    return (
+      <div className="rounded-xl border border-[var(--splash-banner-border)] bg-[var(--splash-banner-bg)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
+        Opening NC Catalyst…
+      </div>
+    );
   }, [opening, error, subscriptionLoading]);
 
   const debugInfo = useMemo(() => {
@@ -117,11 +156,19 @@ export function AuthRequiredPage() {
   }, []);
 
   return (
-    <div className="grid h-[100dvh] w-[100dvw] place-items-center bg-background text-foreground">
-      <div className="w-full max-w-md px-6">
-        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <div
+      className="relative grid h-[100dvh] w-[100dvw] place-items-center overflow-hidden bg-[var(--background)] text-[var(--foreground)]"
+      style={fixedThemeStyle}
+    >
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 [background-image:radial-gradient(1200px_circle_at_20%_15%,var(--splash-glow-red),rgba(11,13,16,0)_55%),radial-gradient(1000px_circle_at_80%_75%,var(--splash-glow-blue),rgba(11,13,16,0)_60%)]"
+      />
+
+      <div className="relative w-full max-w-md px-6">
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-2xl backdrop-blur-md">
           <h1 className="text-2xl font-semibold tracking-tight">Sign in required</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-2 text-sm text-[var(--muted-foreground)]">
             NestWatcher uses NC Catalyst for authentication. Please sign in there to continue.
           </p>
           <div className="mt-4">{status}</div>
@@ -129,13 +176,13 @@ export function AuthRequiredPage() {
             type="button"
             onClick={openNcCat}
             disabled={opening}
-            className="mt-4 w-full"
+            className="mt-4 w-full bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm hover:-translate-y-0.5 hover:shadow-md"
           >
             Open NC Catalyst Sign In
           </Button>
           <details className="mt-4">
-            <summary className="cursor-pointer select-none text-sm text-muted-foreground">Debug</summary>
-            <pre className="mt-2 whitespace-pre-wrap rounded-xl border border-border bg-secondary p-3 text-xs text-foreground/80">
+            <summary className="cursor-pointer select-none text-sm text-[var(--muted-foreground)]">Debug</summary>
+            <pre className="mt-2 whitespace-pre-wrap rounded-xl border border-[var(--border)] bg-[var(--splash-banner-bg)] p-3 text-xs text-[color-mix(in_srgb,var(--foreground)_80%,transparent)]">
               {debugInfo}
             </pre>
           </details>

@@ -28,8 +28,7 @@ export type DrillUsage = z.infer<typeof DrillUsageSchema>;
 export const ValidationResultSchema = z.object({
   status: z.enum(['pass', 'warnings', 'errors']),
   warnings: z.array(z.string()),
-  errors: z.array(z.string()),
-  syntax: z.array(z.string())
+  errors: z.array(z.string())
 });
 export type ValidationResult = z.infer<typeof ValidationResultSchema>;
 

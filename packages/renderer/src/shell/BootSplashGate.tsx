@@ -15,7 +15,7 @@ const DEFAULT_STEPS: string[] = [
   'Loading machine profiles',
 ];
 
-const DEFAULT_MIN_DURATION_MS = 3000;
+const DEFAULT_MIN_DURATION_MS = 6000;
 
 /**
  * Holds the UI behind a "nice" boot splash for a minimum duration.
@@ -54,6 +54,7 @@ export function BootSplashGate({
     return (
       <StartupLoadingScreen
         status="Starting application..."
+        statusCompleteAtMs={4000}
         steps={steps ?? DEFAULT_STEPS}
         durationMs={Math.max(400, minDurationMs)}
       />

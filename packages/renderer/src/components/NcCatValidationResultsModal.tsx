@@ -137,8 +137,12 @@ type CountTotals = {
 };
 
 function getFileCounts(file: NcCatValidationReport['files'][number]): CountTotals {
+  const legacySyntax = Array.isArray((file as unknown as { syntax?: unknown }).syntax)
+    ? ((file as unknown as { syntax: string[] }).syntax)
+    : [];
+
   return {
-    errors: file.errors.length + file.syntax.length,
+    errors: file.errors.length + legacySyntax.length,
     warnings: file.warnings.length,
     pass: file.status === 'pass' ? 1 : 0
   };
@@ -440,7 +444,10 @@ export function NcCatValidationResultsModal({
                         {report.files.map((file) => {
                           const fileKey = `${report.folderName}-${file.filename}`;
                           const fileCounts = getFileCounts(file);
-                          const errorGroups = groupMessages([...file.errors, ...file.syntax]);
+                          const legacySyntax = Array.isArray((file as unknown as { syntax?: unknown }).syntax)
+                            ? ((file as unknown as { syntax: string[] }).syntax)
+                            : [];
+                          const errorGroups = groupMessages([...file.errors, ...legacySyntax]);
                           const warningGroups = groupMessages(file.warnings);
                           const fileHasIssues = fileCounts.errors > 0 || fileCounts.warnings > 0;
                           const statusColor =

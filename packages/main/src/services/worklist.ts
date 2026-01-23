@@ -167,13 +167,20 @@ export async function addJobToWorklist(key: string, machineId: number, actorName
     });
 
     if (validationOutcome.ok) {
-      const filesSummary = validationOutcome.results.map((result) => ({
-        filename: result.filename,
-        status: result.validation.status,
-        warnings: result.validation.warnings,
-        errors: result.validation.errors,
-        syntax: result.validation.syntax
-      }));
+      const filesSummary = validationOutcome.results.map((result) => {
+        const warnings = Array.isArray(result.validation.warnings) ? result.validation.warnings : [];
+        const errors = Array.isArray(result.validation.errors) ? result.validation.errors : [];
+        const legacySyntax = Array.isArray((result.validation as unknown as { syntax?: unknown }).syntax)
+          ? ((result.validation as unknown as { syntax: string[] }).syntax)
+          : [];
+
+        return {
+          filename: result.filename,
+          status: result.validation.status,
+          warnings,
+          errors: errors.concat(legacySyntax)
+        };
+      });
       const hasErrors = filesSummary.some((file) => file.status === 'errors');
       const hasWarnings = filesSummary.some((file) => file.status === 'warnings');
       const overallStatus = hasErrors ? 'errors' : hasWarnings ? 'warnings' : 'pass';

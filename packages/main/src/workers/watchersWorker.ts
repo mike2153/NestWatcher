@@ -3130,13 +3130,23 @@ function buildValidationReport(
   profileName: string | null | undefined,
   results: NcCatHeadlessValidationFileResult[]
 ): NcCatValidationReport {
-  const files = results.map((result) => ({
-    filename: result.filename,
-    status: result.validation.status,
-    warnings: result.validation.warnings,
-    errors: result.validation.errors,
-    syntax: result.validation.syntax
-  }));
+  const files = results.map((result) => {
+    const warnings = Array.isArray(result.validation.warnings) ? result.validation.warnings : [];
+    const errors = Array.isArray(result.validation.errors) ? result.validation.errors : [];
+
+    // Legacy compatibility: older NC-Cat builds may include a separate "syntax" bucket.
+    // The current contract merges syntax into errors.
+    const legacySyntax = Array.isArray((result.validation as unknown as { syntax?: unknown }).syntax)
+      ? ((result.validation as unknown as { syntax: string[] }).syntax)
+      : [];
+
+    return {
+      filename: result.filename,
+      status: result.validation.status,
+      warnings,
+      errors: errors.concat(legacySyntax)
+    };
+  });
   const hasErrors = files.some((file) => file.status === 'errors');
   const hasWarnings = files.some((file) => file.status === 'warnings');
   const overallStatus = hasErrors ? 'errors' : hasWarnings ? 'warnings' : 'pass';
@@ -3167,12 +3177,6 @@ function buildValidationSummaryText(report: NcCatValidationReport): string {
     if (file.errors.length) {
       lines.push('Errors:');
       for (const err of file.errors) {
-        lines.push(`- ${err}`);
-      }
-    }
-    if (file.syntax.length) {
-      lines.push('Syntax:');
-      for (const err of file.syntax) {
         lines.push(`- ${err}`);
       }
     }

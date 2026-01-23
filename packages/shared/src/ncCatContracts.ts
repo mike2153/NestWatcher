@@ -182,7 +182,6 @@ export interface NcCatSubmitValidationReq {
         status: 'pass' | 'warnings' | 'errors';
         warnings: string[];
         errors: string[];
-        syntax: string[];
       };
       nestPick: {
         canAllBePicked: boolean | null;
@@ -255,7 +254,6 @@ export interface NcCatHeadlessValidationFileResult {
     status: 'pass' | 'warnings' | 'errors';
     warnings: string[];
     errors: string[];
-    syntax: string[];
   };
   stats?: NcCatHeadlessFileStats;
 }
@@ -289,7 +287,6 @@ export interface NcCatValidationReportFile {
   status: 'pass' | 'warnings' | 'errors';
   warnings: string[];
   errors: string[];
-  syntax: string[];
 }
 
 export interface NcCatValidationReport {
