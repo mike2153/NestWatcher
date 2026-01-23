@@ -346,3 +346,12 @@
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+
+@keyframes wl-loading-indeterminate {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}

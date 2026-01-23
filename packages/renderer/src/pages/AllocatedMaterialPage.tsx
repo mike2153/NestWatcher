@@ -231,7 +231,10 @@ export function AllocatedMaterialPage() {
             <div style={{ paddingLeft: `${indent}px` }} className="flex items-center gap-2">
               {row.getCanExpand() ? (
                 <button
-                  onClick={row.getToggleExpandedHandler()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    row.toggleExpanded();
+                  }}
                   className="cursor-pointer"
                 >
                   {row.getIsExpanded() ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -247,7 +250,10 @@ export function AllocatedMaterialPage() {
             <div style={{ paddingLeft: `${indent}px` }} className="flex items-center gap-2">
               {row.getCanExpand() ? (
                 <button
-                  onClick={row.getToggleExpandedHandler()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    row.toggleExpanded();
+                  }}
                   className="cursor-pointer"
                 >
                   {row.getIsExpanded() ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -397,6 +403,11 @@ export function AllocatedMaterialPage() {
         <GlobalTable
           table={table}
           className="bg-[var(--table-bg)]"
+          toggleRowSelectionOnClick={false}
+          onRowClick={(row) => {
+            if (!row.getCanExpand()) return;
+            row.toggleExpanded();
+          }}
         />
       )}
     </div>

@@ -2,7 +2,15 @@ import { clipboard, type WebContents } from 'electron';
 import { ok, err } from 'neverthrow';
 import type { AppError, CopyDiagnosticsResult, DiagnosticsLogSummary, DiagnosticsLogTailRes, DiagnosticsLogStreamReq } from '../../../shared/src';
 import { DiagnosticsLogTailReq, DiagnosticsLogStreamReq as DiagnosticsLogStreamReqSchema } from '../../../shared/src';
-import { getDiagnosticsSnapshot, subscribeDiagnostics, buildDiagnosticsCopyPayload, listDiagnosticsLogs, getDiagnosticsLogTail, subscribeLogStream } from '../services/diagnostics';
+import {
+  getDiagnosticsSnapshot,
+  subscribeDiagnostics,
+  buildDiagnosticsCopyPayload,
+  listDiagnosticsLogs,
+  getDiagnosticsLogTail,
+  subscribeLogStream,
+  clearRecentErrors
+} from '../services/diagnostics';
 import { restartWatchers } from '../services/watchers';
 import { logger } from '../logger';
 import { createAppError } from './errors';
@@ -61,6 +69,17 @@ export function registerDiagnosticsIpc() {
   registerResultHandler('diagnostics:unsubscribe', async (event) => {
     releaseSubscription(event.sender);
     return ok<null, AppError>(null);
+  });
+
+  registerResultHandler('diagnostics:errors:clear', async () => {
+    try {
+      await clearRecentErrors();
+      return ok<null, AppError>(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error({ error }, 'diagnostics: failed to clear recent errors');
+      return err(createAppError('DIAGNOSTICS_CLEAR_ERRORS_FAILED', message));
+    }
   });
 
   registerResultHandler('diagnostics:logs:list', async () => {

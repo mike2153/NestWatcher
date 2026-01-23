@@ -220,10 +220,29 @@ export function AppLayout() {
   }, [logLimit]);
 
   const refreshLogTail = useCallback(() => {
+    // Reset live override so we show the file tail again.
+    setLogLinesLive(null);
     if (logSelectedFile) {
       fetchLogTail(logSelectedFile, logLimit);
     }
   }, [fetchLogTail, logLimit, logSelectedFile]);
+
+  const handleClearDiagnosticsViews = useCallback(async () => {
+    // UI-only clear: don't mutate log files, just clear what's rendered.
+    // New streamed lines will still appear after this.
+    setLogLinesLive([]);
+
+    try {
+      const res = await window.api.diagnostics.clearErrors();
+      if (!res.ok) {
+        setCopyFeedback({ type: 'error', message: `Clear failed: ${res.error.message}` });
+        return;
+      }
+      setCopyFeedback({ type: 'success', message: 'Cleared log view and recent errors.' });
+    } catch (err) {
+      setCopyFeedback({ type: 'error', message: `Clear failed: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -542,24 +561,28 @@ export function AppLayout() {
         {alarms.length > 0 && (
           <div className="fixed right-8 top-16 z-50 space-y-2">
             <div className="flex justify-end">
-              <button className="rounded border border-[var(--border)] bg-[var(--status-error-bg)] px-3 py-1.5 text-xs text-[var(--status-error-text)] hover:bg-[var(--accent)] transition-colors" title="Clear all toasts" onClick={clearAllToasts}>
+              <button
+                className="rounded border border-red-600/40 dark:border-red-400/40 bg-red-500/25 dark:bg-red-400/20 px-3 py-1.5 text-xs text-red-700 dark:text-red-300 hover:bg-red-500/35 dark:hover:bg-red-400/30 transition-colors"
+                title="Clear all toasts"
+                onClick={clearAllToasts}
+              >
                 Clear All
               </button>
             </div>
             {alarms.map((alarm) => (
               <div
                 key={alarm.id}
-                className="relative w-72 rounded border border-[var(--status-error-border)] bg-[var(--status-error-bg)] p-3 shadow-lg"
+                className="relative w-72 rounded border border-red-600/40 dark:border-red-400/40 bg-red-500/25 dark:bg-red-400/20 p-3 shadow-lg"
               >
                 <button
-                  className="absolute right-1 top-1 rounded px-1 text-xs text-[var(--status-error-text)] hover:bg-[var(--accent)]"
+                  className="absolute right-1 top-1 rounded px-1 text-xs text-red-700 dark:text-red-300 hover:bg-red-500/20 dark:hover:bg-red-400/20 transition-colors"
                   title="Dismiss"
                   onClick={() => dismissAlarm(alarm.id)}
                 >
                   X
                 </button>
                 <div className="space-y-1">
-                  <div className="text-sm font-semibold text-[var(--status-error-text)]">{alarm.alarm}</div>
+                  <div className="text-sm font-semibold text-red-700 dark:text-red-300">{alarm.alarm}</div>
                   <div className="text-xs text-[var(--muted-foreground)]">{alarm.key}</div>
                   {alarm.status && <div className="text-xs text-[var(--muted-foreground)]">Status: {alarm.status}</div>}
                 </div>
@@ -598,7 +621,7 @@ export function AppLayout() {
         </div>
       )}
       {showDiagnostics && (
-        <div className="fixed right-4 top-16 bottom-4 z-40 w-[1040px] rounded border border-[var(--border)] bg-[var(--card)] shadow-lg flex flex-col min-h-0">
+        <div className="fixed right-4 top-16 bottom-4 z-40 w-[1040px] rounded border border-[var(--border)] bg-[var(--card)] shadow-lg flex flex-col min-h-0 overflow-hidden">
           <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2">
             <div className="text-sm font-semibold text-[var(--foreground)]">Diagnostics</div>
             <div className="flex items-center gap-2">
@@ -724,7 +747,7 @@ export function AppLayout() {
             </section>
             <section className="shrink-0">
               <div className="text-xs uppercase text-[var(--muted-foreground)]">Recent Errors</div>
-              <div className="mt-2 space-y-2 max-h-72 overflow-y-auto rounded border border-[var(--border)] bg-[var(--background)] p-2">
+              <div className="mt-2 space-y-2 max-h-72 overflow-y-auto overscroll-contain rounded border border-[var(--border)] bg-[var(--background)] p-2">
                 {diagnosticsErrors.length === 0 ? (
                   <div className="text-xs text-[var(--muted-foreground)]">No errors recorded.</div>
                 ) : (
@@ -740,14 +763,19 @@ export function AppLayout() {
                 )}
               </div>
             </section>
-            <section className="flex-1 min-h-0">
+            <section className="flex-1 min-h-0 flex flex-col">
               <div className="text-sm  text-[var(--muted-foreground)]">Logs</div>
-              <div className="mt-2 space-y-2 flex flex-col min-h-0">
+              <div className="mt-2 space-y-2 flex flex-col flex-1 min-h-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <select
                     className="border border-[var(--border)] rounded px-2 py-1 text-xs bg-[var(--input-bg)] text-[var(--foreground)]"
                     value={logSelectedFile ?? ""}
-                    onChange={(e) => setLogSelectedFile(e.target.value ? e.target.value : null)}
+                    onChange={(e) => {
+                      const nextFile = e.target.value ? e.target.value : null;
+                      setLogSelectedFile(nextFile);
+                      // Ensure the view reflects the newly selected file.
+                      setLogLinesLive(null);
+                    }}
                     disabled={logListLoading || logList.length === 0}
                   >
                     {logList.map((item) => (
@@ -782,6 +810,15 @@ export function AppLayout() {
                   >
                     Reload Log
                   </button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={handleClearDiagnosticsViews}
+                    title="Clear the log view + Recent Errors"
+                    className="h-7 px-2 py-1 text-xs"
+                  >
+                    Clear
+                  </Button>
                 </div>
                 {logListLoading && logList.length === 0 ? (
                   <div className="text-xs text-[var(--muted-foreground)]">Loading logs...</div>
@@ -798,7 +835,7 @@ export function AppLayout() {
                       </div>
                     )}
                     {logError && <div className="text-xs text-[var(--status-error-text)]">{logError}</div>}
-                    <div className="flex-1 min-h-380 min-h-[380px] overflow-y-scroll rounded border border-[var(--border)] bg-[var(--background)]">
+                    <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto overscroll-contain rounded border border-[var(--border)] bg-[var(--background)]">
                       <pre
                         key={logSelectedFile ?? 'none'}
                         className="w-max min-w-full px-2 py-2 font-sans text-xs leading-snug whitespace-pre text-[var(--foreground)] font-semibold"

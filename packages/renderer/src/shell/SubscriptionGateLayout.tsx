@@ -1,5 +1,6 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useSubscriptionAuth } from '@/contexts/SubscriptionAuthContext';
+import { StartupLoadingScreen } from '@/components/StartupLoadingScreen';
 
 function isSubscriptionSatisfied(state: ReturnType<typeof useSubscriptionAuth>['state']): boolean {
   if (!state) return false;
@@ -19,11 +20,7 @@ export function SubscriptionGateLayout() {
   }
 
   if (loading) {
-    return (
-      <div className="grid h-[100dvh] w-[100dvw] place-items-center bg-background text-foreground">
-        <div className="text-sm text-muted-foreground">Loading…</div>
-      </div>
-    );
+    return <StartupLoadingScreen status="Checking subscription status..." />;
   }
 
   const ok = requireSubscription ? isSubscriptionSatisfied(state) : Boolean(state?.authenticated);

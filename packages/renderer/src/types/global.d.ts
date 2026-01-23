@@ -70,6 +70,10 @@ import type { TelemetrySummaryReq, TelemetrySummaryRes, AlarmsHistoryReq, Alarms
 declare global {
   interface Window {
     api: {
+      app: {
+        /** Allows Main to keep the BrowserWindow hidden until React paints the splash. */
+        readyToShow: () => Promise<Result<null, AppError>>;
+      };
       log: {
         write: (req: LogWriteReq) => Promise<Result<null, AppError>>;
         trace: (msg: string, context?: Record<string, unknown>) => Promise<Result<null, AppError>>;
@@ -188,6 +192,7 @@ declare global {
         get: () => Promise<Result<DiagnosticsSnapshot, AppError>>;
         copy: () => Promise<Result<CopyDiagnosticsResult, AppError>>;
         restartWatchers: () => Promise<Result<{ ok: true }, AppError>>;
+        clearErrors: () => Promise<Result<null, AppError>>;
         listLogs: () => Promise<Result<DiagnosticsLogsRes, AppError>>;
         logTail: (req: DiagnosticsLogTailReq) => Promise<Result<DiagnosticsLogTailRes, AppError>>;
         subscribe: (listener: (snapshot: DiagnosticsSnapshot) => void) => () => void;

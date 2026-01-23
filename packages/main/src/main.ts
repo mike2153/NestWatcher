@@ -21,6 +21,7 @@ import { registerOrderingIpc } from './ipc/ordering';
 import { registerAuthIpc } from './ipc/auth';
 import { registerMesDataIpc } from './ipc/mesData';
 import { registerNcCatValidationReportsIpc } from './ipc/ncCatValidationReports';
+import { registerAppIpc, requestShowMainWindow, setShowMainWindow } from './ipc/app';
 import { initWatchers, shutdownWatchers } from './services/watchers';
 import { initMesValidationScanner, stopMesValidationScanner } from './services/mesValidation';
 import { startDbWatchdog, stopDbWatchdog } from './services/dbWatchdog';
@@ -28,6 +29,7 @@ import { syncInventoryExportScheduler, stopInventoryExportScheduler } from './se
 import { logger } from './logger';
 import { initializeDiagnostics } from './services/diagnostics';
 import { applyStoredThemePreference, getStoredWindowState, monitorWindowState } from './services/uiState';
+import { installZoomShortcuts } from './services/zoomShortcuts';
 import {
   applyWindowNavigationGuards,
   ensureContentSecurityPolicy,
@@ -43,13 +45,25 @@ if (!gotSingleInstanceLock) {
   app.on('second-instance', () => {
     if (!win) return;
     if (win.isMinimized()) win.restore();
+    requestShowMainWindow();
     win.focus();
   });
 }
 
+// Ensure Ctrl++ works consistently for *all* windows, including NC Catalyst.
+// (Ctrl++ is often delivered as Ctrl + "=" depending on keyboard layout.)
+app.on('web-contents-created', (_event, contents) => {
+  installZoomShortcuts(contents);
+});
+
 
 function createWindow() {
   const state = getStoredWindowState();
+  let pendingShow = false;
+  let windowReadyToShow = false;
+  let hasShown = false;
+  let fallbackTimer: NodeJS.Timeout | null = null;
+
   const options: Electron.BrowserWindowConstructorOptions = {
     width: state.width,
     height: state.height,
@@ -72,16 +86,50 @@ function createWindow() {
 
   applyWindowNavigationGuards(win.webContents);
 
-  win.on('ready-to-show', () => {
+  const showNow = () => {
     if (!win) return;
+    if (hasShown) return;
+    if (win.isDestroyed()) return;
+
+    hasShown = true;
+    if (fallbackTimer) {
+      clearTimeout(fallbackTimer);
+      fallbackTimer = null;
+    }
     if (state.maximized) {
       win.maximize();
     }
     win.show();
+    win.focus();
+  };
+
+  const requestShow = () => {
+    pendingShow = true;
+    if (!windowReadyToShow) return;
+    showNow();
+  };
+
+  win.on('ready-to-show', () => {
+    windowReadyToShow = true;
+    if (pendingShow) {
+      showNow();
+    }
   });
+
+  // Keep the window hidden until the renderer tells us React has painted the splash.
+  // This prevents users seeing a blank HTML document during boot.
+  setShowMainWindow(requestShow);
+
+  // Safety fallback: never keep the window hidden forever.
+  fallbackTimer = setTimeout(() => {
+    logger.warn('Renderer never signalled ready-to-show; showing main window due to fallback timeout');
+    requestShow();
+  }, 15_000);
+  if (typeof fallbackTimer.unref === 'function') fallbackTimer.unref();
 
   win.on('closed', () => {
     win = null;
+    setShowMainWindow(null);
 
     // Darwin is macOS, not Linux.
     // On Windows, closing the main window should quit the whole app.
@@ -99,6 +147,12 @@ function createWindow() {
   } else {
     win.loadFile(join(__dirname, '../../renderer/dist/index.html'));
   }
+
+  // If the page load fails for any reason, show the window so the user can see the error.
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    logger.error({ errorCode, errorDescription }, 'Main window failed to load');
+    showNow();
+  });
 }
 
 async function shutdownAppServices(reason: string) {
@@ -175,6 +229,7 @@ app.whenReady().then(async () => {
   registerOrderingIpc();
   registerMesDataIpc();
   registerNcCatValidationReportsIpc();
+  registerAppIpc();
 
   try {
     await initializeDiagnostics();

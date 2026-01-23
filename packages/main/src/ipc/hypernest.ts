@@ -47,6 +47,14 @@ let consecutiveAuthStateRequestFailures = 0;
 // Keep logs readable: only log auth state when it changes.
 let lastLoggedAuthStateKey: string | null = null;
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolveWait) => setTimeout(resolveWait, ms));
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  return Promise.race([promise, delay(timeoutMs).then(() => fallback)]);
+}
+
 function toAuthStateKey(state: SubscriptionAuthState | null): string {
   if (!state) return 'null';
   return `${state.authenticated ? '1' : '0'}|${state.subscriptionStatus ?? 'unknown'}|${state.isAdmin ? '1' : '0'}`;
@@ -346,6 +354,61 @@ async function requestAuthStateFromNcCat(): Promise<SubscriptionAuthState | null
   return authStateRequestInFlight;
 }
 
+async function requestAuthStateQuick(timeoutMs = 2500): Promise<SubscriptionAuthState | null> {
+  if (cachedSubscriptionAuthState) return cachedSubscriptionAuthState;
+  try {
+    return await withTimeout(requestAuthStateFromNcCat(), timeoutMs, null);
+  } catch {
+    return null;
+  }
+}
+
+async function requestFreshAuthState(timeoutMs = 5000): Promise<SubscriptionAuthState | null> {
+  // Always ask NC-Cat to respond, even if we have a cached value.
+  // This is important for UI: the cached state may be from minutes ago, but we
+  // want to wait until NC-Cat has finished its current boot + session check.
+  try {
+    return await withTimeout(requestAuthStateFromNcCat(), timeoutMs, null);
+  } catch {
+    return null;
+  }
+}
+
+function showNcCatWindow(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+  try {
+    win.show();
+    win.focus();
+  } catch (err) {
+    logger.debug({ err }, 'Failed to show/focus NC-Cat window');
+  }
+}
+
+function configureNcCatWindowForUser(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+  try {
+    // Use the same size as the existing visible NC-Cat window config.
+    win.setSize(1400, 900);
+    win.center();
+  } catch {
+    // ignore
+  }
+
+  // Apply navigation guards to prevent NC-Cat from navigating to external content.
+  applyWindowNavigationGuards(win.webContents, { allowExternal: false });
+
+  win.on('closed', () => {
+    // When the user closes the NC-Cat UI, restart the background window so
+    // subscription auth checks continue to work without a visible UI.
+    ncCatWin = null;
+    try {
+      startNcCatBackgroundWindow();
+    } catch (err) {
+      logger.warn({ err }, 'Failed to restart NC-Cat background window after closing UI');
+    }
+  });
+}
+
 /**
  * Start the interval that checks auth state from NC-Cat
  */
@@ -417,179 +480,127 @@ export function isSubscriptionValid(): boolean {
 }
 
 export function openNcCatalystWindow() {
-  logger.info('openNcCatalystWindow called');
+  void (async () => {
+    logger.info('openNcCatalystWindow called');
 
-  if (ncCatWin && !ncCatWin.isDestroyed()) {
-    logger.info('NC-Cat window already open; focusing');
-    try {
-      ncCatWin.show();
-      ncCatWin.focus();
-    } catch (err) {
-      logger.debug({ err }, 'Failed to focus NC-Cat window');
+    if (ncCatWin && !ncCatWin.isDestroyed()) {
+      logger.info('NC-Cat window already open; focusing');
+      showNcCatWindow(ncCatWin);
+      return;
     }
-    ncCatWin.focus();
-    return;
-  }
 
-  logger.info({
-    hasBackgroundWin: !!ncCatBackgroundWin,
-    isDestroyed: ncCatBackgroundWin ? ncCatBackgroundWin.isDestroyed() : null
-  }, 'Checking if background NC-Cat window is running');
+    // Ensure the background window exists so auth state can be checked without showing UI.
+    // This is the key to avoiding a quick flash of the NC-Cat sign-in page.
+    try {
+      startNcCatBackgroundWindow();
+    } catch (err) {
+      logger.warn({ err }, 'Failed to ensure NC-Cat background window before opening UI');
+    }
 
-  const source = resolveNcCatalystSource();
-  logger.info(
-    {
-      source,
-      env: {
-        NC_CATALYST_DEV_URL: process.env.NC_CATALYST_DEV_URL,
-        NC_CATALYST_ENTRY: process.env.NC_CATALYST_ENTRY,
-        NC_CATALYST_DEV_DIR: process.env.NC_CATALYST_DEV_DIR
+    logger.info(
+      {
+        hasBackgroundWin: !!ncCatBackgroundWin,
+        backgroundDestroyed: ncCatBackgroundWin ? ncCatBackgroundWin.isDestroyed() : null,
+        cachedAuthenticated: cachedSubscriptionAuthState?.authenticated ?? null
+      },
+      'NC-Cat open: preflight'
+    );
+
+    // Best case: show the already-running background NC-Cat window.
+    // This avoids reloading the app and prevents the sign-in UI flash.
+    if (ncCatBackgroundWin && !ncCatBackgroundWin.isDestroyed()) {
+      const win = ncCatBackgroundWin;
+      ncCatBackgroundWin = null;
+      ncCatWin = win;
+
+      // Remove background-only listeners and attach visible-window behavior.
+      ncCatWin.removeAllListeners();
+      configureNcCatWindowForUser(ncCatWin);
+
+      // Apply a consistent zoom factor.
+      try {
+        ncCatWin.webContents.setZoomFactor(0.9);
+      } catch {
+        // ignore
       }
-    },
-    'Opening NC-Cat window'
-  );
 
-  // Use NC-Cat specific preload script that only exposes needed IPC methods
-  // NC-Cat should NOT have access to NestWatcher's window.api
-  const ncCatPreloadPath = path.join(__dirname, '../../preload/dist/nc-catalyst-preload.js');
-  const fallbackPreloadPath = path.join(__dirname, '../../preload/dist/index.js');
+      // Request a fresh auth state now that the UI window is in place.
+      // If the user is authenticated, NC-Cat typically only knows that after its
+      // async session restore has completed; waiting here prevents the sign-in
+      // page from flashing when the window is shown.
+      const state = await requestFreshAuthState(5000);
+      logNcCatAuthStateIfChanged('open-ui', state);
+      // Give NC-Cat a moment to finish route transitions after auth resolves.
+      await delay(150);
 
-  // Use NC-Cat preload if it exists, otherwise fall back to main preload (for dev)
-  const preloadPath = existsSync(ncCatPreloadPath) ? ncCatPreloadPath : fallbackPreloadPath;
-
-  logger.info(
-    {
-      ncCatPreloadPath,
-      fallbackPreloadPath,
-      selectedPreload: preloadPath,
-      exists: existsSync(preloadPath),
-      isNcCatPreload: preloadPath === ncCatPreloadPath
-    },
-    'NC-Cat preload resolved'
-  );
-
-  logger.info('Creating NC-Cat BrowserWindow');
-
-  ncCatWin = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    // Show immediately so the user sees something even while loading (and so failures aren't "invisible").
-    show: true,
-    webPreferences: {
-      // Use a separate session so we can apply a relaxed CSP without affecting the main app
-      partition: 'persist:nc-catalyst',
-      preload: preloadPath,
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
-      webSecurity: true
+      showNcCatWindow(ncCatWin);
+      return;
     }
-  });
 
-  logger.info({ id: ncCatWin.id }, 'NC-Cat BrowserWindow created');
+    // Fallback: create a new visible window but keep it hidden until it has loaded and
+    // we've had a chance to retrieve auth state.
+    const source = resolveNcCatalystSource();
+    const ncCatPreloadPath = path.join(__dirname, '../../preload/dist/nc-catalyst-preload.js');
+    const fallbackPreloadPath = path.join(__dirname, '../../preload/dist/index.js');
+    const preloadPath = existsSync(ncCatPreloadPath) ? ncCatPreloadPath : fallbackPreloadPath;
 
-  applyWindowNavigationGuards(ncCatWin.webContents, { allowExternal: false });
-  logger.info('Navigation guards applied');
-
-  ncCatWin.on('ready-to-show', () => {
-    logger.info('NC-Cat window ready-to-show event');
-    try {
-      ncCatWin?.show();
-      ncCatWin?.focus();
-    } catch (err) {
-      logger.debug({ err }, 'Failed to show NC-Cat window');
-    }
-  });
-  ncCatWin.on('closed', () => {
-    logger.info('NC-Cat window closed event');
-    ncCatWin = null;
-  });
-  ncCatWin.on('close', () => {
-    logger.info('NC-Cat window close event (before closing)');
-  });
-  ncCatWin.on('unresponsive', () => {
-    logger.warn('NC-Cat window became unresponsive');
-  });
-  ncCatWin.webContents.on('render-process-gone', (_event, details) => {
-    logger.error({ details }, 'NC-Cat render process gone');
-  });
-  ncCatWin.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    logger.error({ errorCode, errorDescription, validatedURL }, 'NC-Cat did-fail-load event');
-  });
-  ncCatWin.webContents.on('did-start-loading', () => {
-    logger.info('NC-Cat did-start-loading event');
-  });
-  ncCatWin.webContents.on('did-stop-loading', () => {
-    logger.info('NC-Cat did-stop-loading event');
-  });
-  ncCatWin.webContents.on('dom-ready', () => {
-    logger.info('NC-Cat dom-ready event');
-  });
-  ncCatWin.webContents.on('did-finish-load', () => {
-    logger.info('NC-Cat did-finish-load event');
-    // NC Catalyst UI is designed for a browser viewport; scale slightly for the desktop window
-    ncCatWin?.webContents.setZoomFactor(0.9);
-    try {
-      ncCatWin?.show();
-      ncCatWin?.focus();
-    } catch (err) {
-      logger.debug({ err }, 'Failed to focus NC-Cat window after load');
-    }
-  });
-
-  // Relaxed CSP for NC Catalyst: allow required CDNs and inline handlers in this session only
-  logger.info('Applying CSP to NC-Cat session');
-  const ncSession = session.fromPartition('persist:nc-catalyst');
-  const ncPolicy = [
-    "default-src 'self' https: data: ws:",
-    // Inline handlers + Tailwind CDN runtime + Babylon + JSZip + Clipper + DXF parser rely on relaxed script execution
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://cdn.babylonjs.com https://cdn.jsdelivr.net",
-    // Tailwind + Google Fonts stylesheet
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    // Google Fonts assets
-    "font-src 'self' https://fonts.gstatic.com",
-    // Images from local and possible https
-    "img-src 'self' data: blob: https:",
-    // Allow WebSocket connections for Vite HMR + Supabase auth/API
-    "connect-src 'self' ws: wss: http://localhost:* https://localhost:* https://*.supabase.co https://*.supabase.in",
-    "object-src 'none'",
-    "frame-ancestors 'none'",
-    "base-uri 'self'",
-    "form-action 'self'"
-  ].join('; ');
-  applyCustomContentSecurityPolicy(ncSession, ncPolicy);
-  logger.info('CSP applied');
-
-  if (source.type === 'url') {
-    // Hot reload mode: load from Vite dev server
-    logger.info({ url: source.url }, 'NC-Cat loadURL start');
-    ncCatWin.loadURL(source.url).catch((err) => {
-      logger.error({ err, url: source.url }, 'Failed to load NC Catalyst from dev server');
+    ncCatWin = new BrowserWindow({
+      width: 1400,
+      height: 900,
+      show: false,
+      webPreferences: {
+        partition: 'persist:nc-catalyst',
+        preload: preloadPath,
+        contextIsolation: true,
+        sandbox: true,
+        nodeIntegration: false,
+        webSecurity: true
+      }
     });
-  } else {
-    // Production mode: load from file
-    logger.info({ pathTried: source.path, exists: existsSync(source.path) }, 'NC-Cat loadFile start');
-    ncCatWin.loadFile(source.path)
-      .then(() => {
-        logger.info('NC-Cat loadFile succeeded');
-      })
-      .catch((err) => {
-        const exists = existsSync(source.path);
-        logger.error(
-          {
-            err,
-            errMessage: err?.message,
-            errStack: err?.stack,
-            pathTried: source.path,
-            exists,
-            windowDestroyed: ncCatWin?.isDestroyed()
-          },
-          'Failed to load NC Catalyst from file path'
-        );
-      });
-  }
 
-  logger.info('openNcCatalystWindow completed');
+    configureNcCatWindowForUser(ncCatWin);
+
+    // Apply relaxed CSP for NC Catalyst session.
+    const ncSession = session.fromPartition('persist:nc-catalyst');
+    const ncPolicy = [
+      "default-src 'self' https: data: ws:",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://cdn.babylonjs.com https://cdn.jsdelivr.net",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com",
+      "img-src 'self' data: blob: https:",
+      "connect-src 'self' ws: wss: http://localhost:* https://localhost:* https://*.supabase.co https://*.supabase.in",
+      "object-src 'none'",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'"
+    ].join('; ');
+    applyCustomContentSecurityPolicy(ncSession, ncPolicy);
+
+    if (source.type === 'url') {
+      void ncCatWin.loadURL(source.url);
+    } else {
+      void ncCatWin.loadFile(source.path);
+    }
+
+    // Keep the window hidden until the load finishes and we've asked NC-Cat for a fresh auth state.
+    // Important: call this after loadURL/loadFile so webContents.isLoading reflects reality.
+    const loadPromise = withTimeout(waitForNcCatLoad(ncCatWin, 20_000), 8_000, undefined);
+    await loadPromise;
+    const state = await requestFreshAuthState(5000);
+    logNcCatAuthStateIfChanged('open-ui', state);
+    await delay(150);
+
+    if (ncCatWin && !ncCatWin.isDestroyed()) {
+      try {
+        ncCatWin.webContents.setZoomFactor(0.9);
+      } catch {
+        // ignore
+      }
+      showNcCatWindow(ncCatWin);
+    }
+  })().catch((err) => {
+    logger.error({ err }, 'openNcCatalystWindow failed');
+  });
 }
 
 export function closeNcCatalystWindow(): void {

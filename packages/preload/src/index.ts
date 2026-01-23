@@ -119,6 +119,11 @@ const invokeResult = async <T>(channel: string, ...args: unknown[]): Promise<Res
 };
 
 const api = {
+  app: {
+    // Main process uses this signal to show the BrowserWindow.
+    // This prevents users seeing a blank HTML page while React boots.
+    readyToShow: () => invokeResult<null>('app:readyToShow'),
+  },
   auth: {
     me: () => invokeResult<AuthStateRes>('auth:me'),
     login: (input: AuthLoginReq) => invokeResult<AuthSuccessRes>('auth:login', input),
@@ -398,6 +403,7 @@ const api = {
     get: () => invokeResult<DiagnosticsSnapshot>('diagnostics:get'),
     copy: () => invokeResult<CopyDiagnosticsResult>('diagnostics:copy'),
     restartWatchers: () => invokeResult<{ ok: true }>('diagnostics:restart-watchers'),
+    clearErrors: () => invokeResult<null>('diagnostics:errors:clear'),
     listLogs: () => invokeResult<DiagnosticsLogsRes>('diagnostics:logs:list'),
     logTail: (req: DiagnosticsLogTailReq) =>
       invokeResult<DiagnosticsLogTailRes>('diagnostics:logs:tail', req),

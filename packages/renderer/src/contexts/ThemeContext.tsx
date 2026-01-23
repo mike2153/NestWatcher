@@ -4,7 +4,7 @@ export type Theme = 'dark' | 'sunset' | 'forest' | 'supabase' | 'nccat-light';
 
 interface ThemeContextType {
   theme: Theme;
-  toggleTheme: () => void; 
+  toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
 }
 
@@ -28,6 +28,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // Apply theme class to document
     const root = document.documentElement;
     root.classList.remove('dark', 'sunset', 'forest', 'supabase', 'nccat-light');
+
     root.classList.add(theme);
 
     // Also add 'dark' class for dark themes so Tailwind's dark: prefix works

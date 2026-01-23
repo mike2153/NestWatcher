@@ -229,6 +229,19 @@ export async function initializeDiagnostics(customDir?: string) {
   }
 }
 
+export async function clearRecentErrors(): Promise<void> {
+  recentErrors = [];
+  if (storePath) {
+    try {
+      // Truncate the persisted worker error file so errors stay cleared after restart.
+      await fsp.writeFile(storePath, '');
+    } catch (err) {
+      logger.warn({ err, storePath }, 'diagnostics: failed to clear worker error store');
+    }
+  }
+  emitUpdate();
+}
+
 function serializeErrorEntry(entry: WorkerErrorEntry) {
   return JSON.stringify(entry) + '\n';
 }
