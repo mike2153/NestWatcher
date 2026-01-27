@@ -78,9 +78,9 @@ function ContextMenuContentBase({ children, className }: { children: React.React
       <div
         ref={contentRef}
         className={cn(
-          'z-50 min-w-[8rem] overflow-hidden rounded-md border p-1 shadow-lg',
-          // Use solid theme surfaces; --popover is not defined in our theme tokens.
-          'bg-[var(--card)] text-[var(--card-foreground)] border-[var(--border)]',
+          // Solid, theme-consistent surface. Keep it crisp.
+          'z-50 min-w-[12rem] overflow-hidden rounded-md border p-1 shadow-2xl',
+          'bg-[var(--background-elevated)] text-[var(--card-foreground)] border-[var(--border-strong)]',
           className
         )}
         style={style}
@@ -91,15 +91,7 @@ function ContextMenuContentBase({ children, className }: { children: React.React
   );
 }
 
-function ContextMenuItemBase({
-  children,
-  inset,
-  disabled,
-  onSelect,
-  className,
-  onMouseEnter,
-  onMouseLeave
-}: {
+type ContextMenuItemProps = {
   children: React.ReactNode;
   inset?: boolean;
   disabled?: boolean;
@@ -107,33 +99,52 @@ function ContextMenuItemBase({
   onSelect?: () => void;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
-}) {
-  const ctx = useContext(MenuContext);
-  const onClick = useCallback(() => {
-    if (disabled) return;
-    onSelect?.();
-    ctx?.setOpen(false);
-  }, [disabled, onSelect, ctx]);
-  return (
-    <button
-      type="button"
-      className={cn(
-        'relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-all duration-150',
-        'text-[var(--popover-foreground)] hover:bg-[var(--accent-blue-subtle)] hover:text-[var(--accent-foreground)]',
-        'hover:pl-3 hover:border-l-2 hover:border-l-[var(--accent-blue)]',
-        'disabled:opacity-50 disabled:pointer-events-none',
-        inset && 'pl-8',
-        className
-      )}
-      onClick={onClick}
-      disabled={disabled}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-    >
-      {children}
-    </button>
-  );
-}
+};
+
+const ContextMenuItemBase = React.forwardRef<HTMLButtonElement, ContextMenuItemProps>(
+  ({
+    children,
+    inset,
+    disabled,
+    onSelect,
+    className,
+    onMouseEnter,
+    onMouseLeave
+  },
+  ref) => {
+    const ctx = useContext(MenuContext);
+    const onClick = useCallback(() => {
+      if (disabled) return;
+      onSelect?.();
+      ctx?.setOpen(false);
+    }, [disabled, onSelect, ctx]);
+
+    return (
+      <button
+        ref={ref}
+        type="button"
+        className={cn(
+          'relative flex w-full select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none',
+          'transition-colors duration-150',
+          'text-[var(--card-foreground)]',
+          disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+          'hover:bg-[var(--accent-blue-subtle)] hover:text-[var(--card-foreground)]',
+          'focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-0',
+          'disabled:pointer-events-none',
+          inset && 'pl-8',
+          className
+        )}
+        onClick={onClick}
+        disabled={disabled}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+      >
+        {children}
+      </button>
+    );
+  }
+);
+ContextMenuItemBase.displayName = 'ContextMenuItem';
 
 function ContextMenuSeparatorBase() {
   return <div className="my-1 border-t border-[var(--border)]" />;
@@ -191,14 +202,21 @@ function ContextMenuSubBase({ children }: { children: React.ReactNode }) {
 }
 function ContextMenuSubTriggerBase({ children, inset }: { children: React.ReactNode; inset?: boolean }) {
   const sctx = useContext(SubContext);
+  const btnRef = useCallback(
+    (el: HTMLButtonElement | null) => {
+      if (el) sctx!.anchorRef.current = el;
+    },
+    [sctx]
+  );
   return (
     <ContextMenuItemBase
+      ref={btnRef}
       inset={inset}
       className="justify-between"
       onSelect={() => sctx?.setOpen(true)}
       onMouseEnter={() => sctx?.setOpen(true)}
     >
-      <span ref={(el) => { if (el) sctx!.anchorRef.current = el; }}>{children}</span>
+      <span className="flex-1">{children}</span>
       <span className="ml-6 text-xs opacity-60">›</span>
     </ContextMenuItemBase>
   );
@@ -212,13 +230,26 @@ function ContextMenuSubContentBase({ children, className }: { children: React.Re
     const anchor = sctx.anchorRef.current;
     if (!anchor) return;
     const r = anchor.getBoundingClientRect();
-    setPos({ top: Math.min(r.top, window.innerHeight - 240), left: Math.min(r.right + 16, window.innerWidth - 200) });
+
+    // Prevent overlap with the parent menu: open right if possible, else open left.
+    const estimatedWidth = 220;
+    const gap = 10;
+    const openRight = r.right + gap + estimatedWidth <= window.innerWidth;
+    const left = openRight
+      ? Math.min(r.right + gap, window.innerWidth - estimatedWidth)
+      : Math.max(gap, r.left - gap - estimatedWidth);
+    const top = Math.min(r.top, window.innerHeight - 240);
+    setPos({ top, left });
   }, [sctx]);
   if (!mctx?.open || !sctx?.open || !pos) return null;
   return (
-    <div className="fixed inset-0 z-50 pointer-events-none">
+    <div className="fixed inset-0 z-[60] pointer-events-none">
       <div
-        className={cn('pointer-events-auto z-50 min-w-[8rem] overflow-hidden rounded-md border p-1 shadow-lg bg-[var(--popover)] text-[var(--popover-foreground)] border-[var(--border)]', className)}
+        className={cn(
+          'pointer-events-auto z-[70] min-w-[12rem] overflow-hidden rounded-md border p-1 shadow-2xl',
+          'bg-[var(--background-elevated)] text-[var(--card-foreground)] border-[var(--border-strong)]',
+          className
+        )}
         style={{ position: 'fixed', top: pos.top, left: pos.left }}
         onMouseLeave={() => sctx.setOpen(false)}
       >

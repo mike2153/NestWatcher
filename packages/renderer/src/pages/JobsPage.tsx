@@ -30,6 +30,7 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuTrigger,
+  ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuSub,
   ContextMenuSubTrigger,
@@ -49,7 +50,12 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronsDown,
-  ChevronsRight
+  ChevronsRight,
+  Bookmark,
+  BookmarkX,
+  History,
+  BarChart3,
+  Play
 } from 'lucide-react';
 
 const COLUMN_SIZING_KEY = 'jobs:columnSizing';
@@ -1189,23 +1195,35 @@ export function JobsPage() {
             />
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-52">
-          <ContextMenuItem inset disabled className="cursor-default opacity-100">
+        <ContextMenuContent className="w-64">
+          <ContextMenuLabel>
             {selectedKeys.length === 1 ? '1 job selected' : `${selectedKeys.length} jobs selected`}
-          </ContextMenuItem>
+          </ContextMenuLabel>
+
           <ContextMenuItem
             onSelect={() => performLock(selectedKeys, 'lock')}
             disabled={actionBusy || !anyUnlocked}
-          >Reserve</ContextMenuItem>
+          >
+            <Bookmark className="h-4 w-4 opacity-80" />
+            <span className="flex-1">Reserve</span>
+          </ContextMenuItem>
           <ContextMenuItem
             onSelect={() => performLock(selectedKeys, 'unlock')}
             disabled={actionBusy || !anyLocked}
-          >Unreserve</ContextMenuItem>
+          >
+            <BookmarkX className="h-4 w-4 opacity-80" />
+            <span className="flex-1">Unreserve</span>
+          </ContextMenuItem>
+
           <ContextMenuSeparator />
+
           <ContextMenuItem
             onSelect={() => isSingleSelection && openHistoryModal(selectedKeys[0])}
             disabled={!isSingleSelection}
-          >View History</ContextMenuItem>
+          >
+            <History className="h-4 w-4 opacity-80" />
+            <span className="flex-1">View History</span>
+          </ContextMenuItem>
           <ContextMenuItem
             onSelect={() => {
               if (selectedKeys.length === 1) {
@@ -1218,18 +1236,26 @@ export function JobsPage() {
               setValidationModalOpen(true);
             }}
             disabled={selectedKeys.length === 0}
-          >Show Stats</ContextMenuItem>
+          >
+            <BarChart3 className="h-4 w-4 opacity-80" />
+            <span className="flex-1">Show Stats</span>
+          </ContextMenuItem>
           <ContextMenuItem
             onSelect={() => performOpenInSimulator(selectedKeys)}
             disabled={actionBusy || selectedKeys.length === 0}
-          >Open in Simulator</ContextMenuItem>
+          >
+            <Play className="h-4 w-4 opacity-80" />
+            <span className="flex-1">Open in Simulator</span>
+          </ContextMenuItem>
+
           <ContextMenuSeparator />
+
           <ContextMenuSub>
             <ContextMenuSubTrigger inset>Select Machine</ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-44">
+            <ContextMenuSubContent className="w-52">
               {machines.map((m) => (
                 <ContextMenuItem key={m.machineId} onSelect={() => performWorklist(selectedKeys, m.machineId)}>
-                  {m.name}
+                  <span className="flex-1">{m.name}</span>
                 </ContextMenuItem>
               ))}
             </ContextMenuSubContent>

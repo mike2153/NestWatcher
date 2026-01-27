@@ -1,574 +1,240 @@
-# Woodtron Styling Guide
+# Woodtron UI Style Guide
 
-Complete styling reference for the Woodtron application design system.
+This is the “copy/paste spec” for Woodtron’s UI: colors, radii, typography, component shapes, and the App Sidebar behavior — so you can reuse it as a skeleton in another app.
 
----
+If you want “the light theme”, the app’s intended light palette is `nccat-light` (it matches NC Catalyst).
 
-## Table of Contents
+## Source Of Truth Files
 
-1. [Technology Stack](#technology-stack)
-2. [Typography](#typography)
-3. [Color System](#color-system)
-4. [Component Libraries](#component-libraries)
-5. [Layout & Spacing](#layout--spacing)
-6. [Animations & Transitions](#animations--transitions)
-7. [Theme Implementation](#theme-implementation)
-8. [Usage Guidelines](#usage-guidelines)
-
----
+- Theme tokens: `packages/renderer/src/styles/theme.css`
+- Global base/component CSS: `packages/renderer/src/index.css`
+- Tailwind mapping (tokens → Tailwind names): `packages/renderer/tailwind.config.ts`
+- Core UI primitives: `packages/renderer/src/components/ui/`
+- App sidebar: `packages/renderer/src/components/AppSidebar.tsx`
+- Sidebar primitives (collapse + mobile sheet): `packages/renderer/src/components/ui/sidebar.tsx`
+- App shell layout (header + sidebar width override): `packages/renderer/src/shell/AppLayout.tsx`
 
 ## Technology Stack
 
-### Core Styling Technologies
+- Tailwind CSS (utility classes)
+- CSS variables (theme tokens like `--background`, `--primary`, etc.)
+- CVA (class-variance-authority) for variants (buttons/badges)
+- Radix UI (Sheet/Dialog primitives)
+- Lucide React icons
 
-- **Tailwind CSS v4.1.13** - Utility-first CSS framework
-- **PostCSS & Autoprefixer** - CSS processing
-- **CSS Variables** - Theme tokens and dynamic theming
-- **class-variance-authority (CVA)** - Component variant management
-- **tailwind-merge & clsx** - Conditional class name utilities
+## Themes
 
-### Installation
+Theme is applied by adding a class to the `<html>` element.
 
-```bash
-npm install tailwindcss@^4.1.13 postcss autoprefixer
-npm install class-variance-authority clsx tailwind-merge
-```
-
----
+- Implemented in: `packages/renderer/src/contexts/ThemeContext.tsx`
+- Theme classes used: `dark`, `sunset`, `forest`, `supabase`, `nccat-light`
+- Special rule: for dark palettes (`forest`, `supabase`) the code adds BOTH the theme class and `dark` so Tailwind’s `dark:` variant works.
 
 ## Typography
 
-### Font Families
-
-**Primary Font:** [Geist Variable](https://vercel.com/font)
-- Variable font with weights 100-900
-- Installed via `@fontsource-variable/geist`
-
-**Monospace Font:** JetBrains Mono (with fallbacks)
-
-```typescript
-// tailwind.config.ts
-fontFamily: {
-  sans: ['"Geist Variable"', 'Geist', 'Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
-  mono: ['JetBrains Mono', 'Fira Code', 'Consolas', 'monospace']
-}
-```
-
-### Font Sizes
-
-The app uses Tailwind's default scale with custom line heights:
-- `text-xs` - Extra small (0.75rem)
-- `text-sm` - Small (0.875rem)
-- `text-base` - Base (1rem)
-- `text-lg` - Large (1.125rem)
-- `text-xl` - Extra large (1.25rem)
-- `text-2xl` through `text-4xl` - Display sizes
-
-### Font Application
-
-```css
-/* Global font application in theme.css */
-body, button, input, select, textarea {
-  font-family: "Geist Variable", Geist, Inter, -apple-system, sans-serif;
-}
-```
-
----
-
-## Color System
-
-### Theme Architecture
-
-Colors are managed through **CSS variables** in `packages/renderer/src/styles/theme.css`. This allows for:
-- Dynamic theme switching
-- Centralized color management
-- Consistent design tokens
-
-### Color Themes
-
-**Three themes are supported:**
-1. **Light** (default) - `:root`
-2. **Dark** - `.dark`
-3. **Modern** - `.modern`
-
-### Semantic Color Tokens
-
-#### Core Semantic Colors
-
-```css
---background         /* Main app background */
---background-body    /* Body/content area background */
---foreground         /* Main text color */
---card               /* Card backgrounds */
---card-foreground    /* Card text */
---primary            /* Primary action color (indigo #1647e0) */
---destructive        /* Destructive actions (red) */
---muted              /* Muted backgrounds */
---muted-foreground   /* Muted text */
---border             /* Border color */
-```
-
-#### Component-Specific Tokens
-
-**Table Colors:**
-```css
---table-bg           /* Table background */
---table-header-bg    /* Table header background */
---table-text         /* Table text color */
---table-border       /* Table outer border */
---table-row-border   /* Row separator lines */
---table-hover-bg     /* Row hover state */
---table-selected-bg  /* Row selection state */
-```
-
-**Sidebar Colors:**
-```css
---sidebar            /* Sidebar background (metallic/marble gradient) */
---sidebar-foreground /* Sidebar text color */
---sidebar-accent     /* Active item background */
---sidebar-border     /* Sidebar border */
-```
-
-**Input Colors:**
-```css
---input-bg           /* Input field background (#f3f4f6) */
---input-border       /* Input border color */
---input-border-width /* Input border width (1.5px) */
-```
-
-**Status Colors:**
-```css
---status-success-bg, --status-success-text
---status-warning-bg, --status-warning-text
---status-error-bg, --status-error-text
-```
-
-### Alpha/Transparency Tokens
-
-Using `color-mix()` for transparency:
-
-```css
---muted-a50      /* 50% opacity muted */
---primary-a10    /* 10% opacity primary */
---primary-a15    /* 15% opacity primary */
---primary-a20    /* 20% opacity primary */
---primary-a30    /* 30% opacity primary */
---border-a06     /* 6% opacity border */
---border-a08     /* 8% opacity border */
---border-a10     /* 10% opacity border */
---border-a30     /* 30% opacity border */
-```
-
-### Light Theme Colors
-
-```css
-:root {
-  --background: linear-gradient(135deg, theme('colors.neutral.200') 0%, theme('colors.neutral.100') 50%, theme('colors.neutral.100') 100%);
-  --background-body: linear-gradient(to right, #feffff 0%, #feffff 100%);
-  --foreground: theme('colors.zinc.900');
-  --primary: #1647e0;  /* Vibrant indigo */
-  --table-bg: #feffff;
-  --table-header-bg: #e2e2e2;
-  --sidebar: #f7f6f6;  /* Metallic/marble effect */
-}
-```
-
----
-
-## Component Libraries
-
-### UI Components
-
-**Custom Components** (shadcn/ui inspired):
-Located in `packages/renderer/src/components/ui/`
-
-- **Button** (`button.tsx`) - CVA-based button variants
-- **Card** (`card.tsx`) - Card container components
-- **Sheet** (`sheet.tsx`) - Side panel/drawer (Radix UI Dialog)
-- **Separator** (`separator.tsx`) - Visual divider
-- **Badge** (`badge.tsx`) - Status badges
-- **Sidebar** (`sidebar.tsx`) - Application sidebar
-- **Context Menu** (`context-menu.tsx`) - Right-click menus
-- **Table** (`table.tsx`) - Table components
-
-### Third-Party UI Libraries
-
-```json
-{
-  "@radix-ui/react-dialog": "^1.1.15",
-  "@radix-ui/react-separator": "^1.1.7",
-  "@radix-ui/react-slot": "^1.2.3",
-  "@tanstack/react-table": "^8.15.0",
-  "lucide-react": "^0.462.0"
-}
-```
-
-- **Radix UI** - Unstyled accessible components
-- **TanStack Table** - Powerful table/data grid
-- **Lucide React** - Icon library
-- **Recharts** - Charts and data visualization
-- **Motion (Framer Motion)** - Animations
-
-### Button Variants
-
-```typescript
-// From button.tsx
-variants: {
-  variant: {
-    default,    // Primary action (indigo, elevated)
-    destructive, // Destructive action (red)
-    outline,    // Secondary outlined
-    secondary,  // Secondary filled
-    ghost,      // Minimal hover-only
-    link        // Text link style
-  },
-  size: {
-    default,    // h-10 px-6 py-3
-    sm,         // h-9 px-4 py-2
-    lg,         // h-12 px-8 py-4
-    icon        // size-10 (square)
-  }
-}
-```
-
-All buttons feature:
-- Hover elevation (`-translate-y-0.5`)
-- Shadow transitions
-- 200ms transitions
-- Focus ring states
-
----
-
-## Layout & Spacing
-
-### Border Radius
-
-```css
---radius: 0.75rem;  /* Base radius */
-```
-
-```typescript
-borderRadius: {
-  lg: 'var(--radius)',                    // 0.75rem
-  md: 'calc(var(--radius) - 2px)',        // ~0.625rem
-  sm: 'calc(var(--radius) - 4px)',        // ~0.5rem
-}
-```
-
-### Shadows
-
-```css
---shadow-sm:   0 1px 2px 0 rgba(0,0,0,0.05);
---shadow-base: 0 1px 3px 0 rgba(0,0,0,0.10), 0 1px 2px -1px rgba(0,0,0,0.10);
---shadow-md:   0 4px 6px -1px rgba(0,0,0,0.10), 0 2px 4px -2px rgba(0,0,0,0.10);
---shadow-lg:   0 10px 15px -3px rgba(0,0,0,0.10), 0 4px 6px -4px rgba(0,0,0,0.10);
---shadow-xl:   0 20px 25px -5px rgba(0,0,0,0.10), 0 8px 10px -6px rgba(0,0,0,0.10);
-```
-
-### Spacing Scale
-
-Uses Tailwind's default spacing with custom tokens:
-
-```typescript
-spacing: {
-  '0': 'var(--spacing-0)',   // 0
-  '1': 'var(--spacing-1)',   // 0.25rem
-  '2': 'var(--spacing-2)',   // 0.5rem
-  '3': 'var(--spacing-3)',   // 0.75rem
-  '4': 'var(--spacing-4)',   // 1rem
-  '5': 'var(--spacing-5)',   // 1.25rem
-  '6': 'var(--spacing-6)',   // 1.5rem
-  '8': 'var(--spacing-8)',   // 2rem
-  '10': 'var(--spacing-10)', // 2.5rem
-  '12': 'var(--spacing-12)', // 3rem
-  '16': 'var(--spacing-16)', // 4rem
-}
-```
-
----
-
-## Animations & Transitions
-
-### Transition Speeds
-
-```css
---transition-fast:   150ms ease;
---transition-normal: 200ms ease;
---transition-slow:   300ms ease;
-```
-
-```typescript
-transitionDuration: {
-  fast: 'var(--transition-fast)',     // 150ms
-  normal: 'var(--transition-normal)', // 200ms
-  slow: 'var(--transition-slow)',     // 300ms
-}
-```
-
-### Common Animations
-
-```typescript
-animation: {
-  pulse: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-  spin: 'spin 1s linear infinite',
-}
-```
-
-### Interactive States
-
-**Buttons:**
-- Hover: `-translate-y-0.5` + `shadow-lg`
-- Active: `translate-y-0`
-- Transition: `200ms all`
-
-**Tables:**
-- Hover: `bg-[var(--table-hover-bg)]`
-- Selected: `bg-[var(--table-selected-bg)]`
-
----
-
-## Theme Implementation
-
-### Theme Switching
-
-Theme is applied via class on `<html>` element:
-
-```typescript
-// Light theme (default)
-document.documentElement.className = '';
-
-// Dark theme
-document.documentElement.className = 'dark';
-
-// Modern theme
-document.documentElement.className = 'modern';
-```
-
-Managed in `packages/renderer/src/shell/AppLayout.tsx`
-
-### Theme File Structure
-
-```
-packages/renderer/src/styles/
-└── theme.css          # All theme tokens and utility classes
-```
-
-### Key Utility Classes
-
-```css
-/* Background utilities */
-.bg-background    /* Main app background with gradient */
-.bg-card          /* Card background with subtle shadow */
-.bg-table         /* Table background */
-.bg-sidebar       /* Sidebar with metallic gradient */
-
-/* Text utilities */
-.text-foreground
-.text-muted-foreground
-.text-accent-foreground
-.table-text       /* Table text color */
-
-/* Page elements */
-.page-title-gradient  /* Gradient text for page titles */
-```
-
-### Input Field Styling
-
-All form inputs receive consistent styling:
-
-```css
-input[type="text"],
-input[type="search"],
-input[type="number"],
-/* ... all input types ... */
-select,
-textarea {
-  border: var(--input-border-width) solid var(--input-border) !important;
-  background: var(--input-bg) !important;
-  border-radius: 0.375rem;
-  padding: 0.5rem;
-}
-```
-
----
-
-## Usage Guidelines
-
-### Do's
-
-✅ **Change colors by editing `theme.css` variables only**
-```css
-/* Good: Edit in theme.css */
-:root {
-  --primary: #1647e0;
-}
-```
-
-✅ **Use Tailwind classes mapped to variables**
-```tsx
-<div className="bg-primary text-primary-foreground" />
-<div className="bg-[var(--table-bg)] text-[var(--table-text)]" />
-```
-
-✅ **Use CVA for component variants**
-```tsx
-const buttonVariants = cva("base-classes", {
-  variants: { /* ... */ }
-});
-```
-
-✅ **Use semantic color tokens**
-```tsx
-<button className="bg-primary hover:bg-primary/90" />
-```
-
-### Don'ts
-
-❌ **Don't add hardcoded hex/rgb in components**
-```tsx
-// Bad
-<div style={{ color: '#1647e0' }} />
-
-// Good
-<div className="text-primary" />
-```
-
-❌ **Don't create per-component color definitions**
-```tsx
-// Bad
-const MyComponent = styled.div`
-  background: #ffffff;
-`;
-
-// Good
-const MyComponent = () => <div className="bg-card" />;
-```
-
-❌ **Don't bypass the theme system**
-
-### Component Creation Pattern
-
-```tsx
-import { cva, type VariantProps } from "class-variance-authority";
-import { cn } from "@/lib/utils";
-
-const componentVariants = cva(
-  "base-classes transition-all",
-  {
-    variants: {
-      variant: {
-        default: "bg-primary text-primary-foreground",
-        outline: "border border-border bg-background"
-      },
-      size: {
-        default: "h-10 px-4",
-        sm: "h-9 px-3"
-      }
-    },
-    defaultVariants: {
-      variant: "default",
-      size: "default"
-    }
-  }
-);
-
-export function Component({
-  className,
-  variant,
-  size,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement> & VariantProps<typeof componentVariants>) {
-  return (
-    <div
-      className={cn(componentVariants({ variant, size, className }))}
-      {...props}
-    />
-  );
-}
-```
-
----
-
-## Adding New Themes
-
-To create a new theme (e.g., "corporate"):
-
-1. **Add theme scope in `theme.css`:**
-```css
-.corporate {
-  --background: #f0f0f0;
-  --foreground: #1a1a1a;
-  --primary: #0066cc;
-  /* ... all other tokens ... */
-}
-```
-
-2. **Apply theme:**
-```typescript
-document.documentElement.className = 'corporate';
-```
-
-3. **Ensure all semantic tokens are defined** to maintain consistency across all UI elements.
-
----
-
-## Quick Reference
-
-### File Locations
-
-- **Theme tokens:** `packages/renderer/src/styles/theme.css`
-- **Tailwind config:** `packages/renderer/tailwind.config.ts`
-- **UI components:** `packages/renderer/src/components/ui/`
-- **Theme switcher:** `packages/renderer/src/shell/AppLayout.tsx`
-
-### Key Dependencies
-
-```json
-{
-  "tailwindcss": "^4.1.13",
-  "@fontsource-variable/geist": "^5.2.8",
-  "class-variance-authority": "^0.7.0",
-  "clsx": "^2.1.1",
-  "tailwind-merge": "^2.3.0",
-  "@radix-ui/react-dialog": "^1.1.15",
-  "@tanstack/react-table": "^8.15.0",
-  "lucide-react": "^0.462.0"
-}
-```
-
-### Common Classes
-
-```tsx
-// Backgrounds
-className="bg-background bg-card bg-primary bg-muted"
-
-// Text
-className="text-foreground text-muted-foreground text-primary"
-
-// Borders
-className="border border-border rounded-lg"
-
-// Shadows
-className="shadow-sm shadow-md shadow-lg"
-
-// Interactive
-className="hover:bg-accent hover:-translate-y-0.5 transition-normal"
-```
-
----
-
-## Summary
-
-To replicate Woodtron's styling in another application:
-
-1. Install dependencies: Tailwind CSS v4, CVA, Geist font, Radix UI, TanStack Table, Lucide icons
-2. Copy `theme.css` with all color tokens and utilities
-3. Copy `tailwind.config.ts` configuration
-4. Copy UI components from `components/ui/`
-5. Apply global font (Geist Variable) via CSS
-6. Implement theme switching on `<html>` element
-7. Use semantic color tokens exclusively
-8. Follow CVA pattern for component variants
-9. Maintain spacing, shadow, and transition tokens
-
-This creates a cohesive, themeable, and maintainable design system.
+### Font family
+
+- Global font is set on `body` in `packages/renderer/src/index.css`:
+  - `'Geist', 'Geist Variable', system-ui, -apple-system, BlinkMacSystemFont, sans-serif`
+- Tailwind config also maps `font-sans` to Geist first: `packages/renderer/tailwind.config.ts`
+
+### Base font size and “common sizes” used in components
+
+The app’s “base” is 14px:
+
+- `body`: `font-size: 0.875rem` (14px) in `packages/renderer/src/index.css`
+
+Common sizes you’ll see repeatedly:
+
+- `text-xs` (12px): table headers (`TableHeader`), small pills/badges (unread badge, “Active” tag in Theme Modal)
+- `text-sm` (14px): sidebar items, inputs, most buttons, most body text
+- `text-base` (16px): some modal subtitles and splash UI
+- `text-lg` (18px): Settings modal header title, Sheet title
+- `text-xl` (20px): App sidebar brand (“Woodtron”), Theme Modal title
+
+## Shape System (Radii / Component Geometry)
+
+### Base radius token
+
+- In `packages/renderer/src/styles/theme.css`: `--radius: 0.5rem` (8px)
+
+### What actually gets used
+
+Woodtron mixes the base token with a few “fixed” radii for specific shapes:
+
+- **Inputs/selects**: `border-radius: 4px` (global rule for native form controls) in `packages/renderer/src/index.css`
+- **Buttons & sidebar items**: `rounded-md` (Tailwind) ≈ 6px
+- **Tables**: `rounded-lg` (Tailwind) ≈ 8px
+- **Cards & modals**: `rounded-xl` (Tailwind) ≈ 12px
+- **Pills**: `rounded-full` (badges/counters/status dots)
+
+## Color Tokens (Design Tokens)
+
+All themeable colors come from CSS variables in `packages/renderer/src/styles/theme.css`.
+
+### Core tokens (used everywhere)
+
+- Backgrounds: `--background`, `--background-body`, `--background-elevated`, `--background-subtle`
+- Text: `--foreground`, `--foreground-muted`, `--foreground-subtle`
+- Surfaces: `--card`, `--card-foreground`, `--card-hover`
+- Primary action: `--primary`, `--primary-hover`, `--primary-foreground`
+- Neutrals: `--secondary`, `--secondary-foreground`, `--secondary-hover`, `--muted`, `--muted-foreground`
+- Borders: `--border`, `--border-subtle`, `--border-strong`
+- Focus ring: `--ring`, `--ring-glow`
+- Sidebar: `--sidebar`, `--sidebar-foreground`, `--sidebar-accent`, `--sidebar-accent-foreground`, `--sidebar-border`
+- Table: `--table-bg`, `--table-header-bg`, `--table-text`, `--table-border`, `--table-row-border`, `--table-hover-bg`, `--table-selected-bg`
+- Status: `--status-success-*`, `--status-warning-*`, `--status-error-*`, `--status-info-*`
+- Scrollbar: `--scrollbar-track`, `--scrollbar-thumb`, `--scrollbar-thumb-hover`
+
+### “Light theme” values you probably want to port (`nccat-light`)
+
+These are the exact values from the `.nccat-light` block in `packages/renderer/src/styles/theme.css`:
+
+- Background: `--background`/`--background-body` = `hsl(40 20% 98%)`
+- Elevated: `--background-elevated` = `hsl(0 0% 100%)`, `--background-subtle` = `hsl(40 10% 94%)`
+- Text: `--foreground` = `hsl(220 25% 12%)`, `--muted-foreground` = `hsl(220 10% 45%)`
+- Primary: `--primary` = `hsl(220 65% 28%)`, `--primary-foreground` = `hsl(40 20% 98%)`
+- Accent blue (links/rings): `--accent-blue` = `#2563eb`, `--accent-blue-subtle` = `rgba(37, 99, 235, 0.1)`
+- Borders: `--border` = `hsl(40 15% 88%)`
+- Sidebar bg: `--sidebar` = `hsl(220 20% 97%)`
+- Table header bg: `--table-header-bg` = `hsl(40 10% 96%)`
+
+## Global Interaction Rules (Focus / Hover)
+
+### Form control borders and focus
+
+Defined in `packages/renderer/src/index.css`:
+
+- Inputs/selects/textareas have `border-width: 1.5px`
+- Focus state:
+  - `border-color: var(--accent-blue)`
+  - `box-shadow: 0 0 0 2px var(--accent-blue-subtle)`
+
+## Component Specs (The “Skeleton” Pieces)
+
+### Button (`packages/renderer/src/components/ui/button.tsx`)
+
+- Base: `rounded-md`, `text-sm`, icon size defaults to `size-4`
+- Sizes:
+  - `default`: `h-10 px-4 py-2`
+  - `sm`: `h-8 px-3 py-1.5`
+  - `lg`: `h-11 px-6 py-3`
+  - `icon`: `size-10` (square)
+- Variants (important detail):
+  - `default` is *fixed* blue (`bg-blue-600`) and NOT theme-token-driven
+  - `destructive` is *fixed* red (`bg-red-600`)
+  - `outline` / `secondary` / `ghost` use theme tokens (`var(--border)`, `var(--card)`, etc.)
+
+### Input (`packages/renderer/src/components/ui/input.tsx`)
+
+- Size: `h-9` (36px)
+- Shape: `rounded-md`
+- Text: `text-sm`
+- Border: `border-border` (maps to `var(--border)`)
+- Focus: `ring-1 ring-ring` (maps to `var(--ring)`)
+
+### Badge (`packages/renderer/src/components/ui/badge.tsx`)
+
+- Shape: `rounded-md`
+- Text: `text-xs font-semibold`
+- Padding: `px-2 py-0.5`
+- Variants: `default`, `secondary`, `destructive`, `outline`
+
+### Card (`packages/renderer/src/components/ui/card.tsx`)
+
+- Shape: `rounded-xl`
+- Border: `border`
+- Padding: `py-6`, internal layout uses `px-6`
+- Visual: uses `GlowingEffect` overlay (teal variant) for the “neon edge” vibe
+
+### Table (`packages/renderer/src/components/ui/table.tsx`)
+
+- Container: `border` + `rounded-lg` + horizontal scroll
+- Header text: `text-xs uppercase tracking-wide`
+- Header cell height: `h-10`
+- Row hover behavior:
+  - `hover:bg-[var(--accent-blue-subtle)]`
+  - `hover:outline-2 hover:outline-[var(--accent-blue)]`
+
+### Sheet (mobile sidebar drawer) (`packages/renderer/src/components/ui/sheet.tsx`)
+
+- Overlay: `bg-black/80`
+- Content default: `bg-[var(--card)] p-6 shadow-lg`, plus a side border depending on placement
+
+## App Sidebar Spec (Design + Features)
+
+### Layout + sizing
+
+- Sidebar primitives: `packages/renderer/src/components/ui/sidebar.tsx`
+  - Full width: `13rem` (`SIDEBAR_WIDTH`)
+  - Collapsed icon width: `3rem` (`SIDEBAR_WIDTH_ICON`)
+- The app overrides sidebar width in the shell:
+  - `packages/renderer/src/shell/AppLayout.tsx` sets `--sidebar-width: 12rem`
+- Sidebar header area is `h-12` with `px-3` padding.
+- Nav items are consistent “chips”:
+  - Height: `h-10` (40px)
+  - Shape: `rounded-md`
+  - Icon: `size-4`
+  - Text: `text-sm font-medium`
+  - Padding: `pl-4 pr-3`
+
+### Colors and states
+
+From `packages/renderer/src/components/AppSidebar.tsx`:
+
+- Inactive item:
+  - Text: `var(--muted-foreground)`
+  - Hover bg: `var(--accent-blue-subtle)`
+  - Hover text: `var(--foreground)`
+- Active item:
+  - Background: `var(--primary)`
+  - Text: `var(--primary-foreground)`
+
+### Navigation (routes shown in sidebar)
+
+From `packages/renderer/src/components/AppSidebar.tsx`:
+
+- `/dashboard` Dashboard
+- `/jobs` Jobs
+- `/router` Router
+- `/history` History
+- `/grundner` Grundner
+- `/ordering` Ordering
+- `/telemetry` Telemetry
+- `/messages` Messages (shows unread badge)
+- `/cnc-alarms` CNC Alarms
+
+### Sidebar features and behavior
+
+- Collapsible:
+  - Desktop collapses to icon-only; labels hide via `group-data-[collapsible=icon]/sidebar-wrapper:hidden`
+- Mobile:
+  - Sidebar becomes a Sheet (slide-out drawer) using `Sheet`/`SheetContent`
+- Unread message badge:
+  - Shows on Messages when `unreadCount > 0`, capped at `99+`
+  - Badge style: `h-5 rounded-full bg-red-500 text-xs font-semibold text-white`
+- Status indicator (signed-in + DB connection):
+  - Shows a pulsing dot (green for OK, red after 5 seconds of DB outage)
+  - Tooltip/aria-label switches between “Authenticated” and “Database disconnected”
+- Footer actions:
+  - “Open NC Catalyst” button (calls `window.api.ncCatalyst.open()`)
+  - Theme switcher (opens Theme Modal)
+  - Settings (admin-only, opens `SettingsModal`)
+  - Login/Logout toggle (based on session)
+
+## Missing Token Notes (Important When Porting)
+
+Some CSS variables are referenced in components/CSS but are NOT defined in `packages/renderer/src/styles/theme.css` yet (they were likely part of an earlier “token plan”).
+
+If you’re copying the UI to another app, you should define these in your global CSS:
+
+- Shadows referenced: `--shadow-sm`, `--shadow-blue-sm`, `--shadow-blue-md`, `--shadow-soft`, `--shadow-medium`
+- Transitions referenced: `--transition-normal`
+
+## Porting Checklist (Fastest Way To Clone The UI)
+
+1. Copy `packages/renderer/src/styles/theme.css` and the `nccat-light` block
+2. Copy `packages/renderer/src/index.css` (base font, focus rules, shared classes)
+3. Copy `packages/renderer/tailwind.config.ts` (token mapping + font stack)
+4. Copy `packages/renderer/src/components/ui/` (Button/Input/Card/Table/Sidebar/Sheet)
+5. Copy `packages/renderer/src/components/AppSidebar.tsx` and `packages/renderer/src/components/ThemeSwitcher.tsx` if you want the same sidebar UX
