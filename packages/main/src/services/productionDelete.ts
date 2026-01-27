@@ -38,13 +38,11 @@ async function waitForStableFile(path: string, attempts = 4, intervalMs = 300): 
   }
 }
 
-function parseCommissioningDelCsv(raw: string): string[][] {
-  // Semicolon separated; simple split sufficient
-  return raw
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => line.split(';'));
+function normalizeGrundnerReply(content: string): string {
+  // New Grundner gateway replies with get_production.erl containing the same
+  // content that we sent. Normalize line endings + trim trailing whitespace
+  // so minor CRLF differences don't break confirmation.
+  return content.replace(/\r\n/g, '\n').trim();
 }
 
 export async function placeProductionDeleteCsv(
@@ -61,14 +59,11 @@ export async function placeProductionDeleteCsv(
   // Per latest spec: write get_production.tmp then rename to get_production.csv
   const reqPath = join(folder, 'get_production.csv');
   const tmpPath = join(folder, 'get_production.tmp');
-  // Grundner answer file for delete confirmation (preferred)
-  const ansPathA = join(folder, 'productionLIST_del.csv');
-  // Backward-compatible alternate names if needed
-  const ansPathB = join(folder, 'commissioningLIST_DEL.csv');
+  // New gateway answer file
+  const ansPath = join(folder, 'get_production.erl');
 
   // Clear any stale answer
-  try { await fsp.unlink(ansPathA); } catch { /* ignore */ }
-  try { await fsp.unlink(ansPathB); } catch { /* ignore */ }
+  try { await fsp.unlink(ansPath); } catch { /* ignore */ }
 
   // Busy guard
   if (existsSync(reqPath) || existsSync(tmpPath)) {
@@ -93,48 +88,23 @@ export async function placeProductionDeleteCsv(
   await fsp.writeFile(tmpPath, lines, 'utf8');
   await fsp.rename(tmpPath, reqPath).catch(async () => { await fsp.writeFile(reqPath, lines, 'utf8'); });
 
-  // Wait for the production delete answer file
-  const ok = await waitFor(async () => existsSync(ansPathA) || existsSync(ansPathB), timeoutMs);
+  // Wait for the answer file
+  const ok = await waitFor(async () => existsSync(ansPath), timeoutMs);
   if (!ok) {
-    logger.warn({ folder }, 'productionDelete: timed out waiting for productionLIST_del.csv');
-    return { confirmed: false, folder, checked: false, deleted: false, message: 'Timed out waiting for delete confirmation (productionLIST_del.csv)' };
+    logger.warn({ folder }, 'productionDelete: timed out waiting for get_production.erl');
+    return { confirmed: false, folder, checked: false, deleted: false, message: 'Timed out waiting for delete confirmation (get_production.erl)' };
   }
 
-  const ansPath = existsSync(ansPathA) ? ansPathA : ansPathB;
   await waitForStableFile(ansPath);
   const raw = await fsp.readFile(ansPath, 'utf8');
-  const rows = parseCommissioningDelCsv(raw);
-  // Build expected items and material counts
-  const expectedItems = items
-    .map((it) => ({
-      job: toJobNo(it.ncfile).toLowerCase(),
-      machine: (Number.isFinite(it.machineId as number) ? String(it.machineId) : '0').trim()
-    }))
-    .filter((it) => it.job.length > 0 && it.machine.length > 0);
+  const confirmed = normalizeGrundnerReply(raw) === normalizeGrundnerReply(lines);
 
-  // Evaluate answer rows using new 9-column structure (0-based):
-  // 0=line, 1=job-no, 2=type, 3=material, 4=qty, 5=rotation, 6=machine, 7=source, 8=res
-  const matchedJobs = new Set<number>();
-  for (const cols of rows) {
-    const jobNo = (cols[1] ?? '').trim().toLowerCase();
-    const machine = (cols[6] ?? '').trim();
-
-    // Try to match individual jobs by job-no + machine
-    for (let i = 0; i < expectedItems.length; i++) {
-      if (matchedJobs.has(i)) continue;
-      const ex = expectedItems[i];
-      if (ex.job === jobNo && ex.machine === machine) {
-        matchedJobs.add(i);
-        // Do not break; allow duplicates but only count first match per expected item
-      }
-    }
+  // Remove answer file to avoid stale confirmations.
+  try {
+    await fsp.unlink(ansPath);
+  } catch (err) {
+    logger.warn({ folder, err }, 'productionDelete: failed to delete get_production.erl');
   }
-
-  // All requested jobs must be matched at least once
-  const confirmed = matchedJobs.size === expectedItems.length;
-
-  // Keep the commissioning answer file for inspection (do not delete here)
-  // Caller can clean up later if desired.
 
   return { confirmed, folder, checked: true, deleted: true, message: confirmed ? undefined : 'Delete confirmation did not match request' };
 }

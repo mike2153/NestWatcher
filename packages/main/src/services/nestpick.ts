@@ -6,25 +6,17 @@ import { logger } from '../logger';
 
 async function waitForFileFree(path: string, timeoutMs = 5 * 60 * 1000) {
   const start = Date.now();
-  // Wait until file does not exist to avoid clobbering an in-use file
   while (existsSync(path)) {
     if (Date.now() - start > timeoutMs) throw new Error('productionLIST_del.csv busy timeout');
     await new Promise((r) => setTimeout(r, 1000));
   }
 }
 
-/**
- * Writes productionLIST_del.csv into the machine's Nestpick folder with one line per NC file.
- * Each line is formatted as: "<NCfile>;0;" (CRLF terminated).
- * If the target CSV exists, waits for it to become free (deleted) before writing a fresh file.
- */
 export async function appendProductionListDel(machineId: number, ncFiles: string[]): Promise<void> {
   if (!Array.isArray(ncFiles) || ncFiles.length === 0) return;
-  // Write to the Grundner folder per manual; not machine-specific
   const cfg = loadConfig();
   const folder = (cfg.paths.grundnerFolderPath ?? '').trim();
   if (!folder) return;
-  // Per latest spec: write get_production.tmp then rename to get_production.csv
   const target = join(folder, 'get_production.csv');
 
   const lines = ncFiles
