@@ -14,12 +14,29 @@ import { registerResultHandler } from './result';
 import { onContentsDestroyed } from './onDestroyed';
 import { logger } from '../logger';
 
+const SKIP_WALK_DIRS = new Set(['$recycle.bin', 'system volume information']);
+
 function collectFiles(root: string, current: string = root) {
-  const entries = readdirSync(current, { withFileTypes: true });
+  let entries: Array<{ name: string; isFile: () => boolean; isDirectory: () => boolean }>;
+  try {
+    entries = readdirSync(current, { withFileTypes: true }) as unknown as Array<{
+      name: string;
+      isFile: () => boolean;
+      isDirectory: () => boolean;
+    }>;
+  } catch (err) {
+    // Common on Windows/network shares: EPERM in system folders like $RECYCLE.BIN.
+    // Treat as non-readable and skip.
+    return [];
+  }
   const out: { fullPath: string; relativePath: string; name: string }[] = [];
   for (const entry of entries) {
     const fullPath = join(current, entry.name);
     if (entry.isDirectory()) {
+      const lower = entry.name.toLowerCase();
+      if (SKIP_WALK_DIRS.has(lower)) {
+        continue;
+      }
       out.push(...collectFiles(root, fullPath));
     } else if (entry.isFile()) {
       const rel = relative(root, fullPath).split('\\').join('/');
@@ -222,8 +239,15 @@ export function registerFilesIpc() {
 
     const watcher = chokidar.watch(root, {
       ignoreInitial: false,
-      depth: 5,
-      awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 }
+      depth: 10,
+      awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
+      ignored: (p: string) => {
+        const lower = p.toLowerCase();
+        return lower.includes('\\$recycle.bin') ||
+          lower.includes('/$recycle.bin') ||
+          lower.includes('\\system volume information') ||
+          lower.includes('/system volume information');
+      }
     });
     watcher.on('add', (p) => { if (/\.nc$/i.test(p)) scheduleUpdate(); });
     watcher.on('unlink', (p) => { if (/\.nc$/i.test(p)) scheduleUpdate(); });
