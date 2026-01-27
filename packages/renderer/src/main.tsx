@@ -16,7 +16,6 @@ import { MachinesPage } from './pages/MachinesPage';
 import { TelemetryPage } from './pages/TelemetryPage';
 import { CncAlarmsPage } from './pages/CncAlarmsPage';
 import { GrundnerPage } from './pages/GrundnerPage';
-import { AllocatedMaterialPage } from './pages/AllocatedMaterialPage';
 import { MessagesPage } from './pages/MessagesPage';
 import { OrderingPage } from './pages/OrderingPage';
 import { AuthProvider } from './contexts/AuthContext';
@@ -65,7 +64,6 @@ const makeRoutes = () => ([
           { path: '/cnc-alarms', element: <CncAlarmsPage /> },
           { path: '/messages', element: <MessagesPage /> },
           { path: '/grundner', element: <GrundnerPage /> },
-          { path: '/allocated-material', element: <AllocatedMaterialPage /> },
           { path: '/ordering', element: <OrderingPage /> },
           { path: '/machines', element: <MachinesPage /> },
           { index: true, element: <DashboardPage /> },

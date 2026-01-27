@@ -1,7 +1,7 @@
 import type { QueryResult } from "pg";
 import { withClient } from '../services/db';
 import { getGrundnerLookupColumn, resolveMaterialKey } from '../services/grundner';
-import type { GrundnerListReq, GrundnerUpdateReq, GrundnerRow } from '../../../shared/src';
+import type { GrundnerJobRow, GrundnerJobsRes, GrundnerListReq, GrundnerUpdateReq, GrundnerRow } from '../../../shared/src';
 
 type SqlParam = string | number | boolean | null | Date;
 
@@ -142,6 +142,50 @@ export async function updateGrundnerRow(input: GrundnerUpdateReq) {
                WHERE id = $${params.length}`;
   const res = await withClient((c) => c.query(sql, params));
   return { ok: true as const, updated: res.rowCount ?? 0 };
+}
+
+type GrundnerPendingJobDbRow = {
+  key: string;
+  folder: string | null;
+  ncfile: string | null;
+  is_locked: boolean;
+  total_count: number;
+};
+
+export async function listGrundnerPendingJobs(typeData: number, limit: number): Promise<GrundnerJobsRes> {
+  const boundedLimit = Math.max(1, Math.min(200, Math.trunc(limit)));
+  const rows = await withClient(async (c) =>
+    c
+      .query<GrundnerPendingJobDbRow>(
+        `
+          SELECT
+            key,
+            folder,
+            ncfile,
+            is_locked,
+            COUNT(*) OVER()::int AS total_count
+          FROM public.jobs
+          WHERE status = 'PENDING'
+            AND material IS NOT NULL
+            AND btrim(material) ~ '^[0-9]+$'
+            AND btrim(material)::int = $1::int
+          ORDER BY dateadded DESC NULLS LAST, key ASC
+          LIMIT $2
+        `,
+        [typeData, boundedLimit]
+      )
+      .then((r) => r.rows)
+  );
+
+  const total = rows.length ? rows[0].total_count : 0;
+  const items: GrundnerJobRow[] = rows.map((row) => ({
+    key: row.key,
+    folder: row.folder,
+    ncfile: row.ncfile,
+    reserved: Boolean(row.is_locked)
+  }));
+
+  return { items, total };
 }
 
 export async function resyncGrundnerReserved(id?: number) {

@@ -31,11 +31,10 @@ type FormValues = z.infer<typeof schema>;
 type PathsState = Settings['paths'];
 type TestState = Settings['test'];
 type GrundnerState = Settings['grundner'];
-type OrderingState = Settings['ordering'];
 type InventoryExportState = Settings['inventoryExport'];
 
 const DEFAULT_PATHS: PathsState = { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' };
-const DEFAULT_TEST: TestState = { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' };
+const DEFAULT_TEST: TestState = { testDataFolderPath: '', useTestDataMode: false };
 const DEFAULT_GRUNDNER: GrundnerState = {
   tableColumns: {
     typeData: { visible: true, order: 1 },
@@ -45,14 +44,12 @@ const DEFAULT_GRUNDNER: GrundnerState = {
     lengthMm: { visible: true, order: 5 },
     widthMm: { visible: true, order: 6 },
     thicknessMm: { visible: true, order: 7 },
-    preReserved: { visible: true, order: 8 },
-    stock: { visible: true, order: 9 },
-    reservedStock: { visible: true, order: 10 },
-    stockAvailable: { visible: true, order: 11 },
-    lastUpdated: { visible: true, order: 12 }
+    stock: { visible: true, order: 8 },
+    reservedStock: { visible: true, order: 9 },
+    stockAvailable: { visible: true, order: 10 },
+    lastUpdated: { visible: true, order: 11 }
   }
 };
-const DEFAULT_ORDERING: OrderingState = { includeReserved: false };
 const DEFAULT_INVENTORY_EXPORT: InventoryExportState = InventoryExportSettingsSchema.parse(undefined);
 
 
@@ -173,7 +170,6 @@ export function SettingsPage() {
   const [paths, setPaths] = useState<PathsState>(DEFAULT_PATHS);
   const [testState, setTestState] = useState<TestState>(DEFAULT_TEST);
   const [grundnerState, setGrundnerState] = useState<GrundnerState>(DEFAULT_GRUNDNER);
-  const [orderingState, setOrderingState] = useState<OrderingState>(DEFAULT_ORDERING);
   const [inventoryExportState, setInventoryExportState] = useState<InventoryExportState>(DEFAULT_INVENTORY_EXPORT);
   const [dbStatus, setDbStatus] = useState<DbStatus | null>(null);
   const [pathStatus, setPathStatus] = useState<Record<PathFieldKey, PathValidationState>>(() => createInitialPathStatus());
@@ -277,7 +273,6 @@ export function SettingsPage() {
     setPaths(withDefaults(DEFAULT_PATHS, settings.paths));
     setTestState(withDefaults(DEFAULT_TEST, settings.test));
     setGrundnerState(withDefaults(DEFAULT_GRUNDNER, settings.grundner));
-    setOrderingState(withDefaults(DEFAULT_ORDERING, settings.ordering));
     const inventoryExportRes = InventoryExportSettingsSchema.safeParse(settings.inventoryExport);
     setInventoryExportState(inventoryExportRes.success ? inventoryExportRes.data : DEFAULT_INVENTORY_EXPORT);
     await loadMachines();
@@ -449,7 +444,6 @@ export function SettingsPage() {
       paths,
       test: testState,
       grundner: grundnerState,
-      ordering: orderingState,
       inventoryExport: inventoryExportState,
       jobs: { completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] },
       validationWarnings: { showValidationWarnings: false }
@@ -820,31 +814,6 @@ export function SettingsPage() {
             />
             Use test data mode
           </label>
-          <label className="form-label">
-            <span>Sheet ID Mode</span>
-            <select
-              className="form-input"
-              value={testState.sheetIdMode}
-              onChange={(e) => setTestState({ ...testState, sheetIdMode: e.target.value as TestState['sheetIdMode'] })}
-            >
-              <option value="type_data">type_data</option>
-              <option value="customer_id">customer_id</option>
-            </select>
-          </label>
-
-          <div className="flex flex-col gap-1">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={orderingState.includeReserved}
-                onChange={(e) => setOrderingState({ includeReserved: e.target.checked })}
-              />
-              Include reserved stock in Ordering table
-            </label>
-            <p className="ml-6 text-xs text-muted-foreground">
-              When enabled, reserved and locked amounts are deducted from available stock.
-            </p>
-          </div>
         </div>
       </div>
 

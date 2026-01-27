@@ -15,7 +15,6 @@ import { registerLogIpc } from './ipc/log';
 import { registerTelemetryIpc } from './ipc/telemetry';
 import { registerUiIpc } from './ipc/ui';
 import { registerGrundnerIpc } from './ipc/grundner';
-import { registerAllocatedMaterialIpc } from './ipc/allocatedMaterial';
 import { registerMessagesIpc } from './ipc/messages';
 import { registerOrderingIpc } from './ipc/ordering';
 import { registerAuthIpc } from './ipc/auth';
@@ -224,7 +223,6 @@ app.whenReady().then(async () => {
   registerTelemetryIpc();
   registerLogIpc();
   registerGrundnerIpc();
-  registerAllocatedMaterialIpc();
   registerMessagesIpc();
   registerOrderingIpc();
   registerMesDataIpc();

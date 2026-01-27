@@ -26,40 +26,31 @@ function escapeCsvCell(value: string): string {
 
 function buildCsv(rows: OrderingRow[]): string {
   const header = [
-    'Type Data',
+    'Type',
+    'Material Name',
     'Customer ID',
-    'Material Key',
-    'Material Label',
-    'Available',
-    'Required',
-    'Order Amount',
-    'Reserved',
-    'Locked',
+    'Stock',
+    'Demand',
+    'Shortfall',
     'Ordered',
     'Ordered By',
     'Ordered At',
-    'Comments',
-    'Pending Jobs'
+    'Comments'
   ];
 
   const lines = [header.map(escapeCsvCell).join(',')];
   for (const row of rows) {
-    const pendingJobs = row.pendingJobs?.map((j) => j.folder || j.key).join(' | ') ?? '';
     const line = [
       row.typeData != null ? String(row.typeData) : '',
+      row.materialName ?? '',
       row.customerId ?? '',
-      row.materialKey,
-      row.materialLabel,
-      String(row.effectiveAvailable),
-      String(row.required),
-      String(row.orderAmount),
-      row.reservedStock != null ? String(row.reservedStock) : '',
-      String(row.lockedCount),
+      row.stock != null ? String(row.stock) : '',
+      String(row.demand),
+      String(row.shortfall),
       row.ordered ? 'Yes' : 'No',
       row.orderedBy ?? '',
       row.orderedAt ? new Date(row.orderedAt).toLocaleString() : '',
-      row.comments ?? '',
-      pendingJobs
+      row.comments ?? ''
     ];
     lines.push(line.map(escapeCsvCell).join(','));
   }
@@ -67,34 +58,32 @@ function buildCsv(rows: OrderingRow[]): string {
   return lines.join('\n');
 }
 
-function buildPdfHtml(rows: OrderingRow[], includeReserved: boolean, generatedAt: string): string {
+function buildPdfHtml(rows: OrderingRow[], generatedAt: string): string {
   const headerCells = [
-    '<th>Type Data</th>',
+    '<th>Type</th>',
+    '<th>Material Name</th>',
     '<th>Customer ID</th>',
-    '<th class="num">Available</th>',
-    '<th class="num">Required</th>',
-    '<th class="num">Order Amount</th>'
+    '<th class="num">Stock</th>',
+    '<th class="num">Demand</th>',
+    '<th class="num">Shortfall</th>',
+    '<th>Ordered</th>',
+    '<th>Ordered By</th>',
+    '<th>Ordered At</th>',
+    '<th>Comments</th>'
   ];
-  if (includeReserved) {
-    headerCells.push('<th class="num">Reserved</th>');
-  }
-  headerCells.push('<th class="num">Locked</th>', '<th>Ordered</th>', '<th>Ordered By</th>', '<th>Ordered At</th>', '<th>Comments</th>');
 
   const rowsHtml = rows
     .map((row) => {
       const orderedAt = row.orderedAt ? new Date(row.orderedAt).toLocaleString() : '';
       const cells = [
         `<td>${row.typeData != null ? row.typeData : ''}</td>`,
+        `<td>${row.materialName ?? ''}</td>`,
         `<td>${row.customerId ?? ''}</td>`,
-        `<td class="num">${row.effectiveAvailable}</td>`,
-        `<td class="num">${row.required}</td>`,
-        `<td class="num">${row.orderAmount}</td>`
+        `<td class="num">${row.stock != null ? row.stock : ''}</td>`,
+        `<td class="num">${row.demand}</td>`,
+        `<td class="num">${row.shortfall}</td>`
       ];
-      if (includeReserved) {
-        cells.push(`<td class="num">${row.reservedStock != null ? row.reservedStock : ''}</td>`);
-      }
       cells.push(
-        `<td class="num">${row.lockedCount}</td>`,
         `<td>${row.ordered ? 'Yes' : 'No'}</td>`,
         `<td>${row.orderedBy ?? ''}</td>`,
         `<td>${orderedAt}</td>`,
@@ -151,13 +140,13 @@ function buildPdfHtml(rows: OrderingRow[], includeReserved: boolean, generatedAt
       </head>
       <body>
         <h1>Ordering Report</h1>
-        <p class="meta">Generated ${generatedLabel}${includeReserved ? ' • Reserved stock deducted' : ''}</p>
+        <p class="meta">Generated ${generatedLabel}</p>
         <table>
           <thead>
             <tr>${headerCells.join('')}</tr>
           </thead>
           <tbody>
-            ${rowsHtml || '<tr><td colspan="11">No shortages at this time.</td></tr>'}
+            ${rowsHtml || '<tr><td colspan="10">No shortages at this time.</td></tr>'}
           </tbody>
         </table>
       </body>
@@ -212,8 +201,8 @@ export function registerOrderingIpc() {
   });
 
   registerResultHandler('ordering:exportPdf', async () => {
-    const { items, includeReserved, generatedAt } = await listOrdering();
-    const html = buildPdfHtml(items, includeReserved, generatedAt);
+    const { items, generatedAt } = await listOrdering();
+    const html = buildPdfHtml(items, generatedAt);
 
     const win = new BrowserWindow({
       show: false,

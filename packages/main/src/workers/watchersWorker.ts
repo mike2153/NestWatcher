@@ -31,7 +31,6 @@ import type {
 import { ingestProcessedJobsRoot } from '../services/ingest';
 import { appendProductionListDel } from '../services/nestpick';
 import { archiveCompletedJob } from '../services/archive';
-import { getGrundnerLookupColumn } from '../services/grundner';
 
 const { access, copyFile, readFile, readdir, rename, stat, unlink, open } = fsp;
 
@@ -255,7 +254,7 @@ let lastNestpickCsvHash: string | null = null;
 let lastNestpickCsvWrittenAt = 0;
 
 
-type RefreshChannel = 'grundner' | 'allocated-material';
+type RefreshChannel = 'grundner';
 const refreshTimers = new Map<RefreshChannel, NodeJS.Timeout>();
 let notificationClient: PoolClient | null = null;
 let notificationRestartTimer: NodeJS.Timeout | null = null;
@@ -392,7 +391,7 @@ async function startDbNotificationListener() {
       if (msg.channel === 'grundner_changed') {
         scheduleRendererRefresh('grundner');
       } else if (msg.channel === 'allocated_material_changed') {
-        scheduleRendererRefresh('allocated-material');
+        // Grundner changes are the only live inventory refresh channel.
       }
     });
     client.on('error', (err) => {
@@ -2571,7 +2570,7 @@ async function grundnerPollOnce(folder: string) {
     const result = await upsertGrundnerInventory(items);
     if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {
       scheduleRendererRefresh('grundner');
-      scheduleRendererRefresh('allocated-material');
+      // Grundner changes are the only live inventory refresh channel.
     }
 
     if (result.changed.length) {

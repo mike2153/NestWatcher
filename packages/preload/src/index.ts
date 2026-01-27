@@ -10,12 +10,13 @@ import type {
   LogWriteReq,
   ThemePreferenceReq,
   ThemePreferenceRes,
-  AllocatedMaterialListRes,
   AppMessage,
   GrundnerListReq,
   GrundnerListRes,
   GrundnerResyncReq,
   GrundnerUpdateReq,
+  GrundnerJobsReq,
+  GrundnerJobsRes,
   GrundnerExportRes,
   GrundnerCustomCsvPreviewReq,
   GrundnerCustomCsvPreviewRes,
@@ -231,6 +232,7 @@ const api = {
     list: (req?: GrundnerListReq) => invokeResult<GrundnerListRes>('grundner:list', req ?? {}),
     update: (input: GrundnerUpdateReq) => invokeResult<{ ok: boolean; updated: number }>('grundner:update', input),
     resync: (input?: GrundnerResyncReq) => invokeResult<{ updated: number }>('grundner:resync', input ?? {}),
+    jobs: (req: GrundnerJobsReq) => invokeResult<GrundnerJobsRes>('grundner:jobs', req),
     exportCsv: () => invokeResult<GrundnerExportRes>('grundner:exportCsv'),
     exportCustomCsv: () => invokeResult<GrundnerExportRes>('grundner:exportCustomCsv'),
     previewCustomCsv: (input: GrundnerCustomCsvPreviewReq) =>
@@ -241,19 +243,6 @@ const api = {
       ipcRenderer.on(channel, handler);
       return () => {
         ipcRenderer.removeListener(channel, handler);
-      };
-    }
-  },
-  allocatedMaterial: {
-    list: () => invokeResult<AllocatedMaterialListRes>('allocatedMaterial:list'),
-    subscribe: (listener: () => void) => {
-      const channel = 'allocatedMaterial:refresh';
-      const handler = () => listener();
-      ipcRenderer.on(channel, handler);
-      invokeResult<null>('allocatedMaterial:subscribe').catch(() => {});
-      return () => {
-        ipcRenderer.removeListener(channel, handler);
-        invokeResult<null>('allocatedMaterial:unsubscribe').catch(() => {});
       };
     }
   },

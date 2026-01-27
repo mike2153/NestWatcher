@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSubscriptionAuth } from '@/contexts/SubscriptionAuthContext';
 import { Button } from '@/components/ui/button';
+import woodtronLogo from '@/assets/woodtron.png';
 
 function isSubscriptionSatisfied(state: ReturnType<typeof useSubscriptionAuth>['state']): boolean {
   if (!state) return false;
@@ -141,20 +142,6 @@ export function AuthRequiredPage() {
     );
   }, [opening, error, subscriptionLoading]);
 
-  const debugInfo = useMemo(() => {
-    const info = {
-      hasWindowApi: typeof window !== 'undefined' && !!window.api,
-      hasNcCatalyst: typeof window !== 'undefined' && !!window.api?.ncCatalyst,
-      hasOpen: typeof window !== 'undefined' && typeof window.api?.ncCatalyst?.open === 'function',
-      hasLog: typeof window !== 'undefined' && typeof window.api?.log?.info === 'function'
-    };
-    try {
-      return JSON.stringify(info, null, 2);
-    } catch {
-      return String(info);
-    }
-  }, []);
-
   return (
     <div
       className="relative grid h-[100dvh] w-[100dvw] place-items-center overflow-hidden bg-[var(--background)] text-[var(--foreground)]"
@@ -167,7 +154,21 @@ export function AuthRequiredPage() {
 
       <div className="relative w-full max-w-md px-6">
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-2xl backdrop-blur-md">
-          <h1 className="text-2xl font-semibold tracking-tight">Sign in required</h1>
+          <div className="flex items-center gap-4">
+            <div className="grid size-14 place-items-center rounded-2xl border border-[var(--border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.10),rgba(255,255,255,0))] shadow-lg">
+              <img
+                src={woodtronLogo}
+                alt="Woodtron"
+                className="size-10 select-none"
+                draggable={false}
+              />
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-[var(--muted-foreground)]">NestWatcher</div>
+              <h1 className="text-2xl font-semibold tracking-tight">Sign in required</h1>
+            </div>
+          </div>
+
           <p className="mt-2 text-sm text-[var(--muted-foreground)]">
             NestWatcher uses NC Catalyst for authentication. Please sign in there to continue.
           </p>
@@ -180,12 +181,6 @@ export function AuthRequiredPage() {
           >
             Open NC Catalyst Sign In
           </Button>
-          <details className="mt-4">
-            <summary className="cursor-pointer select-none text-sm text-[var(--muted-foreground)]">Debug</summary>
-            <pre className="mt-2 whitespace-pre-wrap rounded-xl border border-[var(--border)] bg-[var(--splash-banner-bg)] p-3 text-xs text-[color-mix(in_srgb,var(--foreground)_80%,transparent)]">
-              {debugInfo}
-            </pre>
-          </details>
         </div>
       </div>
     </div>

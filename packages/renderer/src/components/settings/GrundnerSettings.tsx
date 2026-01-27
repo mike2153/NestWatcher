@@ -2,11 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Settings, InventoryExportTemplate } from '../../../../shared/src';
 import { Button } from '@/components/ui/button';
 
-type TestState = Settings['test'];
 type GrundnerState = Settings['grundner'];
-type OrderingState = Settings['ordering'];
 
-const DEFAULT_TEST: TestState = { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' };
 const DEFAULT_GRUNDNER: GrundnerState = {
   tableColumns: {
     typeData: { visible: true, order: 1 },
@@ -16,14 +13,12 @@ const DEFAULT_GRUNDNER: GrundnerState = {
     lengthMm: { visible: true, order: 5 },
     widthMm: { visible: true, order: 6 },
     thicknessMm: { visible: true, order: 7 },
-    preReserved: { visible: true, order: 8 },
-    stock: { visible: true, order: 9 },
-    reservedStock: { visible: true, order: 10 },
-    stockAvailable: { visible: true, order: 11 },
-    lastUpdated: { visible: true, order: 12 }
+    stock: { visible: true, order: 8 },
+    reservedStock: { visible: true, order: 9 },
+    stockAvailable: { visible: true, order: 10 },
+    lastUpdated: { visible: true, order: 11 }
   }
 };
-const DEFAULT_ORDERING: OrderingState = { includeReserved: false };
 
 type ColumnKey = keyof GrundnerState['tableColumns'];
 const COLUMN_LABELS: Array<{ key: ColumnKey; label: string }> = [
@@ -34,9 +29,8 @@ const COLUMN_LABELS: Array<{ key: ColumnKey; label: string }> = [
   { key: 'lengthMm', label: 'Length' },
   { key: 'widthMm', label: 'Width' },
   { key: 'thicknessMm', label: 'Thickness' },
-  { key: 'preReserved', label: 'Pre-Reserved' },
   { key: 'stock', label: 'Stock' },
-  { key: 'reservedStock', label: 'Locked' },
+  { key: 'reservedStock', label: 'Reserved Stock' },
   { key: 'stockAvailable', label: 'Available' },
   { key: 'lastUpdated', label: 'Last Updated' }
 ];
@@ -111,8 +105,6 @@ function buildPreviewTemplate(visibleKeys: ColumnKey[], tableColumns: GrundnerSt
         return 'widthMm' as const;
       case 'thicknessMm':
         return 'thicknessMm' as const;
-      case 'preReserved':
-        return 'preReserved' as const;
       case 'stock':
         return 'stock' as const;
       case 'reservedStock':
@@ -143,8 +135,6 @@ function buildPreviewTemplate(visibleKeys: ColumnKey[], tableColumns: GrundnerSt
 }
 
 export function GrundnerSettings() {
-  const [orderingState, setOrderingState] = useState<OrderingState>(DEFAULT_ORDERING);
-  const [sheetIdMode, setSheetIdMode] = useState<TestState['sheetIdMode']>(DEFAULT_TEST.sheetIdMode);
   const [tableColumns, setTableColumns] = useState<GrundnerState['tableColumns']>(DEFAULT_GRUNDNER.tableColumns);
   const [saving, setSaving] = useState(false);
   const [draggingKey, setDraggingKey] = useState<ColumnKey | null>(null);
@@ -176,8 +166,6 @@ export function GrundnerSettings() {
     (async () => {
       const res = await window.api.settings.get();
       if (res.ok) {
-        if (res.value.ordering) setOrderingState({ ...DEFAULT_ORDERING, ...res.value.ordering });
-        if (res.value.test?.sheetIdMode) setSheetIdMode(res.value.test.sheetIdMode);
         if (res.value.grundner?.tableColumns) {
           setTableColumns(normalizeTableColumns(res.value.grundner.tableColumns));
         }
@@ -345,18 +333,13 @@ export function GrundnerSettings() {
       return;
     }
 
-      const updatedSettings = {
-        ...currentSettings.value,
-        grundner: {
-          ...(currentSettings.value.grundner ?? DEFAULT_GRUNDNER),
-          tableColumns
-        },
-        test: {
-          ...(currentSettings.value.test ?? DEFAULT_TEST),
-          sheetIdMode
-        },
-        ordering: orderingState
-      };
+    const updatedSettings = {
+      ...currentSettings.value,
+      grundner: {
+        ...(currentSettings.value.grundner ?? DEFAULT_GRUNDNER),
+        tableColumns
+      }
+    };
 
     const saved = await window.api.settings.save(updatedSettings);
     if (saved.ok) {
@@ -374,21 +357,8 @@ export function GrundnerSettings() {
       <div className="space-y-4">
         <h4 className="text-base font-semibold text-foreground/80 tracking-wide">Grundner Settings</h4>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-          <div>
-            <label className="block text-sm font-medium mb-1">Sheet ID Mode</label>
-            <p className="text-xs text-muted-foreground mb-2">Controls the key used by all machines to identify sheet inventory.</p>
-            <select
-              className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
-              value={sheetIdMode}
-              onChange={(e) => setSheetIdMode(e.target.value as TestState['sheetIdMode'])}
-            >
-              <option value="type_data">Type Data</option>
-              <option value="customer_id">Customer ID</option>
-            </select>
-          </div>
-
-
+        <div className="text-sm text-muted-foreground">
+          Sheet identity is based on Type Data.
         </div>
       </div>
 
@@ -499,28 +469,6 @@ export function GrundnerSettings() {
                 </table>
               </div>
             )}
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <h4 className="text-base font-semibold text-foreground/80 tracking-wide">Ordering Settings</h4>
-
-        <div className="flex items-start gap-3">
-          <input
-            type="checkbox"
-            id="includeReserved"
-            checked={orderingState.includeReserved}
-            onChange={(e) => setOrderingState({ includeReserved: e.target.checked })}
-            className="w-4 h-4 mt-0.5 rounded border-border text-primary focus:ring-primary/50"
-          />
-          <div>
-            <label htmlFor="includeReserved" className="text-sm font-medium">
-              Include reserved stock in Ordering table
-            </label>
-            <p className="text-xs text-muted-foreground mt-1">
-              When enabled, reserved and locked amounts are deducted from available stock
-            </p>
           </div>
         </div>
       </div>

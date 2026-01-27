@@ -6,6 +6,7 @@ import {
   GrundnerListReq,
   GrundnerUpdateReq,
   GrundnerResyncReq,
+  GrundnerJobsReq,
   GrundnerCustomCsvPreviewReq,
   InventoryExportSettingsSchema,
   InventoryExportTemplateSchema
@@ -15,7 +16,8 @@ import {
   listGrundnerAll,
   listGrundnerPreview,
   updateGrundnerRow,
-  resyncGrundnerReserved
+  resyncGrundnerReserved,
+  listGrundnerPendingJobs
 } from '../repo/grundnerRepo';
 import { loadConfig } from '../services/config';
 import { buildGrundnerCustomCsv, buildGrundnerStandardCsv } from '../services/inventoryExportCsv';
@@ -48,6 +50,12 @@ export function registerGrundnerIpc() {
       { source: 'grundner' }
     );
     return ok<{ updated: number }, AppError>({ updated });
+  });
+
+  registerResultHandler('grundner:jobs', async (_e, raw) => {
+    const req = GrundnerJobsReq.parse(raw ?? {});
+    const result = await listGrundnerPendingJobs(req.typeData, req.limit);
+    return ok(result);
   });
 
   registerResultHandler('grundner:exportCsv', async () => {

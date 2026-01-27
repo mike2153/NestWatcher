@@ -10,6 +10,8 @@ import type {
   GrundnerListRes,
   GrundnerResyncReq,
   GrundnerUpdateReq,
+  GrundnerJobsReq,
+  GrundnerJobsRes,
   GrundnerExportRes,
   GrundnerCustomCsvPreviewReq,
   GrundnerCustomCsvPreviewRes,
@@ -42,7 +44,6 @@ import type {
   DiagnosticsLogTailRes,
   ThemePreferenceReq,
   ThemePreferenceRes,
-  AllocatedMaterialListRes,
   OrderingListRes,
   OrderingUpdateReq,
   OrderingExportRes,
@@ -147,14 +148,11 @@ declare global {
         list: (req?: GrundnerListReq) => Promise<Result<GrundnerListRes, AppError>>;
         update: (input: GrundnerUpdateReq) => Promise<Result<{ ok: boolean; updated: number }, AppError>>;
         resync: (input?: GrundnerResyncReq) => Promise<Result<{ updated: number }, AppError>>;
+        jobs: (req: GrundnerJobsReq) => Promise<Result<GrundnerJobsRes, AppError>>;
         exportCsv: () => Promise<Result<GrundnerExportRes, AppError>>;
         exportCustomCsv: () => Promise<Result<GrundnerExportRes, AppError>>;
         previewCustomCsv: (input: GrundnerCustomCsvPreviewReq) => Promise<Result<GrundnerCustomCsvPreviewRes, AppError>>;
         subscribeRefresh: (listener: () => void) => () => void;
-      };
-      allocatedMaterial: {
-        list: () => Promise<Result<AllocatedMaterialListRes, AppError>>;
-        subscribe: (listener: () => void) => () => void;
       };
       messages: {
         list: () => Promise<Result<MessagesListRes, AppError>>;

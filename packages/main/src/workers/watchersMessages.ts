@@ -64,7 +64,7 @@ export type WatcherWorkerToMainMessage =
     }
   | {
       type: 'dbNotify';
-      channel: 'grundner' | 'allocated-material';
+      channel: 'grundner';
     }
   | {
       type: 'appAlert';

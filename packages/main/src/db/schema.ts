@@ -11,7 +11,6 @@ import {
   text,
   timestamp,
   varchar,
-  pgView,
   real,
   numeric
 } from 'drizzle-orm/pg-core';
@@ -173,28 +172,6 @@ export const appUsers = pgTable('app_users', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });
 
-export const allocatedMaterialView = pgView('allocated_material_view', {
-  grundnerId: integer('grundner_id'),
-  typeData: integer('type_data'),
-  customerId: varchar('customer_id', { length: 50 }),
-  lengthMm: integer('length_mm'),
-  widthMm: integer('width_mm'),
-  thicknessMm: integer('thickness_mm'),
-  stock: integer('stock'),
-  stockAvailable: integer('stock_available'),
-  reservedStock: integer('reserved_stock'),
-  preReserved: integer('pre_reserved'),
-  jobKey: varchar('job_key', { length: 100 }),
-  folder: varchar('folder', { length: 255 }),
-  ncfile: varchar('ncfile', { length: 255 }),
-  material: varchar('material', { length: 255 }),
-  jobPreReserved: boolean('job_pre_reserved'),
-  jobIsLocked: boolean('job_is_locked'),
-  updatedAt: timestamp('updated_at', { withTimezone: true }),
-  allocatedAt: timestamp('allocated_at', { withTimezone: true }),
-  allocationStatus: varchar('allocation_status', { length: 20 })
-});
-
 export const schema = {
   jobs,
   machines,
@@ -205,7 +182,6 @@ export const schema = {
   ncStats,
   validationReports,
   ncCatProfiles,
-  allocatedMaterialView,
   jobStatusEnum,
   appUsers
 };

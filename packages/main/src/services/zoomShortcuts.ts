@@ -43,9 +43,11 @@ function getZoomFactor(webContents: WebContents): Promise<number> {
     };
 
     try {
-      const maybeReturn = (webContents as unknown as { getZoomFactor: (...args: any[]) => any }).getZoomFactor(
-        (factor: unknown) => finish(factor)
-      );
+      const getter = webContents as unknown as {
+        getZoomFactor: (callback?: (factor: number) => void) => number | void;
+      };
+
+      const maybeReturn = getter.getZoomFactor((factor) => finish(factor));
 
       // Newer Electron returns the factor synchronously.
       if (typeof maybeReturn === 'number') {

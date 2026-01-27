@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X, UserCircle2, ShieldCheck, RefreshCcw, KeyRound } from 'lucide-react';
+import { X, RefreshCcw } from 'lucide-react';
 import type { AuthSession } from '../../../shared/src';
 import { Button } from '@/components/ui/button';
+import woodtronLogo from '@/assets/woodtron.png';
 
 type AuthMode = 'login' | 'register' | 'reset';
 
@@ -38,6 +39,43 @@ export function LoginModal({ isOpen, onClose, onAuthenticated, disableClose }: L
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState<{ variant: 'info' | 'error' | 'success'; text: string } | null>(null);
   const [canForceLogin, setCanForceLogin] = useState(false);
+
+  // Keep the sign-in UI consistent with the boot splash (NC-Cat palette).
+  // This is intentionally NOT tied to the user's selected app theme.
+  const fixedThemeStyle = useMemo(
+    () =>
+      ({
+        '--background': '#0b0d10',
+        '--background-body': '#0b0d10',
+        '--foreground': '#e7e9ee',
+        '--card': 'rgba(20, 23, 30, 0.75)',
+        '--border': 'rgba(255, 255, 255, 0.08)',
+        '--muted': 'rgba(231, 233, 238, 0.12)',
+        '--muted-foreground': 'rgba(231, 233, 238, 0.72)',
+
+        '--primary': 'rgb(244 63 94)',
+        '--primary-foreground': '#0b0d10',
+        '--ring': 'rgb(244 63 94)',
+
+        // Status banners (keep readable on black)
+        '--status-error-bg': 'rgba(244, 63, 94, 0.14)',
+        '--status-error-border': 'rgba(244, 63, 94, 0.35)',
+        '--status-error-text': 'rgba(251, 113, 133, 0.95)',
+
+        '--status-success-bg': 'rgba(34, 197, 94, 0.12)',
+        '--status-success-border': 'rgba(34, 197, 94, 0.30)',
+        '--status-success-text': 'rgba(134, 239, 172, 0.95)',
+
+        '--status-info-bg': 'rgba(231, 233, 238, 0.06)',
+        '--status-info-border': 'rgba(255, 255, 255, 0.10)',
+        '--status-info-text': 'rgba(231, 233, 238, 0.82)',
+
+        // Background atmosphere (matching NC-Cat splash)
+        '--splash-glow-red': 'rgba(244, 63, 94, 0.12)',
+        '--splash-glow-blue': 'rgba(59, 130, 246, 0.08)',
+      }) as React.CSSProperties,
+    []
+  );
 
   useEffect(() => {
     if (!isOpen) {
@@ -216,18 +254,25 @@ export function LoginModal({ isOpen, onClose, onAuthenticated, disableClose }: L
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-[92vw] max-w-md rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] shadow-lg animate-in zoom-in-95 duration-200">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden bg-[var(--background)] text-[var(--foreground)] animate-in fade-in duration-200"
+      style={fixedThemeStyle}
+    >
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 [background-image:radial-gradient(1200px_circle_at_20%_15%,var(--splash-glow-red),rgba(11,13,16,0)_55%),radial-gradient(1000px_circle_at_80%_75%,var(--splash-glow-blue),rgba(11,13,16,0)_60%)]"
+      />
+
+      <div className="relative w-[92vw] max-w-md rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] shadow-2xl backdrop-blur-md animate-in zoom-in-95 duration-200">
         <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
           <div className="flex items-center gap-3">
-            <div className="rounded-md bg-[var(--muted)] p-2 text-[var(--foreground)]">
-              {mode === 'register' ? (
-                <ShieldCheck className="h-5 w-5" />
-              ) : mode === 'reset' ? (
-                <KeyRound className="h-5 w-5" />
-              ) : (
-                <UserCircle2 className="h-5 w-5" />
-              )}
+            <div className="relative grid size-11 place-items-center overflow-hidden rounded-xl border border-[var(--border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.10),rgba(255,255,255,0))] shadow-lg">
+              <img
+                src={woodtronLogo}
+                alt="Woodtron"
+                className="size-8 select-none"
+                draggable={false}
+              />
             </div>
             <div>
               <p className="text-xs font-medium text-[var(--muted-foreground)]">NestWatcher</p>
@@ -388,7 +433,11 @@ export function LoginModal({ isOpen, onClose, onAuthenticated, disableClose }: L
             </button>
           ) : null}
 
-          <Button type="submit" disabled={submitting} className="h-9 w-full rounded-md text-sm font-medium">
+          <Button
+            type="submit"
+            disabled={submitting}
+            className="h-9 w-full rounded-md bg-[var(--primary)] text-[var(--primary-foreground)] text-sm font-medium shadow-sm hover:-translate-y-0.5 hover:shadow-md"
+          >
             {submitting ? <RefreshCcw className="mr-2 h-4 w-4 animate-spin" /> : null}
             {cta}
           </Button>

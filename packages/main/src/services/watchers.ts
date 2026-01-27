@@ -256,8 +256,7 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
       clearMachineHealthIssue(message.payload.machineId, message.payload.code);
       break;
     case 'dbNotify': {
-      const channelName =
-        message.channel === 'grundner' ? 'grundner:refresh' : 'allocatedMaterial:refresh';
+      const channelName = 'grundner:refresh';
       for (const win of BrowserWindow.getAllWindows()) {
         try {
           if (!win.isDestroyed()) {

@@ -1,4 +1,3 @@
-import { BrowserWindow } from 'electron';
 import { ok, err } from 'neverthrow';
 import type { AppError, WorklistAddResult } from '../../../shared/src';
 import { JobEventsReq, JobsListReq, ReserveReq, UnreserveReq, LockReq, UnlockReq, LockBatchReq, UnlockBatchReq } from '../../../shared/src';
@@ -8,13 +7,11 @@ import { rerunAndStage } from '../services/worklist';
 import { withDb } from '../services/db';
 import { inArray, eq, and, not, sql } from 'drizzle-orm';
 import { jobs, grundner } from '../db/schema';
-import { getGrundnerLookupColumn } from '../services/grundner';
 import { placeOrderSawCsv } from '../services/orderSaw';
 import { placeProductionDeleteCsv } from '../services/productionDelete';
 import { rerunJob } from '../services/rerun';
 import { addJobToWorklist } from '../services/worklist';
 import { ingestProcessedJobsRoot } from '../services/ingest';
-import { logger } from '../logger';
 import { pushAppMessage } from '../services/messages';
 import { createAppError } from './errors';
 import { registerResultHandler } from './result';
@@ -131,7 +128,6 @@ async function unlockJobs(keys: string[], actorName?: string) {
     },
     { source: 'jobs' }
   );
-  broadcastAllocatedMaterialRefresh();
   return ok<null, AppError>(null);
 }
 
@@ -359,7 +355,6 @@ export function registerJobsIpc() {
         },
         { source: 'jobs' }
       );
-      broadcastAllocatedMaterialRefresh();
       return ok<null, AppError>(null);
     } catch (ex) {
       const message = (ex as Error)?.message ?? String(ex);
@@ -414,16 +409,4 @@ export function registerJobsIpc() {
   });
 
   registerResultHandler('jobs:resync', async () => ok(await ingestProcessedJobsRoot()));
-}
-
-function broadcastAllocatedMaterialRefresh() {
-  for (const win of BrowserWindow.getAllWindows()) {
-    try {
-      if (!win.isDestroyed()) {
-        win.webContents.send('allocatedMaterial:refresh');
-      }
-    } catch (err) {
-      logger.warn({ err }, 'jobs: failed to broadcast allocated material refresh');
-    }
-  }
 }

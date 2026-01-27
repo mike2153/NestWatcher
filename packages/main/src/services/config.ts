@@ -27,7 +27,7 @@ const DEFAULT_SETTINGS: Settings = {
     statementTimeoutMs: 30000
   },
   paths: { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' },
-  test: { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' },
+  test: { testDataFolderPath: '', useTestDataMode: false },
   grundner: {
     tableColumns: {
       typeData: { visible: true, order: 1 },
@@ -37,14 +37,12 @@ const DEFAULT_SETTINGS: Settings = {
       lengthMm: { visible: true, order: 5 },
       widthMm: { visible: true, order: 6 },
       thicknessMm: { visible: true, order: 7 },
-      preReserved: { visible: true, order: 8 },
-      stock: { visible: true, order: 9 },
-      reservedStock: { visible: true, order: 10 },
-      stockAvailable: { visible: true, order: 11 },
-      lastUpdated: { visible: true, order: 12 }
+      stock: { visible: true, order: 8 },
+      reservedStock: { visible: true, order: 9 },
+      stockAvailable: { visible: true, order: 10 },
+      lastUpdated: { visible: true, order: 11 }
     }
   },
-  ordering: { includeReserved: false },
   inventoryExport: {
     template: {
       delimiter: ',',
@@ -85,7 +83,6 @@ function cloneDefaults(): Settings {
     paths: { ...DEFAULT_SETTINGS.paths },
     test: { ...DEFAULT_SETTINGS.test },
     grundner: { ...DEFAULT_SETTINGS.grundner },
-    ordering: { ...DEFAULT_SETTINGS.ordering },
     inventoryExport: {
       template: {
         ...DEFAULT_SETTINGS.inventoryExport.template,
@@ -163,7 +160,6 @@ function normalizeSettings(input: MaybeSettings): Settings {
     paths: { ...DEFAULT_SETTINGS.paths, ...(base.paths ?? {}) },
     test: { ...DEFAULT_SETTINGS.test, ...(base.test ?? {}) },
     grundner,
-    ordering: { ...DEFAULT_SETTINGS.ordering, ...(base.ordering ?? {}) },
     inventoryExport: { template, scheduled },
     jobs: { ...DEFAULT_SETTINGS.jobs, ...(base.jobs ?? {}) },
     validationWarnings: { ...DEFAULT_SETTINGS.validationWarnings, ...(base.validationWarnings ?? {}) }
@@ -182,7 +178,6 @@ function mergeSettingsInternal(base: Settings, update: MaybeSettings): Settings 
     paths: { ...base.paths, ...(partial.paths ?? {}) },
     test: { ...base.test, ...(partial.test ?? {}) },
     grundner: { ...base.grundner, ...(partial.grundner ?? {}), tableColumns: grundnerTableColumns },
-    ordering: { ...base.ordering, ...(partial.ordering ?? {}) },
     inventoryExport: {
       template: { ...base.inventoryExport.template, ...((partial.inventoryExport?.template ?? {}) as Partial<Settings['inventoryExport']['template']>) },
       scheduled: { ...base.inventoryExport.scheduled, ...((partial.inventoryExport?.scheduled ?? {}) as Partial<Settings['inventoryExport']['scheduled']>) }

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getCoreRowModel,
+  getExpandedRowModel,
   getSortedRowModel,
   useReactTable
 } from '@tanstack/react-table';
-import type { ColumnDef, SortingState } from '@tanstack/react-table';
+import type { ColumnDef, SortingState, ExpandedState } from '@tanstack/react-table';
 import { GlobalTable } from '@/components/table/GlobalTable';
 import { Button } from '@/components/ui/button';
 
@@ -18,13 +19,12 @@ const GRUNDNER_COL_PCT = {
   lengthMm: 8,
   widthMm: 8,
   thicknessMm: 8,
-  preReserved: 10,
   stock: 10,
   reservedStock: 10,
   stockAvailable: 10,
   lastUpdated: 12,
 } as const;
-import type { GrundnerListReq, GrundnerRow } from '../../../shared/src';
+import type { GrundnerJobRow, GrundnerListReq, GrundnerRow } from '../../../shared/src';
 function formatTimestamp(value: string) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
@@ -48,6 +48,53 @@ type EditState = {
   stockAvailable?: string;
 };
 
+type MaterialRow = {
+  _type: 'material';
+  row: GrundnerRow;
+  typeData: number;
+  subRows: Array<FolderRow | InfoRow>;
+};
+
+type FolderRow = {
+  _type: 'folder';
+  typeData: number;
+  folder: string;
+  subRows: JobRow[];
+};
+
+type JobRow = {
+  _type: 'job';
+  typeData: number;
+  key: string;
+  folder: string | null;
+  ncfile: string | null;
+  reserved: boolean;
+};
+
+type InfoRow = {
+  _type: 'info';
+  typeData: number;
+  message: string;
+};
+
+type TableRow = MaterialRow | FolderRow | JobRow | InfoRow;
+
+function isMaterialRow(row: TableRow): row is MaterialRow {
+  return row._type === 'material';
+}
+
+function isFolderRow(row: TableRow): row is FolderRow {
+  return row._type === 'folder';
+}
+
+function isJobRow(row: TableRow): row is JobRow {
+  return row._type === 'job';
+}
+
+function isInfoRow(row: TableRow): row is InfoRow {
+  return row._type === 'info';
+}
+
 export function GrundnerPage() {
   const [rows, setRows] = useState<GrundnerRow[]>([]);
   const [filters, setFilters] = useState<Filters>({ search: '', onlyAvailable: false, onlyReserved: false });
@@ -55,6 +102,9 @@ export function GrundnerPage() {
   const [editing, setEditing] = useState<Record<number, EditState>>({});
   const [loading, setLoading] = useState(false);
   const [sorting, setSorting] = useState<SortingState>([{ id: 'typeData', desc: false }]);
+  const [expanded, setExpanded] = useState<ExpandedState>({});
+  const [jobsByType, setJobsByType] = useState<Record<number, { items: GrundnerJobRow[]; total: number }>>({});
+  const [loadingTypes, setLoadingTypes] = useState<Set<number>>(new Set());
   const lastLoadedAtRef = useRef<number>(0);
   const lastAutoRefreshAtRef = useRef<number>(0);
   const [pendingAutoRefresh, setPendingAutoRefresh] = useState(false);
@@ -66,11 +116,10 @@ export function GrundnerPage() {
     lengthMm: { visible: true, order: 5 },
     widthMm: { visible: true, order: 6 },
     thicknessMm: { visible: true, order: 7 },
-    preReserved: { visible: true, order: 8 },
-    stock: { visible: true, order: 9 },
-    reservedStock: { visible: true, order: 10 },
-    stockAvailable: { visible: true, order: 11 },
-    lastUpdated: { visible: true, order: 12 }
+    stock: { visible: true, order: 8 },
+    reservedStock: { visible: true, order: 9 },
+    stockAvailable: { visible: true, order: 10 },
+    lastUpdated: { visible: true, order: 11 }
   });
 
   useEffect(() => {
@@ -102,8 +151,7 @@ export function GrundnerPage() {
   }, []);
 
   const displayRows = useMemo<GrundnerRow[]>(() => {
-    const normalizeCustomerId = (value: string | null): string => (value ?? '').trim().toLowerCase();
-    const keyFor = (row: GrundnerRow): string => `${row.typeData ?? 'null'}|${normalizeCustomerId(row.customerId)}`;
+    const keyFor = (row: GrundnerRow): string => `${row.typeData ?? 'null'}`;
 
     const groups = new Map<
       string,
@@ -127,15 +175,13 @@ export function GrundnerPage() {
       const key = keyFor(r);
       const existing = groups.get(key);
       if (!existing) {
-        const customerIdTrimmed = (r.customerId ?? '').trim();
         groups.set(key, {
           row: {
             ...r,
-            customerId: customerIdTrimmed ? customerIdTrimmed : null,
+            customerId: (r.customerId ?? '').trim() || null,
             stock: r.stock ?? 0,
             stockAvailable: r.stockAvailable ?? 0,
-            reservedStock: r.reservedStock ?? 0,
-            preReserved: r.preReserved ?? 0
+            reservedStock: r.reservedStock ?? 0
           },
           ids: [r.id],
           materialNameSet: new Set(r.materialName ? [r.materialName] : []),
@@ -152,7 +198,6 @@ export function GrundnerPage() {
       existing.row.stock = (existing.row.stock ?? 0) + (r.stock ?? 0);
       existing.row.stockAvailable = (existing.row.stockAvailable ?? 0) + (r.stockAvailable ?? 0);
       existing.row.reservedStock = (existing.row.reservedStock ?? 0) + (r.reservedStock ?? 0);
-      existing.row.preReserved = (existing.row.preReserved ?? 0) + (r.preReserved ?? 0);
 
       if (r.materialName) existing.materialNameSet.add(r.materialName);
       addNullableNumber(existing.materialNumberSet, r.materialNumber);
@@ -184,6 +229,72 @@ export function GrundnerPage() {
     }
     return result;
   }, [rows]);
+
+  const tableData = useMemo<TableRow[]>(() => {
+    const out: TableRow[] = [];
+
+    for (const r of displayRows) {
+      const typeData = r.typeData;
+      if (typeData == null) {
+        continue;
+      }
+
+      const cached = jobsByType[typeData];
+      const isLoading = loadingTypes.has(typeData);
+      const isExpanded = Boolean((expanded as Record<string, boolean>)[`m:${typeData}`]);
+
+      const subRows: Array<FolderRow | InfoRow> = [];
+      if (isExpanded) {
+        if (isLoading && !cached) {
+          subRows.push({ _type: 'info', typeData, message: 'Loading jobs...' });
+        } else {
+          const items = cached?.items ?? [];
+          const total = cached?.total ?? 0;
+          if (total > 200) {
+            subRows.push({ _type: 'info', typeData, message: `Showing first 200 of ${total} jobs` });
+          }
+          if (!items.length) {
+            subRows.push({ _type: 'info', typeData, message: 'No pending jobs for this type.' });
+          } else {
+            const byFolder = new Map<string, GrundnerJobRow[]>();
+            for (const job of items) {
+              const folder = (job.folder ?? '').trim() || '(no folder)';
+              const list = byFolder.get(folder);
+              if (list) list.push(job);
+              else byFolder.set(folder, [job]);
+            }
+
+            const folderNames = Array.from(byFolder.keys()).sort((a, b) => a.localeCompare(b));
+            for (const folder of folderNames) {
+              const jobs = byFolder.get(folder) ?? [];
+              subRows.push({
+                _type: 'folder',
+                typeData,
+                folder,
+                subRows: jobs.map((j) => ({
+                  _type: 'job',
+                  typeData,
+                  key: j.key,
+                  folder: j.folder,
+                  ncfile: j.ncfile,
+                  reserved: j.reserved
+                }))
+              });
+            }
+          }
+        }
+      }
+
+      out.push({
+        _type: 'material',
+        row: r,
+        typeData,
+        subRows
+      });
+    }
+
+    return out;
+  }, [displayRows, expanded, jobsByType, loadingTypes]);
 
   const totalStock = useMemo(() => displayRows.reduce((sum, row) => sum + (row.stock ?? 0), 0), [displayRows]);
   const totalAvailable = useMemo(() => displayRows.reduce((sum, row) => sum + (row.stockAvailable ?? 0), 0), [displayRows]);
@@ -219,6 +330,28 @@ export function GrundnerPage() {
     if (Number.isNaN(numeric)) throw new Error('Please enter a valid number');
     return numeric;
   };
+
+  const loadPendingJobsForType = useCallback(async (typeData: number) => {
+    if (!Number.isFinite(typeData)) return;
+    if (loadingTypes.has(typeData)) return;
+    setLoadingTypes((prev) => new Set(prev).add(typeData));
+    try {
+      const res = await window.api.grundner.jobs({ typeData, limit: 200 });
+      if (!res.ok) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to load pending jobs for type', typeData, res.error.message);
+        setJobsByType((prev) => ({ ...prev, [typeData]: { items: [], total: 0 } }));
+        return;
+      }
+      setJobsByType((prev) => ({ ...prev, [typeData]: { items: res.value.items, total: res.value.total } }));
+    } finally {
+      setLoadingTypes((prev) => {
+        const next = new Set(prev);
+        next.delete(typeData);
+        return next;
+      });
+    }
+  }, [loadingTypes]);
 
   const _updateRow = useCallback(async (row: GrundnerRow) => {
     const edit = editing[row.id] ?? {};
@@ -311,91 +444,123 @@ export function GrundnerPage() {
   }, [pendingAutoRefresh, editing, loading, load]);
   // Percentage-based column widths; normalized automatically by GlobalTable
 
-  const columns = useMemo<ColumnDef<GrundnerRow>[]>(() => {
-    const all: ColumnDef<GrundnerRow>[] = [
+  const columns = useMemo<ColumnDef<TableRow>[]>(() => {
+    const all: ColumnDef<TableRow>[] = [
       {
         id: 'typeData',
-        accessorKey: 'typeData',
-        header: 'Type',
-        cell: (ctx) => ctx.getValue<number | null>() ?? '',
-        meta: { widthPercent: GRUNDNER_COL_PCT.typeData, minWidthPx: 80 }
+        header: 'Type Data',
+        accessorFn: (row) => (isMaterialRow(row) ? row.typeData : ''),
+        cell: ({ row }) => {
+          const original = row.original;
+          const depth = row.depth;
+          const indent = depth * 24;
+
+          if (isMaterialRow(original)) {
+            return (
+              <div style={{ paddingLeft: `${indent}px` }} className="flex items-center gap-2">
+                <span className="font-semibold">{original.typeData}</span>
+              </div>
+            );
+          }
+
+          if (isFolderRow(original)) {
+            return (
+              <div style={{ paddingLeft: `${indent}px` }} className="flex items-center gap-2">
+                <span className="font-medium">{original.folder}</span>
+              </div>
+            );
+          }
+
+          if (isJobRow(original)) {
+            return (
+              <div style={{ paddingLeft: `${indent}px` }} className="flex items-center">
+                <span className="ml-6">{original.ncfile ?? original.key}</span>
+              </div>
+            );
+          }
+
+          if (isInfoRow(original)) {
+            return (
+              <div style={{ paddingLeft: `${indent}px` }} className="text-muted-foreground italic">
+                {original.message}
+              </div>
+            );
+          }
+
+          return '';
+        },
+        meta: { widthPercent: GRUNDNER_COL_PCT.typeData, minWidthPx: 220 }
       },
       {
         id: 'materialName',
-        accessorKey: 'materialName',
         header: 'Material Name',
-        cell: (ctx) => ctx.getValue<string | null>() ?? '',
+        accessorFn: (row) => (isMaterialRow(row) ? row.row.materialName : ''),
+        cell: ({ row }) => (isMaterialRow(row.original) ? row.original.row.materialName ?? '' : ''),
         meta: { widthPercent: GRUNDNER_COL_PCT.materialName, minWidthPx: 120 }
       },
       {
         id: 'materialNumber',
-        accessorKey: 'materialNumber',
         header: 'Material #',
-        cell: (ctx) => ctx.getValue<number | null>() ?? '',
+        accessorFn: (row) => (isMaterialRow(row) ? row.row.materialNumber : null),
+        cell: ({ row }) => (isMaterialRow(row.original) ? row.original.row.materialNumber ?? '' : ''),
         meta: { widthPercent: GRUNDNER_COL_PCT.materialNumber, minWidthPx: 80 }
       },
       {
         id: 'customerId',
-        accessorKey: 'customerId',
         header: 'Customer ID',
-        cell: (ctx) => ctx.getValue<string | null>() ?? '',
+        accessorFn: (row) => (isMaterialRow(row) ? row.row.customerId : ''),
+        cell: ({ row }) => (isMaterialRow(row.original) ? row.original.row.customerId ?? '' : ''),
         meta: { widthPercent: GRUNDNER_COL_PCT.customerId, minWidthPx: 160 }
       },
       {
         id: 'lengthMm',
-        accessorKey: 'lengthMm',
         header: 'Length',
-        cell: (ctx) => ctx.getValue<number | null>() ?? '',
+        accessorFn: (row) => (isMaterialRow(row) ? row.row.lengthMm : null),
+        cell: ({ row }) => (isMaterialRow(row.original) ? row.original.row.lengthMm ?? '' : ''),
         meta: { widthPercent: GRUNDNER_COL_PCT.lengthMm, minWidthPx: 60 }
       },
       {
         id: 'widthMm',
-        accessorKey: 'widthMm',
         header: 'Width',
-        cell: (ctx) => ctx.getValue<number | null>() ?? '',
+        accessorFn: (row) => (isMaterialRow(row) ? row.row.widthMm : null),
+        cell: ({ row }) => (isMaterialRow(row.original) ? row.original.row.widthMm ?? '' : ''),
         meta: { widthPercent: GRUNDNER_COL_PCT.widthMm, minWidthPx: 80 }
       },
       {
         id: 'thicknessMm',
-        accessorKey: 'thicknessMm',
         header: 'Thickness',
-        cell: (ctx) => ctx.getValue<number | null>() ?? '',
+        accessorFn: (row) => (isMaterialRow(row) ? row.row.thicknessMm : null),
+        cell: ({ row }) => (isMaterialRow(row.original) ? row.original.row.thicknessMm ?? '' : ''),
         meta: { widthPercent: GRUNDNER_COL_PCT.thicknessMm, minWidthPx: 80 }
       },
       {
-        id: 'preReserved',
-        accessorKey: 'preReserved',
-        header: 'Pre-Reserved',
-        cell: (ctx) => ctx.getValue<number | null>() ?? '',
-        meta: { widthPercent: GRUNDNER_COL_PCT.preReserved, minWidthPx: 100 }
-      },
-      {
         id: 'stock',
-        accessorKey: 'stock',
         header: 'Stock',
-        cell: (ctx) => ctx.getValue<number | null>() ?? '',
+        accessorFn: (row) => (isMaterialRow(row) ? row.row.stock : null),
+        cell: ({ row }) => (isMaterialRow(row.original) ? row.original.row.stock ?? '' : ''),
         meta: { widthPercent: GRUNDNER_COL_PCT.stock, minWidthPx: 80 }
       },
       {
         id: 'reservedStock',
-        accessorKey: 'reservedStock',
-        header: 'Locked',
-        cell: (ctx) => ctx.getValue<number | null>() ?? '',
+        header: 'Reserved Stock',
+        accessorFn: (row) => (isMaterialRow(row) ? row.row.reservedStock : null),
+        cell: ({ row }) => (isMaterialRow(row.original) ? row.original.row.reservedStock ?? '' : ''),
         meta: { widthPercent: GRUNDNER_COL_PCT.reservedStock, minWidthPx: 100 }
       },
       {
         id: 'stockAvailable',
-        accessorKey: 'stockAvailable',
         header: 'Available',
-        cell: (ctx) => ctx.getValue<number | null>() ?? '',
+        accessorFn: (row) => (isMaterialRow(row) ? row.row.stockAvailable : null),
+        cell: ({ row }) => (isMaterialRow(row.original) ? row.original.row.stockAvailable ?? '' : ''),
         meta: { widthPercent: GRUNDNER_COL_PCT.stockAvailable, minWidthPx: 100 }
       },
       {
         id: 'lastUpdated',
-        accessorKey: 'lastUpdated',
         header: 'Last Updated',
-        cell: (ctx) => {
-          const v = ctx.getValue<string | null>();
+        accessorFn: (row) => (isMaterialRow(row) ? row.row.lastUpdated : null),
+        cell: ({ row }) => {
+          if (!isMaterialRow(row.original)) return '';
+          const v = row.original.row.lastUpdated;
           return v ? formatTimestamp(v) : '';
         },
         meta: { widthPercent: GRUNDNER_COL_PCT.lastUpdated, minWidthPx: 140 }
@@ -411,7 +576,6 @@ export function GrundnerPage() {
       if (id === 'lengthMm') return tableColumns.lengthMm.visible;
       if (id === 'widthMm') return tableColumns.widthMm.visible;
       if (id === 'thicknessMm') return tableColumns.thicknessMm.visible;
-      if (id === 'preReserved') return tableColumns.preReserved.visible;
       if (id === 'stock') return tableColumns.stock.visible;
       if (id === 'reservedStock') return tableColumns.reservedStock.visible;
       if (id === 'stockAvailable') return tableColumns.stockAvailable.visible;
@@ -427,7 +591,6 @@ export function GrundnerPage() {
       if (id === 'lengthMm') return tableColumns.lengthMm.order;
       if (id === 'widthMm') return tableColumns.widthMm.order;
       if (id === 'thicknessMm') return tableColumns.thicknessMm.order;
-      if (id === 'preReserved') return tableColumns.preReserved.order;
       if (id === 'stock') return tableColumns.stock.order;
       if (id === 'reservedStock') return tableColumns.reservedStock.order;
       if (id === 'stockAvailable') return tableColumns.stockAvailable.order;
@@ -439,13 +602,31 @@ export function GrundnerPage() {
   }, [tableColumns]);
 
   const table = useReactTable({
-    data: displayRows,
+    data: tableData,
     columns,
-    state: { sorting },
+    state: { sorting, expanded },
     onSortingChange: setSorting,
+    onExpandedChange: setExpanded,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    enableColumnResizing: false
+    getExpandedRowModel: getExpandedRowModel(),
+    getSubRows: (row) => {
+      if (isMaterialRow(row)) return row.subRows;
+      if (isFolderRow(row)) return row.subRows;
+      return undefined;
+    },
+    getRowCanExpand: (row) => {
+      return row.original._type === 'material' || row.original._type === 'folder';
+    },
+    getRowId: (row, _index, parent) => {
+      if (row._type === 'material') return `m:${row.typeData}`;
+      if (row._type === 'folder') return `f:${row.typeData}:${row.folder}`;
+      if (row._type === 'job') return `j:${row.key}`;
+      if (row._type === 'info') return `i:${row.typeData}:${parent?.id ?? 'root'}:${row.message}`;
+      return `${_index}`;
+    },
+    enableColumnResizing: false,
+    enableRowSelection: false
   });
 
   return (
@@ -478,11 +659,41 @@ export function GrundnerPage() {
             <Button size="sm" onClick={exportStandardCsv}>Export to CSV</Button>
             <Button size="sm" onClick={exportCustomCsv}>Export Custom CSV</Button>
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">Stock {totalStock} • Available {totalAvailable} • Locked {totalReserved}</p>
+          <p className="mt-2 text-sm text-muted-foreground">Stock {totalStock} • Available {totalAvailable} • Reserved Stock {totalReserved}</p>
         </div>
       </div>
 
-      <GlobalTable table={table} stickyHeader fillEmptyRows maxHeight="calc(100vh - 160px)" />
+      <GlobalTable
+        table={table}
+        stickyHeader
+        fillEmptyRows
+        maxHeight="calc(100vh - 160px)"
+        toggleRowSelectionOnClick={false}
+        onRowClick={(row) => {
+          const original = row.original;
+          if (original._type !== 'material') {
+            if (row.getCanExpand()) {
+              row.toggleExpanded();
+            }
+            return;
+          }
+
+          const typeData = original.typeData;
+          if (typeData == null) return;
+
+          const wasExpanded = row.getIsExpanded();
+          row.toggleExpanded();
+          const willExpand = !wasExpanded;
+          if (willExpand && jobsByType[typeData] == null) {
+            void loadPendingJobsForType(typeData);
+          }
+        }}
+        getRowClassName={(row) => {
+          const original = row.original;
+          if (original._type !== 'job') return undefined;
+          return original.reserved ? 'bg-emerald-50' : 'bg-red-50';
+        }}
+      />
     </div>
   );
 }

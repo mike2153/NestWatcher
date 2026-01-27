@@ -25,7 +25,6 @@ const PAGE_TITLES: Record<string, string> = {
   '/history': 'History',
   '/machines': 'Machines',
   '/grundner': 'Grundner',
-  '/allocated-material': 'Allocated Material',
   '/router': 'Router',
   '/telemetry': 'Telemetry',
   '/messages': 'Messages',

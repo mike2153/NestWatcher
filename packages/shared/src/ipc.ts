@@ -231,8 +231,7 @@ export const SettingsSchema = z.object({
   test: z.object({
     testDataFolderPath: z.string().default(''),
     useTestDataMode: z.boolean().default(false),
-    sheetIdMode: z.enum(['type_data', 'customer_id']).default('type_data')
-  }).default({ testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' }),
+  }).default({ testDataFolderPath: '', useTestDataMode: false }),
   grundner: z.object({
     tableColumns: z.object({
       typeData: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(1) }).default({}),
@@ -242,16 +241,12 @@ export const SettingsSchema = z.object({
       lengthMm: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(5) }).default({}),
       widthMm: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(6) }).default({}),
       thicknessMm: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(7) }).default({}),
-      preReserved: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(8) }).default({}),
-      stock: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(9) }).default({}),
-      reservedStock: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(10) }).default({}),
-      stockAvailable: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(11) }).default({}),
-      lastUpdated: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(12) }).default({})
+      stock: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(8) }).default({}),
+      reservedStock: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(9) }).default({}),
+      stockAvailable: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(10) }).default({}),
+      lastUpdated: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(11) }).default({})
     }).default({})
   }).default({}),
-  ordering: z.object({
-    includeReserved: z.boolean().default(false)
-  }).default({ includeReserved: false }),
   inventoryExport: InventoryExportSettingsSchema,
   jobs: z.object({
     completedJobsTimeframe: z.enum(['1day', '3days', '7days', '1month', 'all']).default('7days'),
@@ -593,6 +588,26 @@ export type GrundnerUpdateReq = z.infer<typeof GrundnerUpdateReq>;
 export const GrundnerResyncReq = z.object({ id: z.number().int().optional() });
 export type GrundnerResyncReq = z.infer<typeof GrundnerResyncReq>;
 
+export const GrundnerJobsReq = z.object({
+  typeData: z.number().int(),
+  limit: z.number().int().min(1).max(200).default(200)
+});
+export type GrundnerJobsReq = z.infer<typeof GrundnerJobsReq>;
+
+export const GrundnerJobRow = z.object({
+  key: z.string(),
+  folder: z.string().nullable(),
+  ncfile: z.string().nullable(),
+  reserved: z.boolean()
+});
+export type GrundnerJobRow = z.infer<typeof GrundnerJobRow>;
+
+export const GrundnerJobsRes = z.object({
+  items: z.array(GrundnerJobRow),
+  total: z.number().int().nonnegative()
+});
+export type GrundnerJobsRes = z.infer<typeof GrundnerJobsRes>;
+
 export const AppMessage = z.object({
   id: z.string(),
   createdAt: z.string(),
@@ -609,32 +624,6 @@ export type AppMessage = z.infer<typeof AppMessage>;
 export const MessagesListRes = z.object({ items: z.array(AppMessage) });
 export type MessagesListRes = z.infer<typeof MessagesListRes>;
 
-export const AllocatedMaterialRow = z.object({
-  grundnerId: z.number().int().nullable(),
-  typeData: z.number().int().nullable(),
-  customerId: z.string().nullable(),
-  lengthMm: z.number().int().nullable(),
-  widthMm: z.number().int().nullable(),
-  thicknessMm: z.number().int().nullable(),
-  stock: z.number().int().nullable(),
-  stockAvailable: z.number().int().nullable(),
-  reservedStock: z.number().int().nullable(),
-  preReserved: z.number().int().nullable(),
-  jobKey: z.string(),
-  folder: z.string().nullable(),
-  ncfile: z.string().nullable(),
-  material: z.string().nullable(),
-  jobPreReserved: z.boolean(),
-  jobLocked: z.boolean(),
-  updatedAt: z.string().nullable(),
-  allocatedAt: z.string().nullable(),
-  allocationStatus: z.enum(['pre_reserved', 'locked'])
-});
-export type AllocatedMaterialRow = z.infer<typeof AllocatedMaterialRow>;
-
-export const AllocatedMaterialListRes = z.object({ items: z.array(AllocatedMaterialRow) });
-export type AllocatedMaterialListRes = z.infer<typeof AllocatedMaterialListRes>;
-
 export const OrderingJobSample = z.object({
   key: z.string(),
   folder: z.string().nullable(),
@@ -647,26 +636,19 @@ export const OrderingRow = z.object({
   id: z.number().int().nullable(),
   typeData: z.number().int().nullable(),
   customerId: z.string().nullable(),
-  materialKey: z.string(),
-  materialLabel: z.string(),
-  required: z.number().int().nonnegative(),
-  lockedCount: z.number().int().nonnegative(),
+  materialName: z.string().nullable(),
   stock: z.number().int().nullable(),
-  stockAvailable: z.number().int().nullable(),
-  reservedStock: z.number().int().nullable(),
-  effectiveAvailable: z.number().int().nonnegative(),
-  orderAmount: z.number().int().nonnegative(),
+  demand: z.number().int().nonnegative(),
+  shortfall: z.number().int().nonnegative(),
   ordered: z.boolean(),
   orderedBy: z.string().nullable(),
   orderedAt: z.string().nullable(),
-  comments: z.string().nullable(),
-  pendingJobs: z.array(OrderingJobSample).optional()
+  comments: z.string().nullable()
 });
 export type OrderingRow = z.infer<typeof OrderingRow>;
 
 export const OrderingListRes = z.object({
   items: z.array(OrderingRow),
-  includeReserved: z.boolean(),
   generatedAt: z.string()
 });
 export type OrderingListRes = z.infer<typeof OrderingListRes>;
