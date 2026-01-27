@@ -34,6 +34,11 @@ import { archiveCompletedJob } from '../services/archive';
 
 const { access, copyFile, readFile, readdir, rename, stat, unlink, open } = fsp;
 
+// Windows (and many network shares) deny directory listing for these system folders.
+// If a configured root mistakenly points at the drive root (e.g. Z:\), recursive
+// scans will hit these and throw EPERM. We skip them to avoid spam + false errors.
+const SKIP_TRAVERSAL_DIRS = new Set(['$recycle.bin', 'system volume information']);
+
 const channel = parentPort;
 const fsWatchers = new Set<FSWatcher>();
 
@@ -2414,20 +2419,31 @@ function parseGrundnerCsv(raw: string): GrundnerCsvRow[] {
   return out;
 }
 
-async function collectNcBaseNames(root: string): Promise<{ bases: Set<string>; hadError: boolean }> {
+async function collectNcBaseNames(
+  root: string
+): Promise<{ bases: Set<string>; hadError: boolean; error?: { dir: string; message: string; code?: string } }> {
   const bases = new Set<string>();
   let hadError = false;
+  let error: { dir: string; message: string; code?: string } | undefined;
   async function walk(dir: string) {
     let entries: Dirent[] = [] as unknown as Dirent[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
       hadError = true;
+      if (!error) {
+        const e = err as NodeJS.ErrnoException;
+        error = { dir, message: e?.message ?? String(err), code: e?.code };
+      }
       return;
     }
     for (const entry of entries) {
       const p = join(dir, entry.name);
       if (entry.isDirectory()) {
+        const lower = entry.name.toLowerCase();
+        if (SKIP_TRAVERSAL_DIRS.has(lower)) {
+          continue;
+        }
         await walk(p);
       } else if (entry.isFile()) {
         const name = entry.name.toLowerCase();
@@ -2439,7 +2455,7 @@ async function collectNcBaseNames(root: string): Promise<{ bases: Set<string>; h
     }
   }
   await walk(root);
-  return { bases, hadError };
+  return { bases, hadError, ...(error ? { error } : {}) };
 }
 
 async function stageSanityPollOnce() {
@@ -2473,10 +2489,19 @@ async function stageSanityPollOnce() {
       const m = machines.find((mm) => mm.machineId === machineId);
       const folder = m?.apJobfolder?.trim?.();
       if (!m || !folder) continue;
-      const { bases: present, hadError } = await collectNcBaseNames(folder);
+      const { bases: present, hadError, error } = await collectNcBaseNames(folder);
       // If filesystem traversal failed, skip this machine to avoid false negatives
       if (hadError) {
-        recordWatcherEvent(STAGE_SANITY_WATCHER_NAME, { label: STAGE_SANITY_WATCHER_LABEL, message: 'Skipped stage sanity (folder traversal error)' });
+        const machineLabel = m.name ?? `Machine ${machineId}`;
+        const errSuffix = error ? ` (dir=${error.dir}, code=${error.code ?? 'unknown'})` : '';
+        logger.warn(
+          { machineId, machine: machineLabel, apJobfolder: folder, error },
+          'stage-sanity: folder traversal error'
+        );
+        recordWatcherEvent(STAGE_SANITY_WATCHER_NAME, {
+          label: STAGE_SANITY_WATCHER_LABEL,
+          message: `Skipped stage sanity (machine=${machineLabel}, folder=${folder})${errSuffix}`
+        });
         continue;
       }
       // Missing items
@@ -2549,20 +2574,31 @@ function startStageSanityPoller() {
   watcherReady(STAGE_SANITY_WATCHER_NAME, STAGE_SANITY_WATCHER_LABEL);
 }
 
-async function collectProcessedJobKeys(root: string): Promise<{ keys: Set<string>; hadError: boolean }> {
+async function collectProcessedJobKeys(
+  root: string
+): Promise<{ keys: Set<string>; hadError: boolean; error?: { dir: string; message: string; code?: string } }> {
   const keys = new Set<string>();
   let hadError = false;
+  let error: { dir: string; message: string; code?: string } | undefined;
   async function walk(dir: string) {
     let entries: Dirent[] = [] as unknown as Dirent[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
       hadError = true;
+      if (!error) {
+        const e = err as NodeJS.ErrnoException;
+        error = { dir, message: e?.message ?? String(err), code: e?.code };
+      }
       return;
     }
     for (const e of entries) {
       const p = join(dir, e.name);
       if (e.isDirectory()) {
+        const lower = e.name.toLowerCase();
+        if (SKIP_TRAVERSAL_DIRS.has(lower)) {
+          continue;
+        }
         await walk(p);
       } else if (e.isFile()) {
         if (e.name.toLowerCase().endsWith('.nc')) {
@@ -2579,7 +2615,7 @@ async function collectProcessedJobKeys(root: string): Promise<{ keys: Set<string
     }
   }
   await walk(root);
-  return { keys, hadError };
+  return { keys, hadError, ...(error ? { error } : {}) };
 }
 
 async function sourceSanityPollOnce() {
@@ -2588,9 +2624,14 @@ async function sourceSanityPollOnce() {
     const root = cfg.paths.processedJobsRoot?.trim?.() ?? '';
     if (!root || !(await fileExists(root))) return;
 
-    const { keys: presentKeys, hadError } = await collectProcessedJobKeys(root);
+    const { keys: presentKeys, hadError, error } = await collectProcessedJobKeys(root);
     if (hadError) {
-      recordWatcherEvent(SOURCE_SANITY_WATCHER_NAME, { label: SOURCE_SANITY_WATCHER_LABEL, message: 'Skipped source sanity (root traversal error)' });
+      const errSuffix = error ? ` (dir=${error.dir}, code=${error.code ?? 'unknown'})` : '';
+      logger.warn({ processedJobsRoot: root, error }, 'source-sanity: root traversal error');
+      recordWatcherEvent(SOURCE_SANITY_WATCHER_NAME, {
+        label: SOURCE_SANITY_WATCHER_LABEL,
+        message: `Skipped source sanity (root=${root})${errSuffix}`
+      });
       return;
     }
     // Find PENDING jobs whose key is not present on disk

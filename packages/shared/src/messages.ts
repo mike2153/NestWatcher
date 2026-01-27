@@ -61,7 +61,9 @@ const definitions: Record<string, MessageDefinition> = {
   'lock.failure': {
     key: 'lock.failure',
     title: 'Lock Failed',
-    body: 'Failed to lock {{count}} job(s). {{reason}}{{details ? ": " + details : ""}}{{userSuffix}}',
+    // Note: our template engine only supports {{key}} replacements (no JS expressions).
+    // Any optional suffix like ": <details>" must be assembled by the caller.
+    body: 'Failed to lock {{count}} job(s). {{reason}}{{details}}{{userSuffix}}',
     tone: 'error'
   },
   'unlock.success': {

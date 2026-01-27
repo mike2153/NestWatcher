@@ -28,10 +28,14 @@ async function waitForStableFile(path: string, attempts = 4, intervalMs = 300): 
   }
 }
 
-function toNcName(base: string | null): string {
+function toJobNo(base: string | null): string {
   const name = (base ?? '').trim();
   if (!name) return '';
-  return /\.nc$/i.test(name) ? name : `${name}.nc`;
+  // Defensive: if we somehow get a path, keep only the filename.
+  const normalized = name.replace(/\\/g, '/');
+  const justName = normalized.includes('/') ? normalized.slice(normalized.lastIndexOf('/') + 1) : normalized;
+  // Spec: do not include .nc in the CSV.
+  return justName.replace(/\.nc$/i, '');
 }
 
 export async function placeOrderSawCsv(
@@ -62,7 +66,11 @@ export async function placeOrderSawCsv(
     }
   }
 
-  const lines = items.map((it) => `${toNcName(it.ncfile)};${(it.material ?? '').trim()};1;0;0;0;0;0;0;0;`).join('\r\n') + '\r\n';
+  const lines =
+    items
+      .map((it) => `${toJobNo(it.ncfile)};${(it.material ?? '').trim()};1;0;0;0;0;0;0;0;`)
+      .join('\r\n') +
+    '\r\n';
 
   // Write atomic temp then rename
   await fsp.writeFile(tmpPath, lines, 'utf8');

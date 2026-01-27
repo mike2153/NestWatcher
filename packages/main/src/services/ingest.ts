@@ -11,6 +11,10 @@ function walkDir(dir: string): { files: string[]; hadError: boolean } {
   try {
     const entries = readdirSync(dir, { withFileTypes: true });
     for (const e of entries) {
+      const lowerName = e.name.toLowerCase();
+      if (e.isDirectory() && (lowerName === '$recycle.bin' || lowerName === 'system volume information')) {
+        continue;
+      }
       const p = join(dir, e.name);
       if (e.isDirectory()) {
         const child = walkDir(p);

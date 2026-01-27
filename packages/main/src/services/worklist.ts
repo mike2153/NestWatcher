@@ -682,8 +682,20 @@ export async function addJobToWorklist(key: string, machineId: number, actorName
         await lockJobAfterGrundnerConfirmation(job.key, actorName ?? 'Grundner');
         void dialog.showMessageBox({ type: 'info', title: 'Order Saw', message: `Order confirmed for ${job.key}.` });
       } else {
-        const message = res.erl ? res.erl : 'Timed out waiting for confirmation (.erl).';
-        void dialog.showMessageBox({ type: 'warning', title: 'Order Saw Failed', message });
+        const folder = res.folder;
+        const reason = res.checked
+          ? 'Grundner confirmation did not match request (.erl mismatch).'
+          : 'Timed out waiting for Grundner confirmation (.erl).';
+
+        const details = [
+          `Action: Reserve sheets in Grundner`,
+          `Job: ${job.key}`,
+          `Request: order_saw.csv (saw 0 placeholder)`,
+          `Waiting for: order_saw.erl`,
+          `Grundner folder: ${folder}`
+        ].join('\n');
+
+        void dialog.showMessageBox({ type: 'warning', title: 'Order Saw Failed', message: `${reason}\n\n${details}` });
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

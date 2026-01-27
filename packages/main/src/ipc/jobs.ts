@@ -310,7 +310,7 @@ export function registerJobsIpc() {
         {
           count: keys.length,
           reason: 'Insufficient stock available',
-          details: message,
+          details: message ? `: ${message}` : '',
           userSuffix: formatUserSuffix(session.displayName)
         },
         { source: 'jobs' }
@@ -328,18 +328,36 @@ export function registerJobsIpc() {
     try {
       const result = await placeOrderSawCsv(rows);
       if (!result.confirmed) {
-        const message = result.erl ? result.erl : 'Timed out waiting for confirmation (.erl)';
+        const action = 'Reserve sheets in Grundner';
+        const requestFile = 'order_saw.csv';
+        const replyFile = 'order_saw.erl';
+        const folder = result.folder;
+
+        const reason = result.checked
+          ? 'Grundner confirmation did not match request (.erl mismatch)'
+          : 'Timed out waiting for Grundner confirmation (.erl)';
+
+        const detailsLines = [
+          `Action: ${action}`,
+          `Jobs: ${sampleNcFiles}`,
+          `Request: ${requestFile} (saw 0 placeholder)`,
+          `Waiting for: ${replyFile}`,
+          `Grundner folder: ${folder}`,
+          result.checked ? 'Reply was received but did not match the request.' : 'Reply was not received before timeout.'
+        ];
+        const details = `\n${detailsLines.join('\n')}`;
         pushAppMessage(
           'lock.failure',
           {
             count: keys.length,
             sampleNcFiles,
-            reason: message,
+            reason,
+            details,
             userSuffix: formatUserSuffix(session.displayName)
           },
           { source: 'jobs' }
         );
-        return err(createAppError('grundner.orderFailed', message));
+        return err(createAppError('grundner.orderFailed', `${reason}${details}`));
       }
 
       // Mark locked after Grundner .erl confirmation
