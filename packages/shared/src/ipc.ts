@@ -268,6 +268,7 @@ export type AppError = z.infer<typeof AppErrorSchema>;
 export const JobStatus = z.enum([
   'PENDING',
   'STAGED',
+  'RUNNING',
   'LOAD_FINISH',
   'LABEL_FINISH',
   'CNC_FINISH',

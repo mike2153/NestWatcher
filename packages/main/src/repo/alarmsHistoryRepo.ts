@@ -2,6 +2,12 @@ import { withClient } from '../services/db';
 import { logger } from '../logger';
 import type { AlarmIntervalRow, AlarmsHistoryReq } from '../../../shared/src';
 
+// Keep IP normalization consistent with telemetry joins.
+const STATS_HOST_EXPR = `split_part(split_part(regexp_replace(lower(btrim(cs.pc_ip)), '^https?://', ''), '/', 1), ':', 1)`;
+const STATS_HOST_NORM_EXPR = `regexp_replace(${STATS_HOST_EXPR}, '\\s+', '', 'g')`;
+const MACHINE_HOST_EXPR = 'host(m.pc_ip)';
+const MACHINE_HOST_NORM_EXPR = `regexp_replace(lower(${MACHINE_HOST_EXPR}), '\\s+', '', 'g')`;
+
 type SeriesRow = {
   machine_id: number | null;
   machine_name: string | null;
@@ -35,13 +41,42 @@ function normalizeAlarmText(value: string | null | undefined): string | null {
 }
 
 function parseAlarmIdAndDesc(alarm: string): { id: string | null; description: string } {
-  const m = alarm.match(/^\s*\(([^)]+)\)\s*(.*)$/);
-  if (m) {
-    const id = m[1].trim();
-    const desc = (m[2] ?? '').trim();
-    return { id: id.length ? id : null, description: desc.length ? desc : alarm };
+  let working = alarm.trim();
+  if (!working) {
+    return { id: null, description: '' };
   }
-  return { id: null, description: alarm.trim() };
+
+  let id: string | null = null;
+
+  // Primary format we want to support:
+  //   MLC 65 (R44.0)Emergency Stop @ 2026.01.22 16:48
+  // where the alarm code is inside parentheses somewhere in the string.
+  const rMatch = working.match(/\(\s*(R[0-9]+(?:\.[0-9]+)?)\s*\)/i);
+  if (rMatch) {
+    id = rMatch[1].trim();
+    working = working.replace(rMatch[0], ' ');
+  } else {
+    // Back-compat: legacy format
+    //   (123) Something happened
+    const legacy = working.match(/^\s*\(([^)]+)\)\s*(.*)$/);
+    if (legacy) {
+      const legacyId = legacy[1].trim();
+      id = legacyId.length ? legacyId : null;
+      working = (legacy[2] ?? '').trim() || working;
+    }
+  }
+
+  // Strip the trailing timestamp embedded in the alarm text, because we already show time
+  // in the "DateTime" column.
+  working = working.replace(/\s*@\s*\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s*$/u, '').trim();
+
+  // Normalize spacing after removing tokens.
+  working = working.replace(/\s+/g, ' ').trim();
+  if (!working) {
+    working = alarm.trim();
+  }
+
+  return { id, description: working };
 }
 
 export async function listAlarmIntervals(req: AlarmsHistoryReq): Promise<AlarmIntervalRow[]> {
@@ -70,13 +105,16 @@ export async function listAlarmIntervals(req: AlarmsHistoryReq): Promise<AlarmIn
   const sql = `
     SELECT
       m.machine_id,
-      m.name AS machine_name,
+      COALESCE(
+        NULLIF(btrim(m.name), ''),
+        NULLIF(btrim(cs.machine_name), ''),
+        NULLIF(btrim(${STATS_HOST_EXPR}), '')
+      ) AS machine_name,
       to_timestamp(split_part(cs.key, '_', 1), 'YYYY.MM.DD HH24:MI:SS') AS ts,
       cs.alarm
     FROM public.cncstats cs
     LEFT JOIN public.machines m
-      ON lower(btrim(m.name)) = lower(btrim(cs.machine_name))
-     AND lower(btrim(m.pc_ip::text)) = split_part(split_part(regexp_replace(lower(btrim(cs.pc_ip)), '^https?://', ''), '/', 1), ':', 1)
+      ON ${MACHINE_HOST_NORM_EXPR} = ${STATS_HOST_NORM_EXPR}
     ${where}
     ORDER BY m.machine_id NULLS LAST, ts ASC
   `;

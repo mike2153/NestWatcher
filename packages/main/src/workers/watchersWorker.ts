@@ -790,8 +790,38 @@ function isAutoPacCsvFileName(fileName: string) {
   return (
     lower.startsWith('load_finish') ||
     lower.startsWith('label_finish') ||
-    lower.startsWith('cnc_finish')
+    lower.startsWith('cnc_finish') ||
+    lower.startsWith('order_saw')
   );
+}
+
+async function ensureJobStatusEnumHasRunning() {
+  try {
+    const exists = await withClient(async (c) =>
+      c
+        .query(
+          `
+            SELECT 1
+            FROM pg_type t
+            JOIN pg_enum e ON e.enumtypid = t.oid
+            WHERE t.typname = 'job_status'
+              AND e.enumlabel = 'RUNNING'
+            LIMIT 1
+          `
+        )
+        .then((r) => (r.rowCount ?? 0) > 0)
+    );
+    if (exists) return;
+
+    // Note: ALTER TYPE ... ADD VALUE cannot run inside an explicit transaction.
+    await withClient(async (c) => {
+      await c.query(`ALTER TYPE job_status ADD VALUE 'RUNNING'`);
+    });
+    logger.info('watchers: added RUNNING to job_status enum');
+  } catch (err) {
+    // Best-effort: if this fails, later lifecycle updates to RUNNING will fail too.
+    logger.warn({ err }, 'watchers: failed to ensure RUNNING exists in job_status enum');
+  }
 }
 
 // _inferMachineFromPath was unused and removed during cleanup
@@ -898,6 +928,151 @@ function rewriteNestpickRows(rows: string[][], machineId: number) {
   return rows;
 }
 
+function parseOrderSawChangeCsv(raw: string): Array<{ base: string; machineId: number }> {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  const out: Array<{ base: string; machineId: number }> = [];
+  for (const line of lines) {
+    const delim = line.includes(';') ? ';' : line.includes(',') ? ',' : null;
+    if (!delim) continue;
+    const parts = line
+      .split(delim)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+    if (parts.length < 2) continue;
+
+    const baseRaw = parts[0].replace(/\.nc$/i, '').trim();
+    const machineRaw = parts[1].trim();
+    const machineId = Number(machineRaw);
+    if (!baseRaw) continue;
+    if (!Number.isFinite(machineId)) continue;
+
+    out.push({ base: baseRaw, machineId: Math.trunc(machineId) });
+  }
+
+  return out;
+}
+
+async function waitForSlot(path: string, timeoutMs = 60_000) {
+  const start = Date.now();
+  while (await fileExists(path)) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`File busy timeout: ${path}`);
+    }
+    await delay(500);
+  }
+}
+
+async function waitForExists(path: string, timeoutMs = 30_000) {
+  const start = Date.now();
+  while (!(await fileExists(path))) {
+    if (Date.now() - start > timeoutMs) {
+      return false;
+    }
+    await delay(300);
+  }
+  return true;
+}
+
+async function handleAutoPacOrderSawCsv(path: string) {
+  const cfg = loadConfig();
+  const grundnerRoot = cfg.paths.grundnerFolderPath?.trim() ?? '';
+  if (!grundnerRoot) {
+    logger.warn({ file: path }, 'watcher: order_saw received but grundner folder not configured');
+    return;
+  }
+  if (!existsSync(grundnerRoot)) {
+    logger.warn({ file: path, grundnerRoot }, 'watcher: order_saw received but grundner folder does not exist');
+    return;
+  }
+
+  try {
+    await waitForStableFile(path);
+
+    const raw = await readFile(path, 'utf8');
+    const items = parseOrderSawChangeCsv(raw);
+    if (items.length === 0) {
+      logger.warn({ file: path }, 'watcher: order_saw file had no valid rows');
+      return;
+    }
+
+    const changeCsvName = 'ChangeMachNr.csv';
+    const outCsv = join(grundnerRoot, changeCsvName);
+    const outTmp = join(grundnerRoot, 'ChangeMachNr.tmp');
+    const outErl = join(grundnerRoot, 'ChangeMachNr.erl');
+
+    // Clear any stale confirmation file
+    try { await fsp.unlink(outErl); } catch { /* ignore */ }
+
+    // Ensure we don't overwrite an in-flight request
+    await waitForSlot(outCsv).catch((err) => {
+      throw new Error(`ChangeMachNr busy: ${(err as Error).message}`);
+    });
+    await waitForSlot(outTmp).catch((err) => {
+      throw new Error(`ChangeMachNr busy: ${(err as Error).message}`);
+    });
+
+    // Build canonical CSV content: base;machine;
+    const csvLines =
+      items
+        .map((it) => `${it.base};${it.machineId};`)
+        .join('\r\n') +
+      '\r\n';
+
+    // Atomic write: tmp then rename
+    await fsp.writeFile(outTmp, csvLines, 'utf8');
+    await fsp.rename(outTmp, outCsv).catch(async () => {
+      await fsp.writeFile(outCsv, csvLines, 'utf8');
+    });
+
+    // Wait for confirmation
+    const confirmed = await waitForExists(outErl, 30_000);
+    if (!confirmed) {
+      logger.warn({ outErl, file: path }, 'watcher: ChangeMachNr.erl not received');
+      return;
+    }
+
+    await waitForStableFile(outErl);
+    const erlRaw = await readFile(outErl, 'utf8');
+    const norm = (s: string) => s.replace(/\r\n/g, '\n').trim();
+    const ok = norm(erlRaw) === norm(csvLines);
+
+    if (!ok) {
+      logger.warn({ file: path }, 'watcher: ChangeMachNr.erl does not match request');
+      return;
+    }
+
+    // Delete erl to prevent stale confirmations
+    try { await fsp.unlink(outErl); } catch { /* ignore */ }
+
+    // Update lifecycle: STAGED -> RUNNING (per job)
+    for (const it of items) {
+      const job = await findJobByNcBasePreferStatus(it.base, ['STAGED']);
+      if (!job) {
+        logger.warn({ base: it.base, file: path }, 'watcher: order_saw change could not find job');
+        continue;
+      }
+      const result = await updateLifecycle(job.key, 'RUNNING', {
+        machineId: it.machineId,
+        source: 'autopac-order-saw',
+        payload: { source: path, dest: outCsv }
+      });
+      if (!result.ok && result.reason !== 'NO_CHANGE') {
+        logger.warn({ jobKey: job.key, reason: result.reason }, 'watcher: failed to update lifecycle to RUNNING');
+      }
+    }
+
+    // Clean up source CSV after processing
+    await unlinkWithRetry(path);
+  } catch (err) {
+    recordWatcherError(AUTOPAC_WATCHER_NAME, err, { path, label: AUTOPAC_WATCHER_LABEL });
+    logger.error({ err, file: path }, 'watcher: order_saw ChangeMachNr processing failed');
+  }
+}
+
 async function forwardToNestpick(base: string, job: Awaited<ReturnType<typeof findJobByNcBase>>, machine: Machine | undefined, machines: Machine[]) {
   if (!job) return;
   const resolvedMachine = machine ?? machines.find((m) => job.machineId != null && m.machineId === job.machineId);
@@ -982,10 +1157,19 @@ async function forwardToNestpick(base: string, job: Awaited<ReturnType<typeof fi
 
 async function handleAutoPacCsv(path: string) {
   const fileName = basename(path);
-  // Enforce naming: load_finish<machine>.csv, label_finish<machine>.csv, cnc_finish<machine>.csv
+  // Enforce naming:
+  // - load_finish<machine>.csv
+  // - label_finish<machine>.csv
+  // - cnc_finish<machine>.csv
+  // - order_saw<machine>.csv  (AutoPAC worklist "send order saw" request)
   const lower = fileName.toLowerCase();
   if (!lower.endsWith('.csv')) {
     logger.debug({ file: path }, 'watcher: ignoring non-CSV AutoPAC file');
+    return;
+  }
+
+  if (lower.startsWith('order_saw')) {
+    await handleAutoPacOrderSawCsv(path);
     return;
   }
   let to: 'LOAD_FINISH' | 'LABEL_FINISH' | 'CNC_FINISH' | null = null;
@@ -3632,6 +3816,7 @@ function setupNcCatJobsWatcher(dir: string) {
 async function initWatchers() {
   logger.info('watchers: waiting for database readiness before starting');
   await waitForDbReady();
+  await ensureJobStatusEnumHasRunning();
   await startDbNotificationListener();
   const cfg = loadConfig();
   if (cfg.paths.autoPacCsvDir) {

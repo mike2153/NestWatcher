@@ -48,7 +48,7 @@ async function unlockJobs(keys: string[], actorName?: string) {
 
   const rows = await withDb((db) =>
     db
-      .select({ key: jobs.key, ncfile: jobs.ncfile, material: jobs.material })
+      .select({ key: jobs.key, ncfile: jobs.ncfile, material: jobs.material, machineId: jobs.machineId })
       .from(jobs)
       .where(inArray(jobs.key, orderedKeys))
   );
@@ -78,7 +78,7 @@ async function unlockJobs(keys: string[], actorName?: string) {
   });
   const items = orderedKeys.map((key, index) => {
     const row = byKey.get(key)!;
-    return { ncfile: ncNames[index], material: row.material };
+    return { ncfile: ncNames[index], machineId: row.machineId ?? 0 };
   });
   const sampleNcFiles = formatSampleList(ncNames);
   const result = await placeProductionDeleteCsv(items);

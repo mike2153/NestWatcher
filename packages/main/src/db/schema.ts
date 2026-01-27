@@ -18,6 +18,7 @@ import {
 export const jobStatusEnum = pgEnum('job_status', [
   'PENDING',
   'STAGED',
+  'RUNNING',
   'LOAD_FINISH',
   'LABEL_FINISH',
   'CNC_FINISH',

@@ -69,6 +69,10 @@ export function GlobalTable<TData extends RowData>({
     return undefined;
   }
 
+  function getWrap(meta: unknown): boolean {
+    return Boolean((meta as { wrap?: boolean } | undefined)?.wrap);
+  }
+
   // Compute normalized % widths for columns that specify widthPercent.
   const flatColumns = table.getVisibleFlatColumns();
   const rawPercents = flatColumns.map((col) => ({ id: col.id, pct: getWidthPercent(col.columnDef.meta) }));
@@ -187,18 +191,20 @@ export function GlobalTable<TData extends RowData>({
               {row.getVisibleCells().map((cell) => {
                 const pct = widthPctById.get(cell.column.id);
                 const minPx = getMinWidthPx(cell.column.columnDef.meta);
+                const wrap = getWrap(cell.column.columnDef.meta);
                 return (
                   <td
                     key={cell.id}
                     className={cn(
-                      'align-middle whitespace-nowrap font-medium overflow-hidden',
+                      'align-middle font-medium overflow-hidden',
+                      wrap ? 'whitespace-normal' : 'whitespace-nowrap',
                       density === 'compact' ? 'px-2 py-1' : 'px-4 py-2',
                       // Only apply widthClass when no widthPercent is set
                       !pct && cell.column.columnDef.meta && getWidthClass(cell.column.columnDef.meta)
                     )}
                     style={{ width: pct ? `${pct}%` : undefined, minWidth: minPx }}
                   >
-                    <div className="min-w-0 truncate overflow-hidden text-ellipsis">
+                    <div className={cn('min-w-0', wrap ? 'break-words whitespace-normal' : 'truncate overflow-hidden text-ellipsis')}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </div>
                   </td>

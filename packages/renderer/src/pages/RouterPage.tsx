@@ -67,6 +67,7 @@ function statusClass(status: JobStatus) {
     case 'LOAD_FINISH':
       return 'bg-amber-100 text-amber-800';
     case 'STAGED':
+    case 'RUNNING':
       return 'bg-cyan-100 text-cyan-800';
     default:
       return 'bg-accent text-accent-foreground';

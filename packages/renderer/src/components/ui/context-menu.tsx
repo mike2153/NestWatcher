@@ -79,7 +79,8 @@ function ContextMenuContentBase({ children, className }: { children: React.React
         ref={contentRef}
         className={cn(
           'z-50 min-w-[8rem] overflow-hidden rounded-md border p-1 shadow-lg',
-          'bg-[var(--popover)] text-[var(--popover-foreground)] border-[var(--border)]',
+          // Use solid theme surfaces; --popover is not defined in our theme tokens.
+          'bg-[var(--card)] text-[var(--card-foreground)] border-[var(--border)]',
           className
         )}
         style={style}

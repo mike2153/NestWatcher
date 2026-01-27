@@ -217,6 +217,7 @@ function statusBadgeClass(status: JobStatus) {
     case 'LOAD_FINISH':
       return 'bg-amber-100 text-amber-800';
     case 'STAGED':
+    case 'RUNNING':
       return 'bg-cyan-100 text-cyan-800';
     case 'PENDING':
     default:
@@ -381,7 +382,7 @@ export function JobsPage() {
     }
 
     if (groups.includes('processing')) {
-      statuses.push('STAGED', 'LOAD_FINISH', 'LABEL_FINISH', 'FORWARDED_TO_NESTPICK');
+      statuses.push('STAGED', 'RUNNING', 'LOAD_FINISH', 'LABEL_FINISH', 'FORWARDED_TO_NESTPICK');
     }
 
     if (groups.includes('complete')) {
@@ -806,12 +807,12 @@ export function JobsPage() {
         if (mode === 'lock') {
           const res = await window.api.jobs.lockBatch(targetKeys);
           if (!res.ok) {
-            alert(`Lock failed: ${res.error.message}`);
+            alert(`Reserve failed: ${res.error.message}`);
           }
         } else {
           const res = await window.api.jobs.unlockBatch(targetKeys);
           if (!res.ok) {
-            alert(`Unlock failed: ${res.error.message}`);
+            alert(`Unreserve failed: ${res.error.message}`);
           }
         }
         await refresh();
@@ -1195,11 +1196,11 @@ export function JobsPage() {
           <ContextMenuItem
             onSelect={() => performLock(selectedKeys, 'lock')}
             disabled={actionBusy || !anyUnlocked}
-          >Lock</ContextMenuItem>
+          >Reserve</ContextMenuItem>
           <ContextMenuItem
             onSelect={() => performLock(selectedKeys, 'unlock')}
             disabled={actionBusy || !anyLocked}
-          >Unlock</ContextMenuItem>
+          >Unreserve</ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
             onSelect={() => isSingleSelection && openHistoryModal(selectedKeys[0])}

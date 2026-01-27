@@ -23,6 +23,7 @@ const DASH_COLS_PCT = {
 
 const ACTIVE_STATUSES: NonNullable<JobsListReq['filter']['statusIn']> = [
   'STAGED',
+  'RUNNING',
   'LOAD_FINISH',
   'LABEL_FINISH',
   'CNC_FINISH',

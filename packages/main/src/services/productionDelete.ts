@@ -1,15 +1,18 @@
 import { existsSync, promises as fsp } from 'fs';
 import { join, normalize } from 'path';
 import { loadConfig } from './config';
-import { getGrundnerLookupColumn } from './grundner';
 import { logger } from '../logger';
 
-type DeleteItem = { ncfile: string | null; material: string | null };
+type DeleteItem = { ncfile: string | null; machineId: number | null };
 
-function toNcName(base: string | null): string {
+function toJobNo(base: string | null): string {
   const name = (base ?? '').trim();
   if (!name) return '';
-  return /\.nc$/i.test(name) ? name : `${name}.nc`;
+  // Defensive: if we somehow get a path, keep only the filename.
+  const normalized = name.replace(/\\/g, '/');
+  const justName = normalized.includes('/') ? normalized.slice(normalized.lastIndexOf('/') + 1) : normalized;
+  // Spec: job name without .nc
+  return justName.replace(/\.nc$/i, '');
 }
 
 async function waitFor(condition: () => Promise<boolean>, timeoutMs: number, intervalMs = 300): Promise<boolean> {
@@ -75,7 +78,18 @@ export async function placeProductionDeleteCsv(
     }
   }
 
-  const lines = items.map((it) => `${toNcName(it.ncfile)};${(it.material ?? '').trim() || '0'};`).join('\r\n') + '\r\n';
+  // CSV structure (semicolon separated):
+  // 1) Job name without .nc
+  // 2) Machine number
+  const lines =
+    items
+      .map((it) => {
+        const jobNo = toJobNo(it.ncfile);
+        const machine = Number.isFinite(it.machineId as number) ? String(it.machineId) : '0';
+        return `${jobNo};${machine};`;
+      })
+      .join('\r\n') +
+    '\r\n';
   await fsp.writeFile(tmpPath, lines, 'utf8');
   await fsp.rename(tmpPath, reqPath).catch(async () => { await fsp.writeFile(reqPath, lines, 'utf8'); });
 
@@ -90,63 +104,34 @@ export async function placeProductionDeleteCsv(
   await waitForStableFile(ansPath);
   const raw = await fsp.readFile(ansPath, 'utf8');
   const rows = parseCommissioningDelCsv(raw);
-  const mode = getGrundnerLookupColumn();
-
   // Build expected items and material counts
-  const expectedByMaterial = new Map<string, number>();
-  const expectedItems = items.map((it) => ({
-    job: toNcName(it.ncfile).toLowerCase(),
-    material: (it.material ?? '').trim()
-  })).filter(it => it.job.length > 0 && it.material.length > 0);
-  for (const it of expectedItems) {
-    expectedByMaterial.set(it.material, (expectedByMaterial.get(it.material) ?? 0) + 1);
-  }
+  const expectedItems = items
+    .map((it) => ({
+      job: toJobNo(it.ncfile).toLowerCase(),
+      machine: (Number.isFinite(it.machineId as number) ? String(it.machineId) : '0').trim()
+    }))
+    .filter((it) => it.job.length > 0 && it.machine.length > 0);
 
   // Evaluate answer rows using new 9-column structure (0-based):
   // 0=line, 1=job-no, 2=type, 3=material, 4=qty, 5=rotation, 6=machine, 7=source, 8=res
   const matchedJobs = new Set<number>();
-  const replyByMaterial = new Map<string, number>();
   for (const cols of rows) {
     const jobNo = (cols[1] ?? '').trim().toLowerCase();
-    const typeData = (cols[2] ?? '').trim();
-    const materialName = (cols[3] ?? '').trim();
-    const qtyRaw = (cols[4] ?? '').trim();
     const machine = (cols[6] ?? '').trim();
-    if (machine !== '0') continue; // only consider machine 0
-    const qty = Number.parseInt(qtyRaw, 10);
-    if (!Number.isFinite(qty)) continue;
-    // When using type_data mode, use typeData (col 2); when using customer_id mode, use materialName (col 3)
-    const matKey = mode === 'customer_id' ? materialName : typeData;
-    if (!matKey) {
-      logger.warn({ jobNo, typeData, materialName, mode }, 'productionDelete: no material key found in response');
-      continue;
-    }
 
-    // Accumulate per material
-    if (expectedByMaterial.has(matKey)) {
-      replyByMaterial.set(matKey, (replyByMaterial.get(matKey) ?? 0) + qty);
-    }
-
-    // Try to match individual jobs by job-no + material key
+    // Try to match individual jobs by job-no + machine
     for (let i = 0; i < expectedItems.length; i++) {
       if (matchedJobs.has(i)) continue;
       const ex = expectedItems[i];
-      if (ex.job === jobNo && ex.material === matKey) {
+      if (ex.job === jobNo && ex.machine === machine) {
         matchedJobs.add(i);
-        // Do not break accumulation; we just mark the job seen
+        // Do not break; allow duplicates but only count first match per expected item
       }
     }
   }
 
   // All requested jobs must be matched at least once
-  let confirmed = matchedJobs.size === expectedItems.length;
-  // And per-material sums must equal the number of requested deletions for that material
-  if (confirmed) {
-    for (const [mat, count] of expectedByMaterial.entries()) {
-      const got = replyByMaterial.get(mat) ?? 0;
-      if (got !== count) { confirmed = false; break; }
-    }
-  }
+  const confirmed = matchedJobs.size === expectedItems.length;
 
   // Keep the commissioning answer file for inspection (do not delete here)
   // Caller can clean up later if desired.
