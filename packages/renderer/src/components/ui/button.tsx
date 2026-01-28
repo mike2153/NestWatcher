@@ -10,11 +10,11 @@ const buttonVariants = cva(
     variants: {
       variant: {
         // Primary action button style (fixed blue across themes)
-        default: "bg-blue-600 text-slate-100 shadow-sm hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm",
+        default: "bg-[var(--blue-button)] text-[var(--blue-button-foreground)] shadow-sm hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm",
 
         // Cancel / destructive button style (fixed red across themes)
         destructive:
-          "bg-red-600 text-slate-100 shadow-sm hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm",
+          "bg-[var(--red-button)] text-[var(--red-button-foreground)] shadow-sm hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm",
 
         // Keep other variants available for layout/semantics; they also get the same raise behavior.
         outline:

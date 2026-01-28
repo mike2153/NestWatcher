@@ -10,10 +10,10 @@ interface ThemeModalProps {
 
 const themes: { value: Theme; label: string; color: string; description: string }[] = [
   {
-    value: 'nccat-light',
+    value: 'light',
     label: 'Light',
     color: 'bg-[hsl(40,20%,98%)]',
-    description: 'NC-Catalyst light theme.'
+    description: 'Bright, clean surfaces with strong contrast text.'
   },
   {
     value: 'sunset',
@@ -22,22 +22,22 @@ const themes: { value: Theme; label: string; color: string; description: string 
     description: 'Warm stone background with high contrast cards.'
   },
   {
-    value: 'dark',
+    value: 'dark-teal',
     label: 'Dark (Teal)',
     color: 'bg-slate-900',
-    description: 'Soft Ocean dark theme with teal accents.'
+    description: 'Dark theme with teal accents.'
   },
   {
-    value: 'forest',
+    value: 'dark-green',
     label: 'Dark (Green)',
     color: 'bg-emerald-900',
-    description: 'Nordic Forest dark theme with natural greens.'
+    description: 'Dark theme with natural greens.'
   },
   {
-    value: 'supabase',
+    value: 'dark-charcoal',
     label: 'Dark (Charcoal)',
     color: 'bg-[#1c1c1c]',
-    description: 'Supabase dark theme with charcoal + emerald accents.'
+    description: 'Charcoal dark theme with subtle green accents.'
   }
 ];
 

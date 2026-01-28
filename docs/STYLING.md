@@ -2,7 +2,7 @@
 
 This is the “copy/paste spec” for Woodtron’s UI: colors, radii, typography, component shapes, and the App Sidebar behavior — so you can reuse it as a skeleton in another app.
 
-If you want “the light theme”, the app’s intended light palette is `nccat-light` (it matches NC Catalyst).
+If you want “the light theme”, the app’s intended light palette is `light`.
 
 ## Source Of Truth Files
 
@@ -27,8 +27,8 @@ If you want “the light theme”, the app’s intended light palette is `nccat-
 Theme is applied by adding a class to the `<html>` element.
 
 - Implemented in: `packages/renderer/src/contexts/ThemeContext.tsx`
-- Theme classes used: `dark`, `sunset`, `forest`, `supabase`, `nccat-light`
-- Special rule: for dark palettes (`forest`, `supabase`) the code adds BOTH the theme class and `dark` so Tailwind’s `dark:` variant works.
+- Theme classes used: `light`, `sunset`, `dark-teal`, `dark-green`, `dark-charcoal`
+- Special rule: for all dark palettes, the code also adds the `dark` class so Tailwind’s `dark:` variant works.
 
 ## Typography
 
@@ -85,10 +85,11 @@ All themeable colors come from CSS variables in `packages/renderer/src/styles/th
 - Table: `--table-bg`, `--table-header-bg`, `--table-text`, `--table-border`, `--table-row-border`, `--table-hover-bg`, `--table-selected-bg`
 - Status: `--status-success-*`, `--status-warning-*`, `--status-error-*`, `--status-info-*`
 - Scrollbar: `--scrollbar-track`, `--scrollbar-thumb`, `--scrollbar-thumb-hover`
+- Buttons: `--blue-button-*`, `--red-button-*` (explicit “primary” and “destructive” button colors)
 
-### “Light theme” values you probably want to port (`nccat-light`)
+### “Light theme” values you probably want to port (`light`)
 
-These are the exact values from the `.nccat-light` block in `packages/renderer/src/styles/theme.css`:
+These are the exact values from the `.light` block in `packages/renderer/src/styles/theme.css`:
 
 - Background: `--background`/`--background-body` = `hsl(40 20% 98%)`
 - Elevated: `--background-elevated` = `hsl(0 0% 100%)`, `--background-subtle` = `hsl(40 10% 94%)`
@@ -121,8 +122,8 @@ Defined in `packages/renderer/src/index.css`:
   - `lg`: `h-11 px-6 py-3`
   - `icon`: `size-10` (square)
 - Variants (important detail):
-  - `default` is *fixed* blue (`bg-blue-600`) and NOT theme-token-driven
-  - `destructive` is *fixed* red (`bg-red-600`)
+  - `default` uses CSS variables (`--blue-button-*`) so the exact color is controlled in `packages/renderer/src/styles/theme.css`
+  - `destructive` uses CSS variables (`--red-button-*`)
   - `outline` / `secondary` / `ghost` use theme tokens (`var(--border)`, `var(--card)`, etc.)
 
 ### Input (`packages/renderer/src/components/ui/input.tsx`)
@@ -233,7 +234,7 @@ If you’re copying the UI to another app, you should define these in your globa
 
 ## Porting Checklist (Fastest Way To Clone The UI)
 
-1. Copy `packages/renderer/src/styles/theme.css` and the `nccat-light` block
+1. Copy `packages/renderer/src/styles/theme.css` and the `light` block
 2. Copy `packages/renderer/src/index.css` (base font, focus rules, shared classes)
 3. Copy `packages/renderer/tailwind.config.ts` (token mapping + font stack)
 4. Copy `packages/renderer/src/components/ui/` (Button/Input/Card/Table/Sidebar/Sheet)

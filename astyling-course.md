@@ -147,11 +147,11 @@ You have **two “theme application” layers**:
 
 ### Theme classes used
 From `ThemeContext.tsx`:
-- `'dark' | 'sunset' | 'forest' | 'supabase' | 'nccat-light'`
+- `'light' | 'sunset' | 'dark-teal' | 'dark-green' | 'dark-charcoal'`
 
 **Key detail (very important):**
-- For dark themes like `forest` and `supabase`, you end up with **two classes**:
-  - `forest` (or `supabase`)
+- For any dark theme (`dark-teal`, `dark-green`, `dark-charcoal`), you end up with **two classes**:
+  - the theme class
   - plus `dark` (so Tailwind `dark:` variant works)
 
 That behavior is in:
@@ -168,12 +168,12 @@ sequenceDiagram
   participant HTML as <html> element
   participant CSS as theme.css variables
 
-  User->>UI: select "forest"
-  UI->>TC: setTheme('forest')
+  User->>UI: select "dark-green"
+  UI->>TC: setTheme('dark-green')
   TC->>HTML: remove old theme classes
-  TC->>HTML: add 'forest'
+  TC->>HTML: add 'dark-green'
   TC->>HTML: also add 'dark' (so dark: works)
-  CSS-->>HTML: variables from .forest now active
+  CSS-->>HTML: variables from .dark-green now active
   HTML-->>User: UI recolors without reload
 ```
 
@@ -209,7 +209,7 @@ Where variables are defined:
 - `packages/renderer/src/styles/theme.css`
 
 Pros:
-- Fully themeable (forest/supabase/sunset/etc)
+- Fully themeable (dark-teal/dark-green/dark-charcoal/sunset/etc)
 - One place to change colors
 
 Cons:
@@ -226,7 +226,7 @@ Pros:
 - Doesn’t depend on your theme variables
 
 Cons:
-- Ignores forest/supabase/sunset palettes (only light vs dark)
+- Ignores dark-* / sunset palettes (only light vs dark)
 - You must update every place manually if you want consistency
 
 **8) A Very Important Audit Finding: Some “systems” in the repo are not actually active**
@@ -317,7 +317,7 @@ To inspect variable values directly, open Console and run:
 
 You basically need to pick one “source of truth” for colors:
 
-Option 1 (Best if you truly want multiple themes like forest/supabase/sunset):
+Option 1 (Best if you truly want multiple themes like dark-teal/dark-green/dark-charcoal/sunset):
 - Use **CSS variables as tokens**
 - Use Tailwind only as a “syntax” to apply tokens (prefer semantic names)
 - Avoid Tailwind palette colors for semantics (error/success/warning)
@@ -329,7 +329,7 @@ Rules:
 
 Option 2 (Best if you only care about light vs dark, and themes are basically “skins”):
 - Use Tailwind palette + `dark:` for status colors
-- Accept that forest/supabase won’t fully control status colors
+- Accept that dark-green/dark-charcoal won’t fully control status colors
 - Still keep CSS variables for surfaces (background/card/border)
 
 Rules:
@@ -369,7 +369,7 @@ If you want, I can:
 - And then once you’re out of plan mode, we can actually update the doc to match reality.
 
 **One question (because it determines the best long-term direction):**
-Do you want your semantic colors (error/warning/success) to follow *each theme* (forest vs supabase vs sunset), or is “light vs dark only” acceptable for semantic colors across the app?
+Do you want your semantic colors (error/warning/success) to follow *each theme* (dark-teal vs dark-green vs dark-charcoal vs sunset), or is “light vs dark only” acceptable for semantic colors across the app?
 
 - If you answer “follow each theme”: we should standardize on CSS tokens (`--status-error-*`) everywhere and stop using `bg-red-*` for semantics.
 - If you answer “light vs dark only”: we should standardize on Tailwind palette + `dark:` for semantics and stop trying to theme status colors via variables.

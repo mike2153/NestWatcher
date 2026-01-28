@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
-export type Theme = 'dark' | 'sunset' | 'forest' | 'supabase' | 'nccat-light';
+export type Theme = 'light' | 'sunset' | 'dark-teal' | 'dark-green' | 'dark-charcoal';
 
 interface ThemeContextType {
   theme: Theme;
@@ -12,32 +12,31 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 const THEME_STORAGE_KEY = 'woodtron-theme';
 
+const VALID_THEMES: Theme[] = ['light', 'sunset', 'dark-teal', 'dark-green', 'dark-charcoal'];
+
+function normalizeStoredTheme(stored: string | null): Theme {
+  if (!stored) return 'dark-teal';
+  return (VALID_THEMES as readonly string[]).includes(stored) ? (stored as Theme) : 'dark-teal';
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     // Check localStorage for saved preference
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(THEME_STORAGE_KEY);
-      if (['dark', 'sunset', 'forest', 'supabase', 'nccat-light'].includes(saved as string)) {
-        return saved as Theme;
-      }
+      return normalizeStoredTheme(localStorage.getItem(THEME_STORAGE_KEY));
     }
-    return 'dark'; // Default to dark theme
+    return 'dark-teal'; // Default to dark theme
   });
 
   useEffect(() => {
     // Apply theme class to document
     const root = document.documentElement;
-    root.classList.remove('dark', 'sunset', 'forest', 'supabase', 'nccat-light');
-
+    root.classList.remove('dark', ...VALID_THEMES);
     root.classList.add(theme);
 
-    // Also add 'dark' class for dark themes so Tailwind's dark: prefix works
-    // Light themes: sunset, nccat-light
-    // Dark themes: dark, forest, supabase
-    const isDarkTheme = theme === 'dark' || theme === 'forest' || theme === 'supabase';
-    if (isDarkTheme && theme !== 'dark') {
-      root.classList.add('dark');
-    }
+    // Add Tailwind's dark-mode marker class for all dark variants.
+    const isDarkTheme = theme === 'dark-teal' || theme === 'dark-green' || theme === 'dark-charcoal';
+    if (isDarkTheme) root.classList.add('dark');
 
     localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
@@ -45,8 +44,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const toggleTheme = () => {
     setThemeState((prev) => {
       // Flip between Light and the default dark theme.
-      if (prev === 'dark') return 'nccat-light';
-      return 'dark';
+      if (prev === 'dark-teal') return 'light';
+      return 'dark-teal';
     });
   };
 

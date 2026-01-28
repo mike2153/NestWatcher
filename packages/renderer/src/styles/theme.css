@@ -1,15 +1,17 @@
 /*
  * Woodtron Themes
- * Soft Ocean (Dark) - Default
- * Sunset Drift - Warm
- * Nordic Forest - Green/Nature
+ * Dark Teal - Default
+ * Sunset - Warm
+ * Dark Green - Green/Nature
+ * Dark Charcoal - Charcoal
+ * Light - Light
  */
 
 @layer base {
 
-  /* === Dark Theme (Default / Soft Ocean) === */
+  /* === Dark Teal Theme (Default) === */
   :root,
-  .dark {
+  .dark-teal {
     /* Backgrounds - Deeper Slate for contrast */
     --background: hsl(200 18% 7%);
     --background-body: hsl(200 18% 7%);
@@ -26,10 +28,25 @@
     --card-foreground: hsl(40 20% 96%);
     --card-hover: hsl(200 10% 16%);
 
+    /* Popover - used by shadcn context menus */
+    --popover: var(--card);
+    --popover-foreground: var(--card-foreground);
+
     /* Primary Action - Soft Teal */
     --primary: hsl(172 66% 50%);
     --primary-hover: hsl(172 66% 60%);
     --primary-foreground: hsl(200 18% 10%);
+
+    /* Buttons - explicit (do not change visuals unless you change these) */
+    --blue-button-light: #2563eb;
+    --blue-button-dark: #2563eb;
+    --blue-button: var(--blue-button-dark);
+    --blue-button-foreground: #f1f5f9;
+
+    --red-button-light: #dc2626;
+    --red-button-dark: #dc2626;
+    --red-button: var(--red-button-dark);
+    --red-button-foreground: #f1f5f9;
 
     /* Accents */
     --accent-blue: hsl(172 66% 50%);
@@ -120,6 +137,10 @@
     --background-elevated: rgb(241, 238, 231);
     --background-subtle: rgb(241, 238, 231);
 
+    /* Popover - used by shadcn context menus */
+    --popover: var(--card);
+    --popover-foreground: var(--card-foreground);
+
     /* Foreground */
     --foreground: rgb(20, 20, 20);
     --foreground-muted: #5a5a5a;
@@ -134,6 +155,10 @@
     --primary: rgb(218, 119, 87);
     --primary-hover: rgb(206, 108, 77);
     --primary-foreground: #ffffff;
+
+    /* Buttons */
+    --blue-button: var(--blue-button-light);
+    --red-button: var(--red-button-light);
 
     /* Accents */
     --accent-blue: rgb(218, 119, 87);
@@ -208,8 +233,8 @@
     --scrollbar-thumb-hover: rgba(20, 20, 20, 0.35);
   }
 
-  /* === Nordic Forest Theme === */
-  .forest {
+  /* === Dark Green Theme === */
+  .dark-green {
     /* Backgrounds: Deeper Green for contrast */
     --background: hsl(150 18% 5%);
     --background-body: hsl(150 18% 5%);
@@ -230,6 +255,10 @@
     --primary: hsl(140 45% 55%);
     --primary-hover: hsl(140 45% 65%);
     --primary-foreground: hsl(150 20% 10%);
+
+    /* Buttons */
+    --blue-button: var(--blue-button-dark);
+    --red-button: var(--red-button-dark);
 
     /* Accents */
     --accent-blue: hsl(140 45% 55%);
@@ -303,9 +332,9 @@
     --scrollbar-thumb-hover: hsl(150 12% 28%);
   }
 
-  /* === Supabase Theme (Dark with Emerald Accent) === */
-  .supabase {
-    /* Backgrounds: Deep charcoal like Supabase */
+  /* === Dark Charcoal Theme === */
+  .dark-charcoal {
+    /* Backgrounds: Deep charcoal */
     --background: #1c1c1c;
     --background-body: #1c1c1c;
     --background-elevated: #2a2a2a;
@@ -321,10 +350,14 @@
     --card-foreground: #ededed;
     --card-hover: #333333;
 
-    /* Primary: Supabase Emerald Green */
+    /* Primary */
     --primary: #3ecf8e;
     --primary-hover: #4ade80;
     --primary-foreground: #1c1c1c;
+
+    /* Buttons */
+    --blue-button: var(--blue-button-dark);
+    --red-button: var(--red-button-dark);
 
     /* Accents: Emerald green */
     --accent-blue: #3ecf8e;
@@ -351,7 +384,7 @@
     --muted: #333333;
     --muted-foreground: #a1a1a1;
 
-    /* Borders: Subtle dark gray like Supabase inputs */
+    /* Borders: Subtle dark gray */
     --border: #3d3d3d;
     --border-subtle: #333333;
     --border-strong: #4a4a4a;
@@ -400,64 +433,72 @@
 
 
 
-  /* === NC-Cat Light Theme - Exact Match to NC Catalyst === */
-  .nccat-light {
-    /* Base - Warm off-white background (NC Cat: 40 20% 98%) */
+  /* === Light Theme === */
+  .light {
+    /* Base - Warm off-white background */
     --background: hsl(40 20% 98%);
     --background-body: hsl(40 20% 98%);
     --background-elevated: hsl(0 0% 100%);
     --background-subtle: hsl(40 10% 94%);
 
-    /* Foreground (NC Cat: 220 25% 12%) */
+    /* Foreground */
     --foreground: hsl(220 25% 12%);
     --foreground-muted: hsl(220 10% 45%);
     --foreground-subtle: hsl(220 10% 60%);
 
-    /* Cards & Surfaces (NC Cat: 0 0% 100%) */
+    /* Cards & Surfaces */
     --card: hsl(0 0% 100%);
     --card-foreground: hsl(220 25% 12%);
     --card-hover: hsl(40 10% 98%);
 
-    /* Primary - Deep Navy Blue (NC Cat: 220 65% 28%) */
+    /* Popover - used by shadcn context menus */
+    --popover: var(--card);
+    --popover-foreground: var(--card-foreground);
+
+    /* Primary - Deep Navy Blue */
     --primary: hsl(220 65% 28%);
     --primary-hover: hsl(220 65% 34%);
     --primary-foreground: hsl(40 20% 98%);
 
-    /* Accents: Blue (NC Cat uses #2563eb) */
+    /* Buttons */
+    --blue-button: var(--blue-button-light);
+    --red-button: var(--red-button-light);
+
+    /* Accents: Blue */
     --accent-blue: #2563eb;
     --accent-blue-light: #3b82f6;
     --accent-blue-glow: rgba(37, 99, 235, 0.4);
     --accent-blue-subtle: rgba(37, 99, 235, 0.1);
     --accent-blue-border: rgba(37, 99, 235, 0.3);
 
-    /* Secondary - Warm Muted (NC Cat: 40 10% 94%) */
+    /* Secondary - Warm Muted */
     --secondary: hsl(40 10% 94%);
     --secondary-foreground: hsl(220 25% 20%);
     --secondary-hover: hsl(40 10% 88%);
 
-    /* Destructive (NC Cat: 0 72% 51%) */
+    /* Destructive */
     --destructive: hsl(0 72% 51%);
     --destructive-hover: hsl(0 72% 45%);
     --destructive-foreground: hsl(0 0% 100%);
 
-    /* Accent - Golden Amber (NC Cat: 38 92% 50%) */
+    /* Accent - Golden Amber */
     --accent: hsl(38 92% 50%);
     --accent-foreground: hsl(220 25% 12%);
 
-    /* Muted (NC Cat: 40 10% 94%, muted-foreground: 220 10% 45%) */
+    /* Muted */
     --muted: hsl(40 10% 94%);
     --muted-foreground: hsl(220 10% 45%);
 
-    /* Borders & Inputs (NC Cat: 40 15% 88%) */
+    /* Borders & Inputs */
     --border: hsl(40 15% 88%);
     --border-subtle: hsl(40 15% 92%);
     --border-strong: hsl(40 15% 80%);
 
-    /* Ring (NC Cat: 220 65% 28%) */
+    /* Ring */
     --ring: hsl(220 65% 28%);
     --ring-glow: 0 0 0 3px rgba(25, 55, 109, 0.15);
 
-    /* Sidebar (NC Cat: 220 20% 97% - light blueish gray, NOT white) */
+    /* Sidebar */
     --sidebar: hsl(220 20% 97%);
     --sidebar-foreground: hsl(220 25% 20%);
     --sidebar-accent: hsl(220 30% 94%);
@@ -481,7 +522,7 @@
     --status-info-text: hsl(190 70% 35%);
     --status-info-border: hsl(190 40% 80%);
 
-    /* Table colors (NC Cat exact values) */
+    /* Table colors */
     --table-bg: hsl(0 0% 100%);
     --table-header-bg: hsl(40 10% 96%);
     --table-text: hsl(220 25% 12%);

@@ -18,38 +18,16 @@ export default {
       colors: {
         // Semantic colors
         border: 'var(--border)',
-        input: 'var(--input)',
         ring: 'var(--ring)',
         background: 'var(--background)',
         foreground: 'var(--foreground)',
         primary: {
           DEFAULT: 'var(--primary)',
           foreground: 'var(--primary-foreground)',
-          50: 'var(--primary-50)',
-          100: 'var(--primary-100)',
-          200: 'var(--primary-200)',
-          300: 'var(--primary-300)',
-          400: 'var(--primary-400)',
-          500: 'var(--primary-500)',
-          600: 'var(--primary-600)',
-          700: 'var(--primary-700)',
-          800: 'var(--primary-800)',
-          900: 'var(--primary-900)',
-          950: 'var(--primary-950)'
         },
         secondary: {
           DEFAULT: 'var(--secondary)',
           foreground: 'var(--secondary-foreground)',
-          50: 'var(--secondary-50)',
-          100: 'var(--secondary-100)',
-          200: 'var(--secondary-200)',
-          300: 'var(--secondary-300)',
-          400: 'var(--secondary-400)',
-          500: 'var(--secondary-500)',
-          600: 'var(--secondary-600)',
-          700: 'var(--secondary-700)',
-          800: 'var(--secondary-800)',
-          900: 'var(--secondary-900)'
         },
         muted: {
           DEFAULT: 'var(--muted)',
@@ -74,23 +52,6 @@ export default {
         sidebar: {
           DEFAULT: 'var(--sidebar)',
           foreground: 'var(--sidebar-foreground)',
-          primary: 'var(--sidebar-primary)',
-          'primary-foreground': 'var(--sidebar-primary-foreground)',
-          accent: 'var(--sidebar-accent)',
-          'accent-foreground': 'var(--sidebar-accent-foreground)',
-          border: 'var(--sidebar-border)',
-          ring: 'var(--sidebar-ring)',
-        },
-
-        // Table colors (using 'tbl' to avoid conflict with Tailwind's table display utilities)
-        tbl: {
-          DEFAULT: 'var(--table-bg)',
-          header: 'var(--table-header-bg)',
-          text: 'var(--table-text)',
-          border: 'var(--table-border)',
-          row: 'var(--table-row-border)',
-          hover: 'var(--table-hover-bg)',
-          selected: 'var(--table-selected-bg)',
         },
 
         // Status colors
