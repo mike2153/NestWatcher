@@ -5,11 +5,11 @@ import { ok, err } from 'neverthrow';
 import type { AppError, Machine, ReadyImportRes, ReadyFile, ReadyDeleteRes, JobStatus } from '../../../shared/src';
 import { ReadyImportReq, ReadyDeleteReq } from '../../../shared/src';
 import { listMachines } from '../repo/machinesRepo';
-import { appendProductionListDel } from '../services/nestpick';
 import { pushAppMessage } from '../services/messages';
 import { importReadyFile } from '../services/readyImport';
-import { findJobDetailsByNcBase, findJobByNcBase } from '../repo/jobsRepo';
+import { findJobDetailsByNcBase } from '../repo/jobsRepo';
 import { subscribeReadyRefresh } from '../services/readyNotifier';
+import { unlockJobs } from './unlockJobs';
 import { createAppError } from './errors';
 import { registerResultHandler } from './result';
 import { onContentsDestroyed } from './onDestroyed';
@@ -662,7 +662,9 @@ export function registerFilesIpc() {
     logger.info(
       `files:ready:delete: result deleted=${deletedCount} errorCount=${errors.length} files=[${deletedFiles.join(', ')}]`
     );
-    // Send Nestpick deletion request for removed NCs
+    // After deleting from Ready-To-Run, treat this as "unlock job" (release reservation).
+    // This uses the same Grundner get_production.csv handshake as the Jobs unlock action,
+    // and writes a single CSV for the batch.
     try {
       const ncEntries = deletedFiles
         .filter((p) => p.toLowerCase().endsWith('.nc'))
@@ -674,41 +676,35 @@ export function registerFilesIpc() {
           const ncFile = file.toLowerCase().endsWith('.nc') ? file : `${file}.nc`;
           return { ncFile, folder };
         });
-      if (ncEntries.length) {
-        const baseToNames = new Map<string, string[]>();
-        for (const entry of ncEntries) {
-          const baseKey = entry.ncFile.replace(/\.nc$/i, '').toLowerCase();
-          if (!baseKey) continue;
-          const list = baseToNames.get(baseKey) ?? [];
-          list.push(entry.ncFile);
-          baseToNames.set(baseKey, list);
-        }
 
-        const eligibleNcFiles: string[] = [];
-        for (const [baseKey, names] of baseToNames.entries()) {
-          const job = await findJobByNcBase(baseKey);
-          if (!job) continue;
-          const assignedToMachine = job.machineId != null || STAGED_STATUS_SET.has(job.status);
-          if (job.isLocked || assignedToMachine) {
-            eligibleNcFiles.push(...names);
-          }
-        }
+      for (const entry of ncEntries) {
+        pushAppMessage('job.ready.delete', { ncFile: entry.ncFile, folder: entry.folder }, { source: 'ready-delete' });
+      }
 
-        if (eligibleNcFiles.length) {
-          await appendProductionListDel(machineId, eligibleNcFiles);
-        } else {
-          logger.info(
-            { machineId, ncCount: ncEntries.length },
-            'files:ready:delete: skipped production delete (no eligible jobs)'
-          );
-        }
+      const keysToUnlock: string[] = [];
+      const seenKeys = new Set<string>();
+      for (const entry of ncEntries) {
+        // Prefer resolving by the folder-relative key (folder/base) to avoid collisions
+        // when the same NC base exists in multiple folders.
+        const relativeKey = `${entry.folder ? `${entry.folder}/` : ''}${entry.ncFile}`.replace(/\.nc$/i, '');
+        const job = await findJobDetailsByNcBase(relativeKey);
+        if (!job) continue;
+        if (seenKeys.has(job.key)) continue;
+        seenKeys.add(job.key);
+        keysToUnlock.push(job.key);
+      }
 
-        for (const entry of ncEntries) {
-          pushAppMessage('job.ready.delete', { ncFile: entry.ncFile, folder: entry.folder }, { source: 'ready-delete' });
+      if (!keysToUnlock.length) {
+        logger.info({ machineId, ncCount: ncEntries.length }, 'files:ready:delete: no job keys resolved for unlock');
+      } else {
+        const res = await unlockJobs(keysToUnlock, null);
+        if (res.isErr()) {
+          errors.push({ file: 'grundner', message: res.error.message });
         }
       }
     } catch (err) {
-      logger.warn({ err, machineId }, 'files:ready:delete: failed to write productionLIST_del.csv');
+      logger.warn({ err, machineId }, 'files:ready:delete: unlock flow failed');
+      errors.push({ file: 'grundner', message: err instanceof Error ? err.message : String(err) });
     }
     return ok<ReadyDeleteRes, AppError>({ deleted: deletedCount, files: deletedFiles, errors });
   });

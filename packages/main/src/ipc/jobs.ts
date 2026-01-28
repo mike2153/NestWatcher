@@ -8,7 +8,6 @@ import { withDb } from '../services/db';
 import { inArray, eq, and, not, sql } from 'drizzle-orm';
 import { jobs, grundner } from '../db/schema';
 import { placeOrderSawCsv } from '../services/orderSaw';
-import { placeProductionDeleteCsv } from '../services/productionDelete';
 import { rerunJob } from '../services/rerun';
 import { addJobToWorklist } from '../services/worklist';
 import { ingestProcessedJobsRoot } from '../services/ingest';
@@ -16,6 +15,7 @@ import { pushAppMessage } from '../services/messages';
 import { createAppError } from './errors';
 import { registerResultHandler } from './result';
 import { requireSession } from '../services/authSessions';
+import { unlockJobs } from './unlockJobs';
 
 function ensureNcExtension(value: string | null | undefined, fallbackBase: string): string {
   const raw = value ?? fallbackBase;
@@ -30,105 +30,6 @@ function formatSampleList(values: string[], limit = 3): string {
 
 function formatUserSuffix(user?: string | null) {
   return user ? ` (by ${user})` : '';
-}
-
-async function unlockJobs(keys: string[], actorName?: string) {
-  const seen = new Set<string>();
-  const orderedKeys: string[] = [];
-  for (const rawKey of keys) {
-    if (typeof rawKey !== 'string') continue;
-    const key = rawKey.trim();
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    orderedKeys.push(key);
-  }
-  if (!orderedKeys.length) {
-    return err(createAppError('jobs.invalidArguments', 'No jobs provided.'));
-  }
-
-  const rows = await withDb((db) =>
-    db
-      .select({ key: jobs.key, ncfile: jobs.ncfile, material: jobs.material, machineId: jobs.machineId })
-      .from(jobs)
-      .where(inArray(jobs.key, orderedKeys))
-  );
-  const byKey = new Map(rows.map((row) => [row.key, row]));
-  const missing = orderedKeys.filter((key) => !byKey.has(key));
-  if (missing.length) {
-    const message =
-      orderedKeys.length === 1 ? 'Job not found.' : `Jobs not found: ${missing.join(', ')}`;
-    return err(createAppError('jobs.notFound', message));
-  }
-  const missingNc = orderedKeys.filter((key) => {
-    const row = byKey.get(key);
-    return !row || !row.ncfile;
-  });
-  if (missingNc.length) {
-    const message =
-      orderedKeys.length === 1
-        ? 'Job or NC file not found.'
-        : `NC file not found for: ${missingNc.join(', ')}`;
-    return err(createAppError('jobs.notFound', message));
-  }
-
-  const ncNames = orderedKeys.map((key) => {
-    const row = byKey.get(key)!;
-    const base = key.includes('/') ? key.substring(key.lastIndexOf('/') + 1) : key;
-    return ensureNcExtension(row.ncfile, base);
-  });
-  const items = orderedKeys.map((key, index) => {
-    const row = byKey.get(key)!;
-    return { ncfile: ncNames[index], machineId: row.machineId ?? 0 };
-  });
-  const sampleNcFiles = formatSampleList(ncNames);
-  const result = await placeProductionDeleteCsv(items);
-  const suffix = formatUserSuffix(actorName);
-  if (!result.confirmed) {
-    pushAppMessage(
-      'unlock.failure',
-      {
-        count: orderedKeys.length,
-        sampleNcFiles,
-        reason: result.message ?? 'Delete not confirmed by Grundner',
-        userSuffix: suffix
-      },
-      { source: 'jobs' }
-    );
-    return err(createAppError('grundner.deleteFailed', result.message ?? 'Delete not confirmed by Grundner'));
-  }
-
-  const failures: string[] = [];
-  for (const key of orderedKeys) {
-    const success = await unlockJob(key);
-    if (!success) failures.push(key);
-  }
-  if (failures.length) {
-    const message =
-      orderedKeys.length === 1
-        ? 'Job is not currently locked.'
-        : `Failed to unlock ${failures.length} job(s): ${failures.join(', ')}`;
-    pushAppMessage(
-      'unlock.failure',
-      {
-        count: orderedKeys.length,
-        sampleNcFiles,
-        reason: message,
-        userSuffix: suffix
-      },
-      { source: 'jobs' }
-    );
-    return err(createAppError('jobs.notLocked', message));
-  }
-  pushAppMessage(
-    'unlock.success',
-    {
-      count: orderedKeys.length,
-      sampleNcFiles,
-      userSuffix: suffix
-    },
-    { source: 'jobs' }
-  );
-  return ok<null, AppError>(null);
 }
 
 export function registerJobsIpc() {
