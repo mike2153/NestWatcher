@@ -7,7 +7,7 @@ import type {
   WorklistCollisionInfo,
   WorklistSkippedFile
 } from '../../../shared/src';
-import { dialog } from 'electron';
+import { enqueueDialog } from './dialogQueue';
 import { appendJobEvent } from '../repo/jobEventsRepo';
 import { rerunJob } from './rerun';
 import { listMachines } from '../repo/machinesRepo';
@@ -19,11 +19,372 @@ import { placeOrderSawCsv } from './orderSaw';
 import { pushAppMessage } from './messages';
 import { runHeadlessValidationWithRetry } from './ncCatHeadless';
 import { persistNcCatValidationReport } from './ncCatValidationResults';
+import { buildNcCatValidationReport } from './ncCatValidationReport';
+import { emitReadyRefresh } from './readyNotifier';
+
+type ValidationCacheEntry = {
+  cachedAtMs: number;
+  report: NcCatValidationReport;
+  persisted: boolean;
+  // If true, staging should be blocked (overallStatus === 'errors')
+  blocked: boolean;
+};
+
+const VALIDATION_CACHE_TTL_MS = 30_000;
+const validationCache = new Map<string, ValidationCacheEntry>();
+
+function normalizeCacheKey(machineId: number, sourceRoot: string): string {
+  const normalized = normalize(sourceRoot);
+  const key = `${machineId}|${normalized}`;
+  return process.platform === 'win32' ? key.toLowerCase() : key;
+}
+
+function pruneValidationCache(nowMs: number): void {
+  for (const [key, entry] of validationCache.entries()) {
+    if (nowMs - entry.cachedAtMs > VALIDATION_CACHE_TTL_MS) {
+      validationCache.delete(key);
+    }
+  }
+}
+
+type StagedBatchKey = string;
+type StagedBatchEntry = {
+  machineId: number;
+  machineName: string;
+  folder: string;
+  userSuffix: string;
+  count: number;
+  sampleNcFiles: string[];
+  missingNptCount: number;
+  sampleMissingNpt: string[];
+};
+
+const stagedBatch = new Map<StagedBatchKey, StagedBatchEntry>();
+let stagedBatchFlushTimer: NodeJS.Timeout | null = null;
+
+function flushStagedBatchMessages() {
+  const entries = Array.from(stagedBatch.values());
+  stagedBatch.clear();
+  if (stagedBatchFlushTimer) {
+    clearTimeout(stagedBatchFlushTimer);
+    stagedBatchFlushTimer = null;
+  }
+  for (const e of entries) {
+    const sample = e.sampleNcFiles.slice(0, 5).join(', ');
+    const more = e.count > e.sampleNcFiles.length ? ` (+${e.count - e.sampleNcFiles.length} more)` : '';
+
+    const missingSample = e.sampleMissingNpt.slice(0, 5).join(', ');
+    const missingMore = e.missingNptCount > e.sampleMissingNpt.length ? ` (+${e.missingNptCount - e.sampleMissingNpt.length} more)` : '';
+    const warningSuffix = e.missingNptCount
+      ? ` WARNING: missing .npt for ${e.missingNptCount} job(s): ${missingSample}${missingMore}.`
+      : '';
+
+    pushAppMessage(
+      'jobs.staged',
+      {
+        count: e.count,
+        folder: e.folder,
+        machineName: e.machineName,
+        sampleNcFiles: sample ? `${sample}${more}` : '',
+        userSuffix: e.userSuffix,
+        warningSuffix
+      },
+      { source: 'worklist' }
+    );
+  }
+}
+
+function queueStagedBatchMessage(params: {
+  machineId: number;
+  machineName: string;
+  folder: string;
+  ncFile: string;
+  userSuffix: string;
+  missingNpt: boolean;
+}) {
+  const key: StagedBatchKey = `${params.machineId}::${params.folder}::${params.userSuffix}`;
+  const existing = stagedBatch.get(key);
+  if (existing) {
+    existing.count += 1;
+    if (existing.sampleNcFiles.length < 5) {
+      existing.sampleNcFiles.push(params.ncFile);
+    }
+
+    if (params.missingNpt) {
+      existing.missingNptCount += 1;
+      if (existing.sampleMissingNpt.length < 5) {
+        existing.sampleMissingNpt.push(params.ncFile);
+      }
+    }
+  } else {
+    stagedBatch.set(key, {
+      machineId: params.machineId,
+      machineName: params.machineName,
+      folder: params.folder,
+      userSuffix: params.userSuffix,
+      count: 1,
+      sampleNcFiles: [params.ncFile],
+      missingNptCount: params.missingNpt ? 1 : 0,
+      sampleMissingNpt: params.missingNpt ? [params.ncFile] : []
+    });
+  }
+  if (stagedBatchFlushTimer) clearTimeout(stagedBatchFlushTimer);
+  stagedBatchFlushTimer = setTimeout(flushStagedBatchMessages, 500);
+  if (typeof stagedBatchFlushTimer.unref === 'function') {
+    stagedBatchFlushTimer.unref();
+  }
+}
+
+type OrderSawQueuedItem = {
+  key: string;
+  ncfile: string | null;
+  material: string | null;
+  folder: string;
+  machineId: number;
+  machineName: string;
+  actorName?: string;
+};
+
+type OrderSawBatch = {
+  key: string;
+  createdAtMs: number;
+  itemsByJobKey: Map<string, OrderSawQueuedItem>;
+  timer: NodeJS.Timeout | null;
+};
+
+const orderSawBatches = new Map<string, OrderSawBatch>();
+let orderSawChain: Promise<void> = Promise.resolve();
+
+const ORDER_SAW_BUSY_MAX_RETRIES = 12;
+const ORDER_SAW_BUSY_RETRY_BASE_DELAY_MS = 1500;
+const ORDER_SAW_BUSY_RETRY_MAX_DELAY_MS = 20_000;
+let lastOrderSawBusyDialogAtMs = 0;
+const ORDER_SAW_BUSY_DIALOG_COOLDOWN_MS = 120_000;
+
+function isOrderSawBusyError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return msg.includes('order_saw.csv') && msg.includes('busy');
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function orderSawBatchKey(params: { machineId: number; folder: string; actorName?: string }): string {
+  const base = `${params.machineId}|${params.folder}|${params.actorName ?? ''}`;
+  return process.platform === 'win32' ? base.toLowerCase() : base;
+}
+
+function buildOrderSawDialogBody(items: OrderSawQueuedItem[], confirmed: boolean): string {
+  const lines: string[] = [];
+  lines.push(confirmed ? 'Grundner reservation confirmed for:' : 'Grundner reservation did not confirm for:');
+  lines.push('');
+
+  const display = items
+    .map((it) => (it.ncfile ? toNcFileName(it.ncfile, it.key) : it.key))
+    .sort((a, b) => a.localeCompare(b));
+
+  const maxShow = 50;
+  const shown = display.slice(0, maxShow);
+  for (const name of shown) {
+    lines.push(`- ${name}`);
+  }
+  if (display.length > maxShow) {
+    lines.push('');
+    lines.push(`...and ${display.length - maxShow} more`);
+  }
+  return lines.join('\n');
+}
+
+function enqueueOrderSawItem(item: OrderSawQueuedItem): void {
+  const key = orderSawBatchKey({ machineId: item.machineId, folder: item.folder, actorName: item.actorName });
+  const now = Date.now();
+  const existing = orderSawBatches.get(key);
+  const batch: OrderSawBatch = existing ?? {
+    key,
+    createdAtMs: now,
+    itemsByJobKey: new Map<string, OrderSawQueuedItem>(),
+    timer: null
+  };
+
+  batch.itemsByJobKey.set(item.key, item);
+
+  if (batch.timer) {
+    clearTimeout(batch.timer);
+    batch.timer = null;
+  }
+
+  // Debounce: treat a rapid series of per-file staging calls as one folder action.
+  batch.timer = setTimeout(() => {
+    batch.timer = null;
+    orderSawBatches.delete(key);
+    const items = Array.from(batch.itemsByJobKey.values());
+    // Serialize all order_saw operations; Grundner folder supports only one in-flight order.
+    orderSawChain = orderSawChain
+      .then(async () => {
+        if (!items.length) return;
+        const machineName = items[0]?.machineName ?? `Machine ${items[0]?.machineId ?? ''}`;
+        const folder = items[0]?.folder ?? '';
+
+        try {
+          let res: Awaited<ReturnType<typeof placeOrderSawCsv>> | null = null;
+          let busyRetries = 0;
+          while (res == null) {
+            try {
+              res = await placeOrderSawCsv(
+                items.map((it) => ({ key: it.key, ncfile: it.ncfile, material: it.material })),
+                10_000
+              );
+            } catch (err) {
+              if (isOrderSawBusyError(err) && busyRetries < ORDER_SAW_BUSY_MAX_RETRIES) {
+                busyRetries += 1;
+                const backoff = Math.min(
+                  ORDER_SAW_BUSY_RETRY_MAX_DELAY_MS,
+                  ORDER_SAW_BUSY_RETRY_BASE_DELAY_MS * Math.pow(2, Math.min(6, busyRetries - 1))
+                );
+
+                // Do not spam dialogs. Only emit a throttled informational message.
+                if (busyRetries === 1) {
+                  pushAppMessage(
+                    'grundner.order.failed',
+                    {
+                      jobKey: `${items.length} job(s)`,
+                      folder,
+                      machineName,
+                      reason: 'Grundner order_saw.csv is busy; retrying automatically'
+                    },
+                    { source: 'worklist' }
+                  );
+                }
+
+                await delay(backoff);
+                continue;
+              }
+
+              // Either not a busy error, or we exceeded retry budget.
+              throw err;
+            }
+          }
+
+          // Record that we processed and checked the .erl (and that it was deleted)
+          for (const it of items) {
+            try {
+              await appendJobEvent(
+                it.key,
+                'grundner:erlChecked',
+                {
+                  confirmed: res.confirmed,
+                  folder: res.folder,
+                  checked: !!res.checked,
+                  deleted: !!res.deleted,
+                  csv: res.csv ?? null,
+                  erl: res.erl ?? null,
+                  batchCount: items.length
+                },
+                it.machineId
+              );
+            } catch (err) {
+              logger.warn({ err, key: it.key }, 'worklist: failed to append erlChecked event');
+            }
+          }
+
+          if (res.confirmed) {
+            // Lock only after confirmed .erl from Grundner
+            for (const it of items) {
+              try {
+                await lockJobAfterGrundnerConfirmation(it.key, it.actorName ?? 'Grundner');
+              } catch (err) {
+                logger.warn({ err, key: it.key }, 'worklist: failed to lock job after Grundner confirmation');
+              }
+            }
+
+            pushAppMessage(
+              'grundner.order.confirmed',
+              {
+                jobKey: `${items.length} job(s)`,
+                folder,
+                machineName
+              },
+              { source: 'worklist' }
+            );
+
+            enqueueDialog({
+              type: 'info',
+              title: 'Grundner Reservation Confirmed',
+              message: buildOrderSawDialogBody(items, true)
+            });
+          } else {
+            const reason = res.checked
+              ? 'Grundner confirmation did not match request (.erl mismatch).'
+              : 'Timed out waiting for Grundner confirmation (.erl).';
+
+            pushAppMessage(
+              'grundner.order.failed',
+              {
+                jobKey: `${items.length} job(s)`,
+                folder,
+                machineName,
+                reason
+              },
+              { source: 'worklist' }
+            );
+
+            enqueueDialog({
+              type: 'warning',
+              title: 'Grundner Reservation Failed',
+              message: `${reason}\n\n${buildOrderSawDialogBody(items, false)}`
+            });
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          pushAppMessage(
+            'grundner.order.error',
+            {
+              jobKey: `${items.length} job(s)`,
+              folder,
+              machineName,
+              reason: msg
+            },
+            { source: 'worklist' }
+          );
+
+          // If the only problem is "busy" and it persisted beyond retries, show at most
+          // one dialog every cooldown window so the UI is not spammed.
+          if (isOrderSawBusyError(err)) {
+            const now = Date.now();
+            if (now - lastOrderSawBusyDialogAtMs >= ORDER_SAW_BUSY_DIALOG_COOLDOWN_MS) {
+              lastOrderSawBusyDialogAtMs = now;
+              enqueueDialog({
+                type: 'warning',
+                title: 'Grundner Busy',
+                message:
+                  `order_saw.csv is still busy after multiple retries.\n\n` +
+                  `The app will stop retrying this batch for now.\n\n` +
+                  buildOrderSawDialogBody(items, false)
+              });
+            }
+            return;
+          }
+
+          enqueueDialog({ type: 'warning', title: 'Grundner Reservation Error', message: msg });
+        }
+      })
+      .catch((err) => {
+        logger.warn({ err }, 'worklist: order saw chain failure');
+      });
+  }, 800);
+
+  if (typeof batch.timer.unref === 'function') {
+    batch.timer.unref();
+  }
+  orderSawBatches.set(key, batch);
+}
 
 const OVERWRITE_PATTERNS: RegExp[] = [
   /^planit.*\.csv$/i,
   /\.csv$/i,
   /\.nc$/i,
+  /\.npt$/i,
   /\.lpt$/i,
   /\.pts$/i,
   /\.(bmp|jpg|jpeg|png|gif)$/i
@@ -153,10 +514,28 @@ export async function addJobToWorklist(key: string, machineId: number, actorName
   let validationReport: NcCatValidationReport | null = null;
   const validationNcFiles = files.filter((filePath) => extname(filePath).toLowerCase() === '.nc');
   if (validationNcFiles.length) {
-    const validationInputs = validationNcFiles.map((filePath) => ({
-      filename: relative(sourceRoot, filePath).replace(/\\/g, '/'),
-      ncContent: readFileSync(filePath, 'utf8')
-    }));
+    const nowMs = Date.now();
+    pruneValidationCache(nowMs);
+    const cacheKey = normalizeCacheKey(machineId, sourceRoot);
+    const cached = validationCache.get(cacheKey);
+    if (cached && nowMs - cached.cachedAtMs <= VALIDATION_CACHE_TTL_MS) {
+      validationReport = cached.report;
+      if (cached.blocked) {
+        return {
+          ok: false,
+          error: 'Validation errors found. Staging blocked.',
+          validationReport: cached.report
+        };
+      }
+    }
+
+    if (validationReport) {
+      // Reuse cached report; avoid re-running validation/persisting.
+    } else {
+      const validationInputs = validationNcFiles.map((filePath) => ({
+        filename: relative(sourceRoot, filePath).replace(/\\/g, '/'),
+        ncContent: readFileSync(filePath, 'utf8')
+      }));
 
     const validationOutcome = await runHeadlessValidationWithRetry({
       reason: 'stage',
@@ -166,55 +545,41 @@ export async function addJobToWorklist(key: string, machineId: number, actorName
       machineNameHint: m.name
     });
 
-    if (validationOutcome.ok) {
-      const filesSummary = validationOutcome.results.map((result) => {
-        const warnings = Array.isArray(result.validation.warnings) ? result.validation.warnings : [];
-        const errors = Array.isArray(result.validation.errors) ? result.validation.errors : [];
-        const legacySyntax = Array.isArray((result.validation as unknown as { syntax?: unknown }).syntax)
-          ? ((result.validation as unknown as { syntax: string[] }).syntax)
-          : [];
-
-        return {
-          filename: result.filename,
-          status: result.validation.status,
-          warnings,
-          errors: errors.concat(legacySyntax)
-        };
-      });
-      const hasErrors = filesSummary.some((file) => file.status === 'errors');
-      const hasWarnings = filesSummary.some((file) => file.status === 'warnings');
-      const overallStatus = hasErrors ? 'errors' : hasWarnings ? 'warnings' : 'pass';
-
-      const report: NcCatValidationReport = {
-        reason: 'stage',
-        folderName: leaf,
-        profileName: validationOutcome.profileName ?? null,
-        processedAt: new Date().toISOString(),
-        overallStatus,
-        files: filesSummary
-      };
-      validationReport = report;
-      void persistNcCatValidationReport(report);
-      if (overallStatus === 'errors') {
-        return {
-          ok: false,
-          error: 'Validation errors found. Staging blocked.',
-          validationReport: report
-        };
-      }
-    } else if ('skipped' in validationOutcome && validationOutcome.skipped) {
+      if (validationOutcome.ok) {
+        const processedAt = new Date().toISOString();
+        const report = buildNcCatValidationReport({
+          reason: 'stage',
+          folderName: leaf,
+          profileName: validationOutcome.profileName ?? null,
+          processedAt,
+          results: validationOutcome.results
+        });
+        validationReport = report;
+        // Persist once per folder within the cache window.
+        void persistNcCatValidationReport(report);
+        validationCache.set(cacheKey, {
+          cachedAtMs: nowMs,
+          report,
+          persisted: true,
+          blocked: report.overallStatus === 'errors'
+        });
+        if (report.overallStatus === 'errors') {
+          return { ok: false, error: 'Validation errors found. Staging blocked.', validationReport: report };
+        }
+      } else if ('skipped' in validationOutcome && validationOutcome.skipped) {
       pushAppMessage(
         'ncCat.validationSkipped',
         { folderName: leaf, reason: validationOutcome.reason ?? 'Validation skipped' },
         { source: 'worklist' }
       );
-    } else {
+      } else {
       const validationError = 'error' in validationOutcome ? validationOutcome.error : null;
       pushAppMessage(
         'ncCat.validationUnavailable',
         { folderName: leaf, error: validationError ?? 'Validation failed' },
         { source: 'worklist' }
       );
+      }
     }
   }
 
@@ -364,6 +729,13 @@ export async function addJobToWorklist(key: string, machineId: number, actorName
   const exactCsv = pickFileByName(`${ncBaseLower}.csv`, preferredDirLower);
   if (exactCsv) {
     addCopyTarget(exactCsv);
+  }
+
+  // Nestpick payload (required for Nestpick-enabled workflow, but do not block staging).
+  const nptPath = pickFileByName(`${ncBaseLower}.npt`, preferredDirLower);
+  const missingNpt = !nptPath;
+  if (nptPath) {
+    addCopyTarget(nptPath);
   }
 
   // Decide scanning mode
@@ -640,67 +1012,32 @@ export async function addJobToWorklist(key: string, machineId: number, actorName
   }
 
   const userSuffix = actorName ? ` (by ${actorName})` : '';
-  pushAppMessage(
-    'job.staged',
-    {
-      ncFile: toNcFileName(job.ncfile, job.key),
-      folder: job.folder ?? '',
-      machineName: m.name ?? `Machine ${machineId}`,
-      userSuffix
-    },
-    { source: 'worklist' }
-  );
+  queueStagedBatchMessage({
+    machineId,
+    machineName: m.name ?? `Machine ${machineId}`,
+    folder: job.folder ?? '',
+    ncFile: toNcFileName(job.ncfile, job.key),
+    userSuffix,
+    missingNpt
+  });
 
-  // After staging, place Grundner order_saw CSV, wait for .erl reply, record the check,
-  // and then lock on confirmation. This should not fail the staging result; show a dialog to the user with outcome.
-  // Only place order saw if we have not already locked (i.e., already confirmed earlier)
+  // Ensure Ready-To-Run subscribers refresh after DB updates settle.
+  emitReadyRefresh(machineId);
+
+  // After staging, reserve sheets in Grundner.
+  // IMPORTANT: batch per folder so staging a folder with 10 NC files only produces one order_saw.csv,
+  // and one confirmation dialog.
+  // This should never fail the staging result.
   if (!job.is_locked) {
-    try {
-      const res = await placeOrderSawCsv([{ key: job.key, ncfile: job.ncfile, material: job.material ?? null }]);
-
-      // Record that we processed and checked the .erl (and that it was deleted)
-      try {
-        await appendJobEvent(
-          job.key,
-          'grundner:erlChecked',
-          {
-            confirmed: res.confirmed,
-            folder: res.folder,
-            checked: !!res.checked,
-            deleted: !!res.deleted,
-            csv: res.csv ?? null,
-            erl: res.erl ?? null
-          },
-          machineId
-        );
-      } catch (err) {
-        logger.warn({ err, key: job.key }, 'worklist: failed to append erlChecked event');
-      }
-
-      if (res.confirmed) {
-        // Lock only after confirmed .erl from Grundner
-        await lockJobAfterGrundnerConfirmation(job.key, actorName ?? 'Grundner');
-        void dialog.showMessageBox({ type: 'info', title: 'Order Saw', message: `Order confirmed for ${job.key}.` });
-      } else {
-        const folder = res.folder;
-        const reason = res.checked
-          ? 'Grundner confirmation did not match request (.erl mismatch).'
-          : 'Timed out waiting for Grundner confirmation (.erl).';
-
-        const details = [
-          `Action: Reserve sheets in Grundner`,
-          `Job: ${job.key}`,
-          `Request: order_saw.csv (saw 0 placeholder)`,
-          `Waiting for: order_saw.erl`,
-          `Grundner folder: ${folder}`
-        ].join('\n');
-
-        void dialog.showMessageBox({ type: 'warning', title: 'Order Saw Failed', message: `${reason}\n\n${details}` });
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      void dialog.showMessageBox({ type: 'warning', title: 'Order Saw Error', message: msg });
-    }
+    enqueueOrderSawItem({
+      key: job.key,
+      ncfile: job.ncfile,
+      material: job.material ?? null,
+      folder: job.folder ?? '',
+      machineId,
+      machineName: m.name ?? `Machine ${machineId}`,
+      actorName
+    });
   } else {
     logger.info({ key: job.key }, 'worklist: skipping order saw (already locked/confirmed earlier)');
   }

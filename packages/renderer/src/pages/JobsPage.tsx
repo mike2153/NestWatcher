@@ -140,14 +140,8 @@ function formatTimestamp(value: string) {
 }
 
 function formatEventName(eventType: string): string {
-  // Convert event type to user-friendly format
-  // Examples: "autopac:cnc_finish" -> "AutoPAC CNC Finish"
-  //           "nestpick:forwarded" -> "Nestpick Forwarded"
-  //           "lifecycle:staged" -> "Lifecycle Staged"
-
   const parts = eventType.split(':');
   const formatted = parts.map(part => {
-    // Split by underscore and capitalize each word
     return part
       .split('_')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
@@ -166,7 +160,6 @@ function formatPayload(payload: unknown): React.ReactNode {
 
   if (entries.length === 0) return null;
 
-  // Track seen keys (case-insensitive and normalized) to avoid duplicates
   const seenKeys = new Set<string>();
   const uniqueEntries = entries.filter(([key]) => {
     const normalizedKey = key.toLowerCase().replace(/[_\s-]/g, '');
@@ -638,7 +631,7 @@ export function JobsPage() {
     },
     {
       accessorKey: 'locked',
-      header: 'Locked',
+      header: 'Reserved',
       meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.locked, minWidthPx: 70 },
       cell: ({ row, getValue }) => {
         if ('_type' in row.original && row.original._type === 'folder-group') return '';
@@ -843,6 +836,39 @@ export function JobsPage() {
       const dispatchValidationReport = (report: NcCatValidationReport) => {
         window.dispatchEvent(new CustomEvent<NcCatValidationReport>('nc-cat-validation-results', { detail: report }));
       };
+
+      // Aggregate reports so a folder like "kitchen" only creates one UI group.
+      // Keyed by reason+folderName.
+      const severity = (s: NcCatValidationReport['overallStatus']) => (s === 'errors' ? 2 : s === 'warnings' ? 1 : 0);
+      const reportsByFolder = new Map<string, NcCatValidationReport>();
+      const addReport = (report: NcCatValidationReport) => {
+        const key = `${report.reason}|${report.folderName}`;
+        const existing = reportsByFolder.get(key);
+        if (!existing) {
+          reportsByFolder.set(key, report);
+          return;
+        }
+        // Merge file lists by filename to avoid duplicates.
+        const byName = new Map<string, NcCatValidationReport['files'][number]>();
+        const addFile = (f: NcCatValidationReport['files'][number]) => {
+          const prev = byName.get(f.filename);
+          if (!prev) {
+            byName.set(f.filename, { ...f, warnings: [...(f.warnings ?? [])], errors: [...(f.errors ?? [])] });
+            return;
+          }
+          prev.status = severity(prev.status) >= severity(f.status) ? prev.status : f.status;
+          prev.warnings = Array.from(new Set([...(prev.warnings ?? []), ...(f.warnings ?? [])]));
+          prev.errors = Array.from(new Set([...(prev.errors ?? []), ...(f.errors ?? [])]));
+        };
+        for (const f of existing.files) addFile(f);
+        for (const f of report.files) addFile(f);
+        const mergedFiles = Array.from(byName.values()).sort((a, b) => a.filename.localeCompare(b.filename));
+        const hasErrors = mergedFiles.some((f) => f.status === 'errors');
+        const hasWarnings = mergedFiles.some((f) => f.status === 'warnings');
+        existing.overallStatus = hasErrors ? 'errors' : hasWarnings ? 'warnings' : 'pass';
+        existing.profileName = existing.profileName ?? report.profileName ?? null;
+        existing.files = mergedFiles;
+      };
       for (const key of targetKeys) {
         const job = jobByKey.get(key);
         if (!job) continue;
@@ -872,10 +898,10 @@ export function JobsPage() {
         const res = await window.api.jobs.addToWorklist(key, machineId);
         if (!res.ok) failures.push(`${key}: ${res.error.message}`);
         else if (!res.value.ok) {
-          if (res.value.validationReport) dispatchValidationReport(res.value.validationReport);
+          if (res.value.validationReport) addReport(res.value.validationReport);
           failures.push(`${key}: ${res.value.error}`);
         } else {
-          if (res.value.validationReport) dispatchValidationReport(res.value.validationReport);
+          if (res.value.validationReport) addReport(res.value.validationReport);
           stagedCount += 1;
         }
       }
@@ -885,12 +911,17 @@ export function JobsPage() {
         const res = await window.api.jobs.rerunAndStage(key, machineId);
         if (!res.ok) failures.push(`${key}: ${res.error.message}`);
         else if (!res.value.ok) {
-          if (res.value.validationReport) dispatchValidationReport(res.value.validationReport);
+          if (res.value.validationReport) addReport(res.value.validationReport);
           failures.push(`${key}: ${res.value.error}`);
         } else {
-          if (res.value.validationReport) dispatchValidationReport(res.value.validationReport);
+          if (res.value.validationReport) addReport(res.value.validationReport);
           stagedCount += 1;
         }
+      }
+
+      // Dispatch once per folder.
+      for (const report of reportsByFolder.values()) {
+        dispatchValidationReport(report);
       }
 
       if (stagedCount) alert(`Staged ${stagedCount} job(s).`);
@@ -1149,19 +1180,14 @@ export function JobsPage() {
               table={table}
               onRowContextMenu={(row, event) => {
                 const original = row.original;
-                // Handle folder group rows - select all jobs in folder to allow context menu actions
                 if (isFolderGroupRow(original)) {
                   const folderJobKeys = original.subRows.map((job) => job.key);
                   if (folderJobKeys.length > 0) {
-                    // Select all jobs in the folder so the context menu can act on them
                     const newSelection: RowSelectionState = {};
                     original.subRows.forEach((job) => {
-                      // The row ID is the key for job rows when using getRowId
                       newSelection[job.key] = true;
                     });
                     setRowSelection(newSelection);
-                    // Let the default context menu show via the ContextMenuTrigger
-                    // Don't prevent default - allow the context menu to appear
                   }
                   return;
                 }

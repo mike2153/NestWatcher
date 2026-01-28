@@ -1,11 +1,12 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { BrowserWindow, dialog } from 'electron';
+import { BrowserWindow } from 'electron';
 import { Worker } from 'worker_threads';
 import { logger } from '../logger';
 import { pushAppMessage } from './messages';
 import { runHeadlessValidationWithRetry } from './ncCatHeadless';
 import { broadcastNcCatValidationReport, persistNcCatValidationReport } from './ncCatValidationResults';
+import { enqueueDialog } from './dialogQueue';
 import {
   registerWatcher,
   watcherReady,
@@ -243,7 +244,7 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
     }
     case 'userAlert': {
       const { title, message: body } = message;
-      void dialog.showMessageBox({ type: 'warning', title, message: body, buttons: ['OK'], defaultId: 0 });
+      enqueueDialog({ type: 'warning', title, message: body, buttons: ['OK'], defaultId: 0 });
       break;
     }
     case 'workerError':

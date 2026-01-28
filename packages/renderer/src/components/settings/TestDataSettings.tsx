@@ -6,7 +6,7 @@ import { FolderBrowseIconButton, InfoTipIcon } from '@/components/ui/icon-button
 type TestState = Settings['test'];
 type PathValidationState = { status: 'empty' | 'checking' | 'valid' | 'invalid'; message: string };
 
-const DEFAULT_TEST: TestState = { testDataFolderPath: '', useTestDataMode: false, sheetIdMode: 'type_data' };
+const DEFAULT_TEST: TestState = { testDataFolderPath: '', useTestDataMode: false };
 
 export function TestDataSettings() {
   const [testState, setTestState] = useState<TestState>(DEFAULT_TEST);

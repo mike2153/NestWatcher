@@ -37,8 +37,32 @@ const definitions: Record<string, MessageDefinition> = {
   'job.staged': {
     key: 'job.staged',
     title: 'Job Staged',
-    body: 'Staged {{ncFile}} from {{folder}} to machine {{machineName}}{{userSuffix}}.',
+    body: 'Staged {{ncFile}} from {{folder}} to machine {{machineName}}{{userSuffix}}{{warningSuffix}}.',
     tone: 'success'
+  },
+  'jobs.staged': {
+    key: 'jobs.staged',
+    title: 'Jobs Staged',
+    body: 'Staged {{count}} job(s) from {{folder}} to machine {{machineName}}: {{sampleNcFiles}}{{userSuffix}}{{warningSuffix}}.',
+    tone: 'success'
+  },
+  'grundner.order.confirmed': {
+    key: 'grundner.order.confirmed',
+    title: 'Grundner Reserved',
+    body: 'Grundner confirmed reservation for {{jobKey}} ({{folder}}) on {{machineName}}.',
+    tone: 'success'
+  },
+  'grundner.order.failed': {
+    key: 'grundner.order.failed',
+    title: 'Grundner Reservation Failed',
+    body: 'Grundner did not confirm reservation for {{jobKey}} ({{folder}}) on {{machineName}}: {{reason}}.',
+    tone: 'warning'
+  },
+  'grundner.order.error': {
+    key: 'grundner.order.error',
+    title: 'Grundner Reservation Error',
+    body: 'Error while reserving Grundner stock for {{jobKey}} ({{folder}}) on {{machineName}}: {{reason}}.',
+    tone: 'error'
   },
   'job.ready.missing': {
     key: 'job.ready.missing',

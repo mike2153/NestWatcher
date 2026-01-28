@@ -9,6 +9,7 @@ import { appendProductionListDel } from '../services/nestpick';
 import { pushAppMessage } from '../services/messages';
 import { importReadyFile } from '../services/readyImport';
 import { findJobDetailsByNcBase, findJobByNcBase } from '../repo/jobsRepo';
+import { subscribeReadyRefresh } from '../services/readyNotifier';
 import { createAppError } from './errors';
 import { registerResultHandler } from './result';
 import { onContentsDestroyed } from './onDestroyed';
@@ -51,12 +52,12 @@ function collectFiles(root: string, current: string = root) {
 function baseFromName(name: string) {
   const idx = name.lastIndexOf('.');
   const withoutExt = idx >= 0 ? name.slice(0, idx) : name;
-  return withoutExt.replace(/\s+/g, '');
+  return withoutExt;
 }
 
 // File types to remove when cleaning up a sheet's artifacts in Ready-To-Run.
 // Includes .csv per updated requirements and Planit fallback mapping (.txt).
-const DELETE_EXTENSIONS = new Set(['.bmp', '.jpg', '.jpeg', '.png', '.gif', '.pts', '.lpt', '.nc', '.csv', '.txt']);
+const DELETE_EXTENSIONS = new Set(['.bmp', '.jpg', '.jpeg', '.png', '.gif', '.pts', '.lpt', '.nc', '.csv', '.npt', '.txt']);
 
 function normalizeRelativePath(input: string) {
   return input.split('\\').join('/');
@@ -158,6 +159,29 @@ export function registerFilesIpc() {
       current = parent;
     }
   }
+  const pendingDbRetries = new Map<string, { attempts: number; timer: NodeJS.Timeout | null }>();
+  const MAX_DB_RETRIES = 3;
+  const DB_RETRY_DELAY_MS = 1500;
+
+  async function findJobForReadyFile(params: {
+    baseFromFilename: string;
+    baseFromFilenameNoSpaces: string;
+    relativePath: string;
+  }) {
+    const relPosix = params.relativePath.split('\\').join('/');
+    const relWithoutExt = relPosix.replace(/\.nc$/i, '');
+    // Try in order:
+    // 1) ncfile base
+    // 2) ncfile base with spaces removed (historical mismatch)
+    // 3) key-like lookup using the relative path (folder/base)
+    const candidates = [params.baseFromFilename, params.baseFromFilenameNoSpaces, relWithoutExt].filter(Boolean);
+    for (const candidate of candidates) {
+      const job = await findJobDetailsByNcBase(candidate);
+      if (job) return job;
+    }
+    return null;
+  }
+
   async function buildReadyList(machineId: number): Promise<{ machineId: number; files: ReadyFile[] }> {
     const machines = await listMachines();
     const machine = machines.find((m: Machine) => m.machineId === machineId);
@@ -168,7 +192,30 @@ export function registerFilesIpc() {
       fileEntries.map(async ({ fullPath, relativePath, name }) => {
         const stats = statSync(fullPath);
         const base = baseFromName(name);
-        const job = base ? await findJobDetailsByNcBase(base) : null;
+        const baseNoSpaces = base.replace(/\s+/g, '');
+        const job = base ? await findJobForReadyFile({ baseFromFilename: base, baseFromFilenameNoSpaces: baseNoSpaces, relativePath }) : null;
+
+        // If a file exists on disk but we couldn't find it in DB, schedule a short retry.
+        // This covers transient conditions: network share delays, DB hiccups, and staging finishing slightly later.
+        if (!job) {
+          const retryKey = `${machineId}::${relativePath}`;
+          const existing = pendingDbRetries.get(retryKey);
+          const attempts = existing?.attempts ?? 0;
+          if (attempts < MAX_DB_RETRIES) {
+            if (existing?.timer) clearTimeout(existing.timer);
+            const timer = setTimeout(() => {
+              pendingDbRetries.set(retryKey, { attempts: attempts + 1, timer: null });
+              // A retry is implemented by forcing a watcher update; the subscribe handler will rebuild the list.
+              for (const sub of readySubscriptions.values()) {
+                if (sub.machineId === machineId) sub.scheduleUpdate();
+              }
+            }, DB_RETRY_DELAY_MS);
+            if (typeof timer.unref === 'function') timer.unref();
+            pendingDbRetries.set(retryKey, { attempts, timer });
+          } else {
+            pendingDbRetries.delete(retryKey);
+          }
+        }
         return {
           name,
           relativePath,
@@ -201,6 +248,22 @@ export function registerFilesIpc() {
 
   // Live subscription for Ready-To-Run folder changes
   const readyWatchers = new Map<number, FSWatcher>(); // keyed by WebContents.id
+  const readySubscriptions = new Map<
+    number,
+    {
+      machineId: number;
+      scheduleUpdate: () => void;
+      pollTimer: NodeJS.Timeout | null;
+    }
+  >();
+
+  // Allow other parts of Main to request a Ready list refresh.
+  const _unsubscribeReadyNotifier = subscribeReadyRefresh((machineId: number) => {
+    for (const sub of readySubscriptions.values()) {
+      if (sub.machineId === machineId) sub.scheduleUpdate();
+    }
+  });
+  void _unsubscribeReadyNotifier;
 
   registerResultHandler('files:ready:subscribe', async (event, rawMachineId) => {
     const contents = event.sender;
@@ -215,6 +278,11 @@ export function registerFilesIpc() {
       try { await existing.close(); } catch (e) { void e; }
       readyWatchers.delete(webId);
     }
+    const existingSub = readySubscriptions.get(webId);
+    if (existingSub?.pollTimer) {
+      clearInterval(existingSub.pollTimer);
+    }
+    readySubscriptions.delete(webId);
 
     const machines = await listMachines();
     const machine = machines.find((m: Machine) => m.machineId === machineId);
@@ -236,6 +304,14 @@ export function registerFilesIpc() {
         timer.unref();
       }
     };
+
+    // Safety net: even if chokidar misses an event or the watcher glitches,
+    // keep refreshing while the UI is subscribed.
+    const pollTimer = setInterval(() => scheduleUpdate(), 5000) as unknown as NodeJS.Timeout;
+    if (pollTimer && typeof pollTimer.unref === 'function') {
+      pollTimer.unref();
+    }
+    readySubscriptions.set(webId, { machineId, scheduleUpdate, pollTimer });
 
     const watcher = chokidar.watch(root, {
       ignoreInitial: false,
@@ -262,6 +338,9 @@ export function registerFilesIpc() {
         w.close().catch((err) => { void err; });
         readyWatchers.delete(webId);
       }
+      const sub = readySubscriptions.get(webId);
+      if (sub?.pollTimer) clearInterval(sub.pollTimer);
+      readySubscriptions.delete(webId);
     });
 
     // Send initial snapshot
@@ -280,6 +359,9 @@ export function registerFilesIpc() {
       try { await w.close(); } catch (e) { void e; }
       readyWatchers.delete(webId);
     }
+    const sub = readySubscriptions.get(webId);
+    if (sub?.pollTimer) clearInterval(sub.pollTimer);
+    readySubscriptions.delete(webId);
     return ok<null, AppError>(null);
   });
 

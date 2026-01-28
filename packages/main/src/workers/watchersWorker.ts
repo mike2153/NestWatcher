@@ -31,6 +31,7 @@ import type {
 import { ingestProcessedJobsRoot } from '../services/ingest';
 import { appendProductionListDel } from '../services/nestpick';
 import { archiveCompletedJob } from '../services/archive';
+import { buildNcCatValidationReport } from '../services/ncCatValidationReport';
 
 const { access, copyFile, readFile, readdir, rename, stat, unlink, open } = fsp;
 
@@ -219,6 +220,7 @@ const pendingGrundnerConflicts = new Map<string, number>();
 const GRUNDNER_CONFLICT_GRACE_MS = 120_000;
 
 const NESTPICK_FILENAME = 'Nestpick.csv';
+const NESTPICK_ACK_FILENAME = 'Nestpick.erl';
 const NESTPICK_UNSTACK_FILENAME = 'Report_FullNestpickUnstack.csv';
 
 
@@ -254,9 +256,16 @@ const GRUNDNER_WATCHER_LABEL = 'Grundner Stock Poller';
 let grundnerTimer: NodeJS.Timeout | null = null;
 let grundnerLastHash: string | null = null;
 
-// Nestpick file de-dupe: avoid treating our outbound Nestpick.csv as an inbound "processed" report.
-let lastNestpickCsvHash: string | null = null;
-let lastNestpickCsvWrittenAt = 0;
+type NestpickOutboundRecord = {
+  jobKey: string;
+  base: string;
+  hash: string;
+  normalizedContent: string;
+  writtenAt: number;
+};
+
+// Tracks the most recent outbound Nestpick payload per machine, so we can validate Nestpick.erl.
+const lastNestpickOutboundByMachine = new Map<number, NestpickOutboundRecord>();
 
 
 type RefreshChannel = 'grundner';
@@ -273,20 +282,35 @@ function machineLabel(machine: Machine) {
   return machine.name ? `${machine.name} (#${machine.machineId})` : `Machine ${machine.machineId}`;
 }
 
-function nestpickCsvWatcherName(machine: Machine) {
-  return `watcher:nestpick-csv:${machine.machineId}`;
+function nestpickAckWatcherName(machine: Machine) {
+  return `watcher:nestpick-ack:${machine.machineId}`;
 }
 
-function nestpickCsvWatcherLabel(machine: Machine) {
-  return `Nestpick CSV (${machineLabel(machine)})`;
+function nestpickAckWatcherLabel(machine: Machine) {
+  return `Nestpick Ack (${machineLabel(machine)})`;
 }
 
 function shouldIgnoreShareTempFile(path: string): boolean {
   const name = basename(path).toLowerCase();
+  if (!name) return false;
+
+  // Windows / network share noise.
+  if (name === 'thumbs.db') return true;
+  if (name === 'desktop.ini') return true;
+  if (name === '.ds_store') return true;
+  if (name.startsWith('~$')) return true; // Office temp files
+
   // Network shares often create/delete temp files very quickly.
   // Chokidar can emit lstat errors for these transient paths.
   if (name.endsWith('.tmp')) return true;
   if (name.includes('.tmp-')) return true;
+  if (name.endsWith('.swp')) return true;
+  if (name.endsWith('.part')) return true;
+
+  // Guard against transient system folders if chokidar probes parent dirs.
+  if (name === '$recycle.bin') return true;
+  if (name === 'system volume information') return true;
+
   return false;
 }
 
@@ -498,6 +522,11 @@ function parseCsvContent(content: string) {
     .map((line) => line.trimEnd())
     .filter((line) => line.trim().length > 0)
     .map(splitCsvLine);
+}
+
+function normalizeNestpickText(content: string): string {
+  // Normalize line endings for stable hashing/comparisons across Windows/network shares.
+  return content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trimEnd() + '\n';
 }
 
 function extractBases(rows: string[][], fallback: string) {
@@ -933,6 +962,32 @@ function rewriteNestpickRows(rows: string[][], machineId: number) {
   return rows;
 }
 
+async function findMatchingNpt(root: string, base: string, depth = 0, maxDepth = 3): Promise<string | null> {
+  try {
+    const entries = await readdir(root, { withFileTypes: true });
+    const targetLower = base.toLowerCase();
+    for (const entry of entries) {
+      const entryPath = join(root, entry.name);
+      if (entry.isFile()) {
+        const nameLower = entry.name.toLowerCase();
+        if (nameLower === `${targetLower}.npt`) {
+          return entryPath;
+        }
+      }
+    }
+    if (depth >= maxDepth) return null;
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const entryPath = join(root, entry.name);
+      const result = await findMatchingNpt(entryPath, base, depth + 1, maxDepth);
+      if (result) return result;
+    }
+  } catch (err) {
+    logger.debug({ err, root }, 'watcher: failed listing directory');
+  }
+  return null;
+}
+
 function parseOrderSawChangeCsv(raw: string): Array<{ base: string; machineId: number }> {
   const lines = raw
     .split(/\r?\n/)
@@ -1095,65 +1150,67 @@ async function forwardToNestpick(base: string, job: Awaited<ReturnType<typeof fi
   const baseLower = base.toLowerCase();
   const leaf = deriveJobLeaf(job.folder, job.ncfile, job.key);
   const preferredDir = join(apRoot, leaf);
-  let sourceCsv: string | null = null;
+  let sourceNpt: string | null = null;
   if (await fileExists(preferredDir)) {
-    sourceCsv = await findMatchingCsv(preferredDir, baseLower, 0, 2);
+    sourceNpt = await findMatchingNpt(preferredDir, baseLower, 0, 2);
   }
-  if (!sourceCsv) {
-    sourceCsv = await findMatchingCsv(apRoot, baseLower, 0, 2);
+  if (!sourceNpt) {
+    sourceNpt = await findMatchingNpt(apRoot, baseLower, 0, 2);
   }
-  if (!sourceCsv) {
-    logger.warn({ job: job.key, apRoot, leaf }, 'watcher: staged CSV not found for nestpick forwarding');
+  if (!sourceNpt) {
+    logger.warn({ job: job.key, apRoot, leaf }, 'watcher: staged NPT not found for nestpick forwarding');
     return;
   }
 
   try {
-    await waitForStableFile(sourceCsv);
-    const raw = await readFile(sourceCsv, 'utf8');
-    const rows = parseCsvContent(raw);
-    const rewritten = rewriteNestpickRows(rows, resolvedMachine.machineId);
-    if (rewritten.length === 0) {
-      logger.warn({ job: job.key, sourceCsv }, 'watcher: nestpick CSV empty after rewrite');
-      return;
-    }
+    await waitForStableFile(sourceNpt);
+    const raw = await readFile(sourceNpt, 'utf8');
+    const normalized = normalizeNestpickText(raw);
+    const hash = createHash('sha1').update(normalized).digest('hex');
 
     const outDir = resolvedMachine.nestpickFolder;
     await ensureDir(outDir);
     const outPath = join(outDir, NESTPICK_FILENAME);
     await waitForNestpickSlot(outPath);
 
-    const csvContent = `${serializeCsv(rewritten)}\n`;
-    const csvHash = createHash('sha1').update(csvContent).digest('hex');
-
     const tempPath = `${outPath}.tmp-${Date.now()}`;
-    await fsp.writeFile(tempPath, csvContent, 'utf8');
+    await fsp.writeFile(tempPath, raw, 'utf8');
     await rename(tempPath, outPath);
 
-    lastNestpickCsvHash = csvHash;
-    lastNestpickCsvWrittenAt = Date.now();
+    lastNestpickOutboundByMachine.set(resolvedMachine.machineId, {
+      jobKey: job.key,
+      base,
+      hash,
+      normalizedContent: normalized,
+      writtenAt: Date.now()
+    });
 
+    // Do NOT advance lifecycle here.
+    // We only set FORWARDED_TO_NESTPICK after receiving a matching Nestpick.erl acknowledgement.
+    await appendJobEvent(
+      job.key,
+      'nestpick:sent',
+      { source: sourceNpt, dest: outPath },
+      resolvedMachine.machineId
+    );
 
-    await appendJobEvent(job.key, 'nestpick:forwarded', { source: sourceCsv, dest: outPath }, resolvedMachine.machineId);
-    await updateLifecycle(job.key, 'FORWARDED_TO_NESTPICK', { machineId: resolvedMachine.machineId, source: 'nestpick-forward', payload: { source: sourceCsv, dest: outPath } });
-
-    await unlink(sourceCsv).catch(() => {});
     clearMachineHealthIssue(resolvedMachine.machineId ?? null, HEALTH_CODES.copyFailure);
   } catch (err) {
     setMachineHealthIssue({
       machineId: resolvedMachine?.machineId ?? null,
       code: HEALTH_CODES.copyFailure,
-      message: `Failed to forward Nestpick CSV for ${job?.key ?? base}`,
+      message: `Failed to send Nestpick payload for ${job?.key ?? base}`,
       severity: 'warning',
       context: {
         jobKey: job?.key,
-        sourceCsv,
+        sourceNpt,
         destinationFolder: resolvedMachine?.nestpickFolder
       }
     });
-    recordWorkerError('nestpick:forward', err, {
+    recordWorkerError('nestpick:send', err, {
       jobKey: job.key,
       machineId: resolvedMachine?.machineId,
-      sourceCsv,
+      sourceNpt,
       destinationFolder: resolvedMachine?.nestpickFolder
     });
     logger.error({ err, job: job.key }, 'watcher: nestpick forward failed');
@@ -1500,93 +1557,105 @@ async function processArchiveQueue() {
   }
 }
 
-async function handleNestpickProcessed(machine: Machine, path: string) {
-
+async function handleNestpickAck(machine: Machine, path: string) {
   try {
     await waitForStableFile(path);
     const raw = await readFile(path, 'utf8');
+    const normalized = normalizeNestpickText(raw);
+    const hash = createHash('sha1').update(normalized).digest('hex');
 
-    // If this is exactly the same content we just wrote as an outbound Nestpick.csv,
-    // do not treat it as an inbound "processed" report.
-    if (basename(path).toLowerCase() === NESTPICK_FILENAME.toLowerCase()) {
-      const hash = createHash('sha1').update(raw).digest('hex');
-      if (lastNestpickCsvHash && hash === lastNestpickCsvHash) {
-        logger.debug({ file: path, ageMs: Date.now() - lastNestpickCsvWrittenAt }, 'watcher: ignoring outbound Nestpick.csv change');
-        return;
+    const outbound = lastNestpickOutboundByMachine.get(machine.machineId);
+    let matchesOutbound = outbound?.hash === hash;
+
+    // Fallback: if the app restarted and we lost in-memory state, attempt to
+    // compare against the current Nestpick.csv content (if it still exists).
+    if (!matchesOutbound) {
+      const csvPath = join(machine.nestpickFolder, NESTPICK_FILENAME);
+      if (await fileExists(csvPath)) {
+        await waitForStableFile(csvPath);
+        const csvRaw = await readFile(csvPath, 'utf8');
+        const csvHash = createHash('sha1').update(normalizeNestpickText(csvRaw)).digest('hex');
+        matchesOutbound = csvHash === hash;
       }
+    }
+
+    if (!matchesOutbound) {
+      setMachineHealthIssue({
+        machineId: machine.machineId ?? null,
+        code: HEALTH_CODES.copyFailure,
+        message: `Nestpick.erl did not match last outbound payload (${machineLabel(machine)})`,
+        severity: 'warning',
+        context: { file: path, machineId: machine.machineId }
+      });
+      recordWatcherError(nestpickAckWatcherName(machine), new Error('Nestpick.erl mismatch'), {
+        path,
+        machineId: machine.machineId,
+        label: nestpickAckWatcherLabel(machine)
+      });
+      logger.warn({ file: path, machineId: machine.machineId }, 'watcher: nestpick ack mismatch');
+      return;
     }
 
     const rows = parseCsvContent(raw);
+    let bases = extractBases(rows, basename(path));
+    if (!bases.length && outbound?.base) {
+      bases = [outbound.base];
+    }
 
-    const bases = extractBases(rows, basename(path));
-    let processedAny = false;
+    let updatedAny = false;
     for (const base of bases) {
-      const job = await findJobByNcBase(base);
+      const job = await findJobByNcBasePreferStatus(base, ['CNC_FINISH']);
       if (!job) {
-        logger.warn({ base, file: path }, 'watcher: nestpick csv job not found');
+        logger.warn({ base, file: path }, 'watcher: nestpick ack could not find job in CNC_FINISH');
         continue;
       }
-      const lifecycle = await updateLifecycle(job.key, 'NESTPICK_COMPLETE', { machineId: machine.machineId, source: 'nestpick-csv', payload: { file: path } });
 
-      if (lifecycle.ok) {
-        await appendJobEvent(job.key, 'nestpick:complete', { file: path }, machine.machineId);
-        processedAny = true;
+      const lifecycle = await updateLifecycle(job.key, 'FORWARDED_TO_NESTPICK', {
+        machineId: machine.machineId,
+        source: 'nestpick-ack',
+        payload: { file: path }
+      });
 
-        // Archive completed job files
-        logger.info({ jobKey: job.key, status: 'NESTPICK_COMPLETE', folder: job.folder }, 'watcher: archiving completed job');
-        const arch = await archiveCompletedJob({
-          jobKey: job.key,
-          jobFolder: job.folder,
-          ncfile: job.ncfile,
-          status: 'NESTPICK_COMPLETE',
-          sourceFiles: [] // Files will be identified from the job folder
-        });
-        if (!arch.ok) {
-          logger.warn({ jobKey: job.key, error: arch.error }, 'watcher: archive failed');
-        } else {
-          logger.info({ jobKey: job.key, archiveDir: arch.archivedPath }, 'watcher: archive complete');
-        }
-
-        if (machine.nestpickEnabled) {
-          emitLifecycleStageMessage('NESTPICK_COMPLETE', job, base, machine, 'nestpick-csv');
-
-        }
+      if (lifecycle.ok || lifecycle.reason === 'NO_CHANGE') {
+        updatedAny = true;
       }
+
+      await appendJobEvent(job.key, 'nestpick:ack', { file: path, hash }, machine.machineId);
     }
-    // Queue archive with retry to avoid losing files if share is down
+
+    // Archive the ack file (best-effort, with retry) so the share stays clean.
     if (await fileExists(path)) {
       enqueueArchiveTask({
         source: path,
         archiveDir: join(machine.nestpickFolder, 'archive'),
-        watcherName: nestpickCsvWatcherName(machine),
-        watcherLabel: nestpickCsvWatcherLabel(machine),
+        watcherName: nestpickAckWatcherName(machine),
+        watcherLabel: nestpickAckWatcherLabel(machine),
         machineId: machine.machineId ?? null
       });
-    } else {
-      logger.warn({ file: path }, 'watcher: processed file already moved/deleted, skipping archive');
     }
 
-    recordWatcherEvent(nestpickCsvWatcherName(machine), {
-      label: nestpickCsvWatcherLabel(machine),
+    recordWatcherEvent(nestpickAckWatcherName(machine), {
+      label: nestpickAckWatcherLabel(machine),
       message: `Processed ${basename(path)}`
     });
-    if (processedAny) {
+
+    if (updatedAny) {
       clearMachineHealthIssue(machine.machineId ?? null, HEALTH_CODES.copyFailure);
     }
   } catch (err) {
     setMachineHealthIssue({
       machineId: machine.machineId ?? null,
       code: HEALTH_CODES.copyFailure,
-      message: `Failed to archive Nestpick processed file ${basename(path)}`,
+      message: `Failed to process Nestpick ack file ${basename(path)}`,
       severity: 'warning',
       context: { file: path, machineId: machine.machineId }
     });
-    recordWatcherError(nestpickCsvWatcherName(machine), err, {
+    recordWatcherError(nestpickAckWatcherName(machine), err, {
       path,
       machineId: machine.machineId,
-      label: nestpickCsvWatcherLabel(machine)
+      label: nestpickAckWatcherLabel(machine)
     });
-    logger.error({ err, file: path }, 'watcher: nestpick processed handling failed');
+    logger.error({ err, file: path }, 'watcher: nestpick ack handling failed');
   }
 }
 
@@ -2213,49 +2282,53 @@ async function setupNestpickWatchers() {
     for (const machine of machines) {
       if (!machine.nestpickEnabled || !machine.nestpickFolder) continue;
       const folder = machine.nestpickFolder;
-      const processedPath = join(folder, NESTPICK_FILENAME);
-      const processedWatcherName = nestpickCsvWatcherName(machine);
-      const processedWatcherLabel = nestpickCsvWatcherLabel(machine);
-      registerWatcher(processedWatcherName, processedWatcherLabel);
 
-      // Watch only the expected file to avoid reacting to unrelated files like Stock.csv.tmp.
-      const processedWatcher = chokidar.watch(processedPath, {
+      // Watch only two explicit files on the Nestpick share:
+      // - Nestpick.erl (acknowledgement)
+      // - Report_FullNestpickUnstack.csv (completion report)
+      const ackPath = join(folder, NESTPICK_ACK_FILENAME);
+      const ackWatcherName = nestpickAckWatcherName(machine);
+      const ackWatcherLabel = nestpickAckWatcherLabel(machine);
+      registerWatcher(ackWatcherName, ackWatcherLabel);
+
+      const ackWatcher = chokidar.watch(ackPath, {
         ignoreInitial: true,
         depth: 0,
+        disableGlobbing: true,
         ignored: shouldIgnoreShareTempFile,
         awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 250 }
       });
-      trackWatcher(processedWatcher);
+      trackWatcher(ackWatcher);
 
-      const handleProcessed = stableProcess(
-        (path) => handleNestpickProcessed(machine, path),
+      const handleAck = stableProcess(
+        (path) => handleNestpickAck(machine, path),
         500,
-        { watcherName: processedWatcherName, watcherLabel: processedWatcherLabel }
+        { watcherName: ackWatcherName, watcherLabel: ackWatcherLabel }
       );
-      processedWatcher.on('add', handleProcessed);
-      processedWatcher.on('change', handleProcessed);
-      processedWatcher.on('error', (err) => {
+      ackWatcher.on('add', handleAck);
+      ackWatcher.on('change', handleAck);
+      ackWatcher.on('error', (err) => {
         if (isBenignChokidarLstatTempError(err)) {
-          logger.debug({ err, folder }, 'watcher: ignoring chokidar temp-file lstat error');
+          logger.debug({ err, file: ackPath }, 'watcher: ignoring chokidar temp-file lstat error');
           return;
         }
         const code = (err as NodeJS.ErrnoException)?.code;
         setMachineHealthIssue({
           machineId: machine.machineId ?? null,
           code: HEALTH_CODES.nestpickShare,
-          message: `Nestpick folder unavailable${code ? ` (${code})` : ''}`,
+          message: `Nestpick share unreachable${code ? ` (${code})` : ''}`,
           severity: 'critical',
-          context: { folder, machineId: machine.machineId, code }
+          context: { file: ackPath, machineId: machine.machineId, code }
         });
-        recordWatcherError(processedWatcherName, err, {
-          folder,
+        recordWatcherError(ackWatcherName, err, {
+          folder: ackPath,
           machineId: machine.machineId,
-          label: processedWatcherLabel
+          label: ackWatcherLabel
         });
-        logger.error({ err, folder }, 'watcher: nestpick csv error');
+        logger.error({ err, file: ackPath }, 'watcher: nestpick ack error');
       });
-      processedWatcher.on('ready', () => {
-        watcherReady(processedWatcherName, processedWatcherLabel);
+      ackWatcher.on('ready', () => {
+        watcherReady(ackWatcherName, ackWatcherLabel);
         clearMachineHealthIssue(machine.machineId ?? null, HEALTH_CODES.nestpickShare);
       });
 
@@ -2267,6 +2340,7 @@ async function setupNestpickWatchers() {
       const reportWatcher = chokidar.watch(reportPath, {
         ignoreInitial: true,
         depth: 0,
+        disableGlobbing: true,
         ignored: shouldIgnoreShareTempFile,
         awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 250 }
       });
@@ -3348,43 +3422,6 @@ function findMachineNameSuffix(name: string, machines: Machine[]): string | null
   return null;
 }
 
-function buildValidationReport(
-  reason: 'ingest' | 'stage',
-  folderName: string,
-  profileName: string | null | undefined,
-  results: NcCatHeadlessValidationFileResult[]
-): NcCatValidationReport {
-  const files = results.map((result) => {
-    const warnings = Array.isArray(result.validation.warnings) ? result.validation.warnings : [];
-    const errors = Array.isArray(result.validation.errors) ? result.validation.errors : [];
-
-    // Legacy compatibility: older NC-Cat builds may include a separate "syntax" bucket.
-    // The current contract merges syntax into errors.
-    const legacySyntax = Array.isArray((result.validation as unknown as { syntax?: unknown }).syntax)
-      ? ((result.validation as unknown as { syntax: string[] }).syntax)
-      : [];
-
-    return {
-      filename: result.filename,
-      status: result.validation.status,
-      warnings,
-      errors: errors.concat(legacySyntax)
-    };
-  });
-  const hasErrors = files.some((file) => file.status === 'errors');
-  const hasWarnings = files.some((file) => file.status === 'warnings');
-  const overallStatus = hasErrors ? 'errors' : hasWarnings ? 'warnings' : 'pass';
-
-  return {
-    reason,
-    folderName,
-    profileName: profileName ?? null,
-    processedAt: new Date().toISOString(),
-    overallStatus,
-    files
-  };
-}
-
 function buildValidationSummaryText(report: NcCatValidationReport): string {
   const lines: string[] = [];
   lines.push(`Folder: ${report.folderName}`);
@@ -3525,7 +3562,12 @@ async function processNcCatJobUnit(unit: NcCatJobUnit) {
 
     const report =
       validationResult.ok
-        ? buildValidationReport('ingest', folderName, validationResult.profileName ?? null, validationResult.results)
+        ? buildNcCatValidationReport({
+            reason: 'ingest',
+            folderName,
+            profileName: validationResult.profileName ?? null,
+            results: validationResult.results
+          })
         : null;
     const shouldQuarantine = report?.overallStatus === 'errors';
 
@@ -3663,7 +3705,12 @@ async function processNcCatJobUnit(unit: NcCatJobUnit) {
 
   const report =
     validationResult.ok
-      ? buildValidationReport('ingest', looseFolderName, validationResult.profileName ?? null, validationResult.results)
+      ? buildNcCatValidationReport({
+          reason: 'ingest',
+          folderName: looseFolderName,
+          profileName: validationResult.profileName ?? null,
+          results: validationResult.results
+        })
       : null;
   const shouldQuarantine = report?.overallStatus === 'errors';
   const destinationRoot = shouldQuarantine ? quarantineRoot : processedJobsRoot;

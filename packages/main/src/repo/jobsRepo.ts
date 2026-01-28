@@ -522,6 +522,7 @@ export async function findJobDetailsByNcBase(base: string): Promise<JobDetails |
       .where(
         or(
           sql`LOWER(${jobs.ncfile}) = LOWER(${normalized})`,
+          sql`LOWER(${jobs.ncfile}) = LOWER(${normalized} || '.nc')`,
           sql`LOWER(${jobs.key}) = LOWER(${normalized})`,
           sql`LOWER(${jobs.key}) = LOWER(${normalized} || '.nc')`
         )

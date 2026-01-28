@@ -227,17 +227,15 @@ export function AppLayout() {
   }, [fetchLogTail, logLimit, logSelectedFile]);
 
   const handleClearDiagnosticsViews = useCallback(async () => {
-    // UI-only clear: don't mutate log files, just clear what's rendered.
-    // New streamed lines will still appear after this.
-    setLogLinesLive([]);
-
+    // Intentionally do NOT clear log output.
+    // The log view is always "tail of file" and limited by the line count selector.
     try {
       const res = await window.api.diagnostics.clearErrors();
       if (!res.ok) {
         setCopyFeedback({ type: 'error', message: `Clear failed: ${res.error.message}` });
         return;
       }
-      setCopyFeedback({ type: 'success', message: 'Cleared log view and recent errors.' });
+      setCopyFeedback({ type: 'success', message: 'Cleared recent errors.' });
     } catch (err) {
       setCopyFeedback({ type: 'error', message: `Clear failed: ${err instanceof Error ? err.message : String(err)}` });
     }
@@ -262,6 +260,75 @@ export function AppLayout() {
   }, [applyAlarms]);
 
   const validationKeyOf = useCallback((r: NcCatValidationReport) => `${r.reason}|${r.folderName}|${r.processedAt}`, []);
+
+  const coalesceValidationHistory = useCallback((reports: NcCatValidationReport[]) => {
+    const COALESCE_WINDOW_MS = 30_000;
+    const norm = (s: string) => (s ?? '').trim().replace(/\s+/g, ' ');
+    const ts = (iso: string) => new Date(iso).getTime();
+
+    const severity = (s: NcCatValidationReport['overallStatus']) => (s === 'errors' ? 2 : s === 'warnings' ? 1 : 0);
+    const mergeTwo = (a: NcCatValidationReport, b: NcCatValidationReport): NcCatValidationReport => {
+      const byName = new Map<string, NcCatValidationReport['files'][number]>();
+      const addFile = (f: NcCatValidationReport['files'][number]) => {
+        const existing = byName.get(f.filename);
+        if (!existing) {
+          byName.set(f.filename, {
+            filename: f.filename,
+            status: f.status,
+            warnings: [...(f.warnings ?? [])],
+            errors: [...(f.errors ?? [])]
+          });
+          return;
+        }
+        const nextStatus = severity(existing.status) >= severity(f.status) ? existing.status : f.status;
+        existing.status = nextStatus;
+        existing.warnings = Array.from(new Set([...(existing.warnings ?? []), ...(f.warnings ?? [])]));
+        existing.errors = Array.from(new Set([...(existing.errors ?? []), ...(f.errors ?? [])]));
+      };
+
+      for (const f of a.files) addFile(f);
+      for (const f of b.files) addFile(f);
+
+      const files = Array.from(byName.values()).sort((x, y) => x.filename.localeCompare(y.filename));
+      const hasErrors = files.some((f) => f.status === 'errors');
+      const hasWarnings = files.some((f) => f.status === 'warnings');
+      const overallStatus = hasErrors ? 'errors' : hasWarnings ? 'warnings' : 'pass';
+      const processedAt = ts(a.processedAt) >= ts(b.processedAt) ? a.processedAt : b.processedAt;
+
+      return {
+        ...a,
+        processedAt,
+        profileName: a.profileName ?? b.profileName ?? null,
+        overallStatus,
+        files
+      };
+    };
+
+    const out: NcCatValidationReport[] = [];
+    for (const report of reports) {
+      const reportTs = ts(report.processedAt);
+      let merged = false;
+      for (let i = out.length - 1; i >= 0; i -= 1) {
+        const candidate = out[i];
+        const candidateTs = ts(candidate.processedAt);
+        if (Number.isFinite(candidateTs) && Number.isFinite(reportTs)) {
+          if (Math.abs(candidateTs - reportTs) > COALESCE_WINDOW_MS) {
+            break;
+          }
+        }
+        const sameFolder = norm(candidate.folderName) === norm(report.folderName);
+        const sameReason = candidate.reason === report.reason;
+        const sameProfile = (candidate.profileName ?? null) === (report.profileName ?? null);
+        if (sameFolder && sameReason && sameProfile) {
+          out[i] = mergeTwo(candidate, report);
+          merged = true;
+          break;
+        }
+      }
+      if (!merged) out.push(report);
+    }
+    return out;
+  }, []);
 
   const mergeValidationReports = useCallback(
     (primary: NcCatValidationReport[], secondary: NcCatValidationReport[]) => {
@@ -292,9 +359,10 @@ export function AppLayout() {
       }
 
       setValidationReportHistory((prev) => {
-        const merged = mergeValidationReports(res.value.items, prev).slice(0, 50);
-        setLatestValidationReport(merged[0] ?? null);
-        return merged;
+        const merged = mergeValidationReports(res.value.items, prev);
+        const coalesced = coalesceValidationHistory(merged).slice(0, 50);
+        setLatestValidationReport(coalesced[0] ?? null);
+        return coalesced;
       });
     } catch (err) {
       setValidationReportsError(err instanceof Error ? err.message : String(err));
@@ -306,13 +374,14 @@ export function AppLayout() {
   const handleValidationReport = useCallback(
     (report: NcCatValidationReport) => {
       setValidationReportHistory((prev) => {
-        const merged = mergeValidationReports([report], prev).slice(0, 50);
-        setLatestValidationReport(merged[0] ?? report);
-        return merged;
+        const merged = mergeValidationReports([report], prev);
+        const coalesced = coalesceValidationHistory(merged).slice(0, 50);
+        setLatestValidationReport(coalesced[0] ?? report);
+        return coalesced;
       });
       setValidationResultsOpen(true);
     },
-    [mergeValidationReports]
+    [coalesceValidationHistory, mergeValidationReports]
   );
 
   useEffect(() => {
@@ -444,6 +513,10 @@ export function AppLayout() {
     setShowDiagnostics((prev) => {
       const next = !prev;
       if (next) setShowAlarmPanel(false);
+      if (next) {
+        // Always render from the file tail on open.
+        setLogLinesLive(null);
+      }
       return next;
     });
   };
@@ -813,10 +886,10 @@ export function AppLayout() {
                     size="sm"
                     variant="destructive"
                     onClick={handleClearDiagnosticsViews}
-                    title="Clear the log view + Recent Errors"
+                    title="Clear recent errors"
                     className="h-7 px-2 py-1 text-xs"
                   >
-                    Clear
+                    Clear Errors
                   </Button>
                 </div>
                 {logListLoading && logList.length === 0 ? (

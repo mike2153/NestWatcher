@@ -422,7 +422,7 @@ export function NcCatValidationResultsModal({
                           )}
                           {report.reason && (
                             <span className="before:content-['·'] before:mx-1.5 before:text-[var(--foreground-subtle)]">
-                              {report.reason}
+                              {report.reason === 'stage' ? 'Staging' : report.reason === 'ingest' ? 'Nesting' : null}
                             </span>
                           )}
                         </span>
