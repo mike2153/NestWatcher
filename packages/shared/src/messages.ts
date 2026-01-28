@@ -291,8 +291,7 @@ const definitions: Record<string, MessageDefinition> = {
   'autopac.csv.format_error': {
     key: 'autopac.csv.format_error',
     title: 'AutoPAC CSV Format Error',
-    body:
-      'Rejected AutoPAC file {{fileName}}.\n\nExpected: {{expected}}\n\nFound: {{found}}\n\nCSV Preview:\n{{preview}}',
+    body: '{{message}}',
     tone: 'error'
   }
 };

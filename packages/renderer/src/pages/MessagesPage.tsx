@@ -77,7 +77,7 @@ export function MessagesPage() {
                 <h3 className="text-base font-semibold leading-tight">{msg.title}</h3>
                 <div className="text-xs opacity-80">{formatTime(msg.createdAt)}</div>
               </div>
-              <p className="mt-2 text-sm leading-relaxed">{msg.body}</p>
+              <p className="mt-2 text-sm leading-relaxed whitespace-pre-wrap">{msg.body}</p>
               {msg.source ? (
                 <div className="mt-2 text-xs uppercase tracking-wide opacity-75">
                   Source: {msg.source}

@@ -1336,7 +1336,7 @@ async function handleAutoPacCsv(path: string) {
       .join('\n');
 
     const expected =
-      "Expected a .csv file with comma or semicolon delimiters, at least 2 columns per row, the machine token from the filename present somewhere in the CSV, and the NC base in column 1 (with or without .nc).";
+      "Expected a .csv file with comma or semicolon delimiters, at least 2 columns per row, the machine token from the filename present somewhere in the CSV, and the NC base in column 1 (with or without .nc). Spaces are allowed in the base name.";
 
     const reportFormatError = async (params: { reason: string; found: string }) => {
       const message =
@@ -1358,18 +1358,25 @@ async function handleAutoPacCsv(path: string) {
       emitAppMessage(
         'autopac.csv.format_error',
         {
-          fileName,
-          expected,
-          found: params.found,
-          preview
+          message
         },
         'autopac'
       );
 
-      recordWatcherError(AUTOPAC_WATCHER_NAME, new Error(params.reason), {
-        path,
-        machineToken,
-        label: AUTOPAC_WATCHER_LABEL
+      // This is a file-format error, not a watcher connectivity issue.
+      // Record a watcher *event* (not error) so we don't trigger Watcher Offline.
+      recordWatcherEvent(AUTOPAC_WATCHER_NAME, {
+        label: AUTOPAC_WATCHER_LABEL,
+        message: `Rejected ${fileName}: ${params.reason} (found: ${params.found})`,
+        context: {
+          file: path,
+          fileName,
+          machineToken,
+          reason: params.reason,
+          expected,
+          found: params.found,
+          preview
+        }
       });
 
       await disposeAutoPacCsv(path);
@@ -1440,8 +1447,10 @@ async function handleAutoPacCsv(path: string) {
         if (!row.length) continue;
         const cell = row[0]?.trim() ?? '';
         if (!cell) continue;
-        const m = cell.match(/^([A-Za-z0-9_.-]+)(?:\.nc)?$/i);
-        if (m && m[1]) set.add(m[1]);
+        // Allow spaces in the base name. AutoPAC sometimes outputs names like "JOB 123".
+        // We still keep it conservative: only letters/numbers/underscore/dot/hyphen/space.
+        const m = cell.match(/^([A-Za-z0-9_. -]+?)(?:\.nc)?$/i);
+        if (m && m[1]) set.add(m[1].trim());
       }
       return Array.from(set);
     })();
