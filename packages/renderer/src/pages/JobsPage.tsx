@@ -30,8 +30,8 @@ import {
   ContextMenuContent,
   ContextMenuGroup,
   ContextMenuItem,
+  ContextMenuLabel,
   ContextMenuSeparator,
-  ContextMenuShortcut,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
@@ -51,7 +51,13 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronsDown,
-  ChevronsRight
+  ChevronsRight,
+  Lock,
+  Unlock,
+  History,
+  BarChart3,
+  Play,
+  Server
 } from 'lucide-react';
 
 const COLUMN_SIZING_KEY = 'jobs:columnSizing';
@@ -1191,41 +1197,41 @@ export function JobsPage() {
             />
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-64">
-          <ContextMenuGroup>
-            <ContextMenuItem disabled>
-              {selectedKeys.length === 1 ? '1 job selected' : `${selectedKeys.length} jobs selected`}
-            </ContextMenuItem>
-          </ContextMenuGroup>
+        <ContextMenuContent className="w-48">
+          <ContextMenuLabel>
+            {selectedKeys.length === 1 ? '1 job selected' : `${selectedKeys.length} jobs selected`}
+          </ContextMenuLabel>
 
           <ContextMenuSeparator />
 
+          <ContextMenuLabel>Actions</ContextMenuLabel>
           <ContextMenuGroup>
             <ContextMenuItem
               onSelect={() => performLock(selectedKeys, 'lock')}
               disabled={actionBusy || !anyUnlocked}
             >
+              <Lock />
               Reserve
-              <ContextMenuShortcut>R</ContextMenuShortcut>
             </ContextMenuItem>
             <ContextMenuItem
               onSelect={() => performLock(selectedKeys, 'unlock')}
               disabled={actionBusy || !anyLocked}
             >
+              <Unlock />
               Unreserve
-              <ContextMenuShortcut>U</ContextMenuShortcut>
             </ContextMenuItem>
           </ContextMenuGroup>
 
           <ContextMenuSeparator />
 
+          <ContextMenuLabel>View</ContextMenuLabel>
           <ContextMenuGroup>
             <ContextMenuItem
               onSelect={() => isSingleSelection && openHistoryModal(selectedKeys[0])}
               disabled={!isSingleSelection}
             >
+              <History />
               View History
-              <ContextMenuShortcut>H</ContextMenuShortcut>
             </ContextMenuItem>
             <ContextMenuItem
               onSelect={() => {
@@ -1240,33 +1246,34 @@ export function JobsPage() {
               }}
               disabled={selectedKeys.length === 0}
             >
+              <BarChart3 />
               Show Stats
-              <ContextMenuShortcut>S</ContextMenuShortcut>
             </ContextMenuItem>
             <ContextMenuItem
               onSelect={() => performOpenInSimulator(selectedKeys)}
               disabled={actionBusy || selectedKeys.length === 0}
             >
+              <Play />
               Open In Simulator
-              <ContextMenuShortcut>O</ContextMenuShortcut>
             </ContextMenuItem>
           </ContextMenuGroup>
 
           <ContextMenuSeparator />
 
           <ContextMenuSub>
-            <ContextMenuSubTrigger inset>Select Machine</ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-52">
-              <ContextMenuGroup>
-                {machines.map((m) => (
-                  <ContextMenuItem
-                    key={m.machineId}
-                    onSelect={() => performWorklist(selectedKeys, m.machineId)}
-                  >
-                    {m.name}
-                  </ContextMenuItem>
-                ))}
-              </ContextMenuGroup>
+            <ContextMenuSubTrigger>
+              <Server />
+              Stage to Machine
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              {machines.map((m) => (
+                <ContextMenuItem
+                  key={m.machineId}
+                  onSelect={() => performWorklist(selectedKeys, m.machineId)}
+                >
+                  {m.name}
+                </ContextMenuItem>
+              ))}
             </ContextMenuSubContent>
           </ContextMenuSub>
         </ContextMenuContent>

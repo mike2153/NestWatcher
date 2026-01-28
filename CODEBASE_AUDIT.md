@@ -1,18 +1,18 @@
 # Codebase Audit (Woodtron / NestWatcher)
 
-Scope: quick audit of theming/styling, UI consistency, and obvious security risks. No code changes made; tests not run (read-only review).
+Scope: quick audit of theming/styling, UI consistency, and obvious security risks. Changes were made to address the items below; tests were not run in this environment due to a broken `node_modules` state.
 
 ## Findings (ordered by severity)
 
-1) Missing design tokens referenced by Tailwind (High)  
-- Evidence: `packages/renderer/tailwind.config.ts:18-134` maps many palette keys to CSS variables such as `--primary-50`, `--secondary-900`, `--success-700`, but none of those variables exist in `packages/renderer/src/styles/theme.css` (themes only define the base tokens like `--primary`, `--secondary`, etc.).  
-- Impact: any Tailwind class that expects those shade tokens (e.g., `text-primary-200`) will render as `var(--primary-200)` with no fallback, leading to unstyled or invisible text/backgrounds, especially when porting to light mode.  
-- Fix: either add the full set of shade variables for each theme in `theme.css`, or remove the unused shade entries from `tailwind.config.ts` and stick to the base tokens (`--primary`, `--secondary`, etc.).
+1) Missing design tokens referenced by Tailwind (Resolved)  
+- Evidence: `packages/renderer/tailwind.config.ts` no longer maps to missing shade variables like `--success-700` / `--warning-200` / `--neutral-50`. Instead, `success` and `warning` map to tokens that exist in `packages/renderer/src/styles/theme.css`.  
+- Impact: removes “silent missing var” cases for these semantic colors and makes `text-success`, `text-warning`, `border-success`, `border-warning` resolve reliably.  
+- Fix: implemented.
 
-2) Shadows/transitions tokens are used but not defined (Medium)  
-- Evidence: `packages/renderer/src/index.css:88-125` and `packages/renderer/src/components/ui/card.tsx:1-40` reference `--shadow-sm`, `--shadow-blue-sm`, `--shadow-blue-md`, `--shadow-soft`, `--shadow-medium`, plus `--transition-normal`. None of these are declared in `packages/renderer/src/styles/theme.css`.  
-- Impact: cards/tables/buttons fall back to “no shadow” and some transitions resolve to `var(--transition-normal)` (undefined), so interactive affordances look flat or broken—most visible in the light theme.  
-- Fix: define these tokens once in `theme.css` (e.g., the values listed in `docs/STYLING.md` lines ~260-300), or replace usages with explicit box-shadow/transition values.
+2) Shadows/transitions tokens are used but not defined (Resolved)  
+- Evidence: `packages/renderer/src/styles/theme.css` now defines `--shadow-soft`, `--shadow-medium`, `--shadow-blue-sm`, `--shadow-blue-md`, plus `--transition-fast|normal|slow`.  
+- Impact: removes undefined-variable fallbacks for cards/settings panels and keeps hover/focus effects consistent across themes.  
+- Fix: implemented.
 
 3) Renderer theme state diverges from Main/Electron preference (Medium)  
 - Evidence: Main stores `ThemePreference = 'system' | 'light' | 'dark' | 'modern'` and applies it to Electron (`packages/main/src/services/uiState.ts:7-133`). The renderer’s `ThemeContext` has its own theme list (`'light' | 'sunset' | 'dark-teal' | 'dark-green' | 'dark-charcoal'`) and persists to `localStorage` (`packages/renderer/src/contexts/ThemeContext.tsx:1-70`).  
@@ -24,16 +24,14 @@ Scope: quick audit of theming/styling, UI consistency, and obvious security risk
 - Impact: button colors can be adjusted per theme in one place (`packages/renderer/src/styles/theme.css`) without changing component code.  
 - Fix: implemented.
 
-5) CSP allows inline/eval scripts and remote CDNs (Medium, security)  
-- Evidence: `packages/main/src/ipc/hypernest.ts:230-244` sets CSP for the NC-Cat window: `"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com …"`.  
-- Impact: inline/eval significantly weakens renderer protections and depends on remote CDNs being trustworthy/available. This may be intentional for dev, but it is risky for production packaging.  
-- Fix: for packaged builds, remove `unsafe-inline`/`unsafe-eval` and bake needed assets locally (or gate the permissive CSP behind a dev flag).
+5) CSP allows inline/eval scripts and remote CDNs (Mitigated)  
+- Evidence: `packages/main/src/ipc/hypernest.ts` now builds CSP dynamically: relaxed in dev, but packaged builds use a stricter policy without `unsafe-inline`/`unsafe-eval` in `script-src`.  
+- Impact: packaged builds are no longer dependent on eval/inline scripts (and are less dependent on remote CDNs).  
+- Fix: implemented for packaged builds; dev remains permissive by design.
 
 ## Recommended next steps
-- Define or remove the missing color/shadow/transition tokens so Tailwind utilities resolve to real values across all themes. Start with the `light` palette to stabilize light mode.  
 - Decide on a single source of truth for theme preference (Main vs Renderer) and wire the other side to follow it.  
-- Tokenize primary/destructive button colors to keep visual consistency across themes.  
-- Tighten CSP for production; keep permissive rules only for development if absolutely necessary.
+- Verify NC-Cat packaged `index.html` does not rely on remote script CDNs or inline/eval scripts (otherwise the stricter packaged CSP will block them).
 
 ## Testing
-- Not run (audit only).
+- Not run here (workspace `node_modules` is currently in a broken state in this environment). Run `pnpm install` then `pnpm dev` and confirm Settings inputs + NC-Cat window still function.

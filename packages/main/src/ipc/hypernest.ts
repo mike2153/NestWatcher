@@ -186,6 +186,38 @@ function resolveNcCatalystSource(): { type: 'url'; url: string } | { type: 'file
   return { type: 'file', path: fallback };
 }
 
+function buildNcCatContentSecurityPolicy(): string {
+  // Dev mode is intentionally relaxed because NC-Cat can be served from a dev server
+  // and may load dev tooling/CDNs. Packaged builds should not need eval/inline scripts.
+  if (!app.isPackaged) {
+    return [
+      "default-src 'self' https: data: ws:",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://cdn.babylonjs.com https://cdn.jsdelivr.net",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com",
+      "img-src 'self' data: blob: https:",
+      "connect-src 'self' ws: wss: http://localhost:* https://localhost:* https://*.supabase.co https://*.supabase.in",
+      "object-src 'none'",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'"
+    ].join('; ');
+  }
+
+  return [
+    "default-src 'self' https: data:",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "img-src 'self' data: blob: https:",
+    "connect-src 'self' https: wss: https://*.supabase.co https://*.supabase.in",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'"
+  ].join('; ');
+}
+
 /**
  * Create a hidden NC-Cat BrowserWindow for background auth operations.
  * This window runs NC-Cat without displaying it, allowing it to handle
@@ -229,18 +261,7 @@ export function startNcCatBackgroundWindow(): void {
 
   // Apply same CSP as visible window
   const ncSession = session.fromPartition('persist:nc-catalyst');
-  const ncPolicy = [
-    "default-src 'self' https: data: ws:",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://cdn.babylonjs.com https://cdn.jsdelivr.net",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com",
-    "img-src 'self' data: blob: https:",
-    "connect-src 'self' ws: wss: http://localhost:* https://localhost:* https://*.supabase.co https://*.supabase.in",
-    "object-src 'none'",
-    "frame-ancestors 'none'",
-    "base-uri 'self'",
-    "form-action 'self'"
-  ].join('; ');
+  const ncPolicy = buildNcCatContentSecurityPolicy();
   applyCustomContentSecurityPolicy(ncSession, ncPolicy);
 
   ncCatBackgroundWin.on('closed', () => {
@@ -560,20 +581,9 @@ export function openNcCatalystWindow() {
 
     configureNcCatWindowForUser(ncCatWin);
 
-    // Apply relaxed CSP for NC Catalyst session.
+    // Apply NC Catalyst CSP (relaxed in dev, tightened for packaged builds).
     const ncSession = session.fromPartition('persist:nc-catalyst');
-    const ncPolicy = [
-      "default-src 'self' https: data: ws:",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://cdn.babylonjs.com https://cdn.jsdelivr.net",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "font-src 'self' https://fonts.gstatic.com",
-      "img-src 'self' data: blob: https:",
-      "connect-src 'self' ws: wss: http://localhost:* https://localhost:* https://*.supabase.co https://*.supabase.in",
-      "object-src 'none'",
-      "frame-ancestors 'none'",
-      "base-uri 'self'",
-      "form-action 'self'"
-    ].join('; ');
+    const ncPolicy = buildNcCatContentSecurityPolicy();
     applyCustomContentSecurityPolicy(ncSession, ncPolicy);
 
     if (source.type === 'url') {

@@ -106,6 +106,9 @@
     --status-info-text: hsl(190 80% 60%);
     --status-info-border: hsl(190 40% 30%);
 
+    /* Status colors used for plain text/borders in the UI */
+    --tone-warning: var(--status-warning-text);
+
     /* Table - Elevated surface for contrast */
     --table-bg: hsl(200 12% 13%);
     --table-header-bg: hsl(200 12% 15%);
@@ -119,6 +122,22 @@
     --scrollbar-track: hsl(200 18% 7%);
     --scrollbar-thumb: hsl(200 12% 22%);
     --scrollbar-thumb-hover: hsl(200 12% 28%);
+
+    /* Shadows and transitions used across the app */
+    --shadow-base: var(--shadow-sm);
+    --shadow-soft: var(--shadow-sm);
+    --shadow-medium: var(--shadow-md);
+    --shadow-blue-sm: var(--shadow-sm);
+    --shadow-blue-md: var(--shadow-md);
+
+    --transition-fast: 150ms;
+    --transition-normal: 200ms;
+    --transition-slow: 300ms;
+
+    /* Focus ring colors for validation inputs */
+    --status-success-ring: color-mix(in srgb, var(--status-success-text) 40%, transparent);
+    --tone-warning-ring: color-mix(in srgb, var(--tone-warning) 40%, transparent);
+    --destructive-ring: color-mix(in srgb, var(--destructive) 40%, transparent);
 
     --radius: 0.5rem;
   }
@@ -209,6 +228,9 @@
     --status-warning-bg: #f4c058;
     --status-warning-text: #ffffff;
     --status-warning-border: #db8f1f;
+
+    /* Status colors used for plain text/borders in the UI */
+    --tone-warning: var(--status-warning-bg);
 
     --status-error-bg: #f49a9a;
     --status-error-text: #ffffff;
@@ -310,6 +332,9 @@
     --status-warning-text: hsl(40 90% 72%);
     --status-warning-border: hsl(40 40% 30%);
 
+    /* Status colors used for plain text/borders in the UI */
+    --tone-warning: var(--status-warning-text);
+
     --status-error-bg: hsl(0 40% 20%);
     --status-error-text: hsl(0 85% 75%);
     --status-error-border: hsl(0 40% 30%);
@@ -408,6 +433,9 @@
     --status-warning-bg: rgba(251, 191, 36, 0.22);
     --status-warning-text: #f5d78a;
     --status-warning-border: rgba(251, 191, 36, 0.45);
+
+    /* Status colors used for plain text/borders in the UI */
+    --tone-warning: var(--status-warning-text);
 
     --status-error-bg: rgba(244, 63, 94, 0.2);
     --status-error-text: #f3a5b6;
@@ -513,6 +541,9 @@
     --status-warning-bg: hsl(38 92% 90%);
     --status-warning-text: #000000;
     --status-warning-border: hsl(38 50% 80%);
+
+    /* Status colors used for plain text/borders in the UI */
+    --tone-warning: var(--status-warning-bg);
 
     --status-error-bg: hsl(0 72% 92%);
     --status-error-text: #000000;

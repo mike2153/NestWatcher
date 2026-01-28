@@ -85,11 +85,11 @@ function createInitialMachinePathStatus(): Record<MachinePathKey, PathValidation
 function statusBorderClass(status: PathValidationState) {
   switch (status.status) {
     case 'valid':
-      return 'border-success focus:ring-success/40';
+      return 'border-success focus:ring-[var(--status-success-ring)]';
     case 'invalid':
-      return 'border-destructive focus:ring-destructive/40';
+      return 'border-destructive focus:ring-[var(--destructive-ring)]';
     case 'checking':
-      return 'border-warning focus:ring-warning/40';
+      return 'border-warning focus:ring-[var(--tone-warning-ring)]';
     default:
       return 'border-border';
   }
@@ -222,9 +222,9 @@ export function SettingsPage() {
   }, [dbStatus]);
 
   const indicatorToneClass = useMemo(() => {
-    if (dbStatus?.online) return 'bg-success';
+    if (dbStatus?.online) return 'bg-[var(--status-success-text)]';
     if (dbStatus?.error) return 'bg-destructive';
-    return 'bg-warning';
+    return 'bg-[var(--status-warning-bg)]';
   }, [dbStatus]);
 
   const applyMachines = useCallback((items: Machine[], preferredId?: number | null) => {

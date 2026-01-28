@@ -24,9 +24,9 @@ const ContextMenuContent = React.forwardRef<
     <ContextMenuPrimitive.Content
       ref={ref}
       className={cn(
-        'z-50 min-w-[12rem] overflow-hidden rounded-md border border-[var(--border-strong)]',
-        'bg-popover text-popover-foreground shadow-xl',
-        'p-1',
+        'z-50 min-w-[10rem] overflow-hidden rounded-lg border border-[var(--border-strong)]',
+        'bg-[var(--card)] text-popover-foreground shadow-lg',
+        'py-1',
         'animate-in fade-in-0 zoom-in-95',
         className
       )}
@@ -46,13 +46,14 @@ const ContextMenuItem = React.forwardRef<
   <ContextMenuPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none',
+      'relative flex cursor-default select-none items-center gap-2 rounded-sm mx-1 px-2 py-1.5 text-[13px] font-semibold outline-none',
       'transition-colors',
-      'focus:bg-accent focus:text-accent-foreground',
+      'focus:bg-[var(--secondary)] focus:text-[var(--foreground)]',
       'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+      '[&>svg]:h-4 [&>svg]:w-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground',
       inset && 'pl-8',
       variant === 'destructive' &&
-        'text-destructive focus:bg-destructive focus:text-destructive-foreground',
+        'text-destructive focus:bg-destructive/10 focus:text-destructive',
       className
     )}
     {...props}
@@ -117,7 +118,7 @@ const ContextMenuLabel = React.forwardRef<
 >(({ className, inset, ...props }, ref) => (
   <ContextMenuPrimitive.Label
     ref={ref}
-    className={cn('px-2 py-1.5 text-xs font-medium text-muted-foreground', inset && 'pl-8', className)}
+    className={cn('px-3 py-1 text-[13px] font-medium text-muted-foreground', inset && 'pl-8', className)}
     {...props}
   />
 ));
@@ -129,7 +130,7 @@ const ContextMenuSeparator = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <ContextMenuPrimitive.Separator
     ref={ref}
-    className={cn('-mx-1 my-1 h-px bg-border', className)}
+    className={cn('my-1 h-px bg-[var(--border)]', className)}
     {...props}
   />
 ));
@@ -138,7 +139,7 @@ ContextMenuSeparator.displayName = ContextMenuPrimitive.Separator.displayName;
 const ContextMenuShortcut = ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) => {
   return (
     <span
-      className={cn('ml-auto text-xs tracking-widest text-muted-foreground', className)}
+      className={cn('ml-auto pl-4 text-[11px] tracking-wide text-muted-foreground', className)}
       {...props}
     />
   );
@@ -152,17 +153,18 @@ const ContextMenuSubTrigger = React.forwardRef<
   <ContextMenuPrimitive.SubTrigger
     ref={ref}
     className={cn(
-      'flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none',
-      'focus:bg-accent focus:text-accent-foreground',
-      'data-[state=open]:bg-accent data-[state=open]:text-accent-foreground',
+      'flex cursor-default select-none items-center gap-2 rounded-sm mx-1 px-2 py-1.5 text-[13px] font-semibold outline-none',
+      'focus:bg-[var(--secondary)] focus:text-[var(--foreground)]',
+      'data-[state=open]:bg-[var(--secondary)] data-[state=open]:text-[var(--foreground)]',
       'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+      '[&>svg]:h-4 [&>svg]:w-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground',
       inset && 'pl-8',
       className
     )}
     {...props}
   >
     {children}
-    <ChevronRight className="ml-auto h-4 w-4" />
+    <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" />
   </ContextMenuPrimitive.SubTrigger>
 ));
 ContextMenuSubTrigger.displayName = ContextMenuPrimitive.SubTrigger.displayName;
@@ -174,13 +176,13 @@ const ContextMenuSubContent = React.forwardRef<
   <ContextMenuPrimitive.SubContent
     ref={ref}
     className={cn(
-      'z-50 min-w-[12rem] overflow-hidden rounded-md border border-[var(--border-strong)]',
-      'bg-popover text-popover-foreground shadow-xl',
-      'p-1',
+      'z-50 min-w-[8rem] overflow-hidden rounded-lg border border-[var(--border-strong)]',
+      'bg-[var(--card)] text-popover-foreground shadow-lg',
+      'py-1',
       'animate-in fade-in-0 zoom-in-95',
       className
     )}
-    sideOffset={6}
+    sideOffset={4}
     alignOffset={-4}
     {...props}
   />
