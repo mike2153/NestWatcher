@@ -226,6 +226,7 @@ const NESTPICK_UNSTACK_FILENAME = 'Report_FullNestpickUnstack.csv';
 
 const AUTOPAC_WATCHER_NAME = 'watcher:autopac';
 const AUTOPAC_WATCHER_LABEL = 'AutoPAC CSV Watcher';
+const AUTOPAC_ARCHIVE_DIRNAME = 'archieve';
 const HEALTH_CODES: Record<'noParts' | 'nestpickShare' | 'copyFailure', MachineHealthCode> = {
   noParts: 'NO_PARTS_CSV',
   nestpickShare: 'NESTPICK_SHARE_UNREACHABLE',
@@ -318,6 +319,16 @@ function isBenignChokidarLstatTempError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
   const lower = message.toLowerCase();
   return lower.includes('lstat') && lower.includes('.tmp');
+}
+
+function shouldIgnoreAutoPacPath(path: string): boolean {
+  const lower = toPosixLower(path);
+  // When AutoPAC archive is enabled, we move CSVs into an archive folder.
+  // Ignore it so we don't re-process archived files.
+  if (lower.includes(`/${AUTOPAC_ARCHIVE_DIRNAME.toLowerCase()}/`) || lower.endsWith(`/${AUTOPAC_ARCHIVE_DIRNAME.toLowerCase()}`)) {
+    return true;
+  }
+  return shouldIgnoreShareTempFile(path);
 }
 
 
@@ -1217,6 +1228,64 @@ async function forwardToNestpick(base: string, job: Awaited<ReturnType<typeof fi
   }
 }
 
+function formatArchiveTimestampDdMmHhMmSs(date = new Date()): string {
+  const pad2 = (n: number) => String(n).padStart(2, '0');
+  const dd = pad2(date.getDate());
+  const mm = pad2(date.getMonth() + 1);
+  const hh = pad2(date.getHours());
+  const min = pad2(date.getMinutes());
+  const ss = pad2(date.getSeconds());
+  return `${dd}.${mm}_${hh}.${min}.${ss}`;
+}
+
+async function archiveAutoPacCsv(sourcePath: string, autoPacDir: string): Promise<string | null> {
+  try {
+    const archiveDir = join(autoPacDir, AUTOPAC_ARCHIVE_DIRNAME);
+    await ensureDir(archiveDir);
+
+    const stamp = formatArchiveTimestampDdMmHhMmSs();
+    const base = basename(sourcePath, extname(sourcePath));
+    const ext = extname(sourcePath) || '.csv';
+    let candidate = join(archiveDir, `${base}_${stamp}${ext}`);
+
+    // Avoid collisions if multiple files land in the same second.
+    for (let i = 1; i <= 25 && (await fileExists(candidate)); i++) {
+      candidate = join(archiveDir, `${base}_${stamp}_${i}${ext}`);
+    }
+
+    try {
+      await rename(sourcePath, candidate);
+      return candidate;
+    } catch (err) {
+      await copyFile(sourcePath, candidate);
+      await unlink(sourcePath).catch(() => {});
+      logger.debug({ err }, 'watcher: AutoPAC archive rename fallback to copy');
+      return candidate;
+    }
+  } catch (err) {
+    logger.warn({ err, file: sourcePath }, 'watcher: failed to archive AutoPAC CSV');
+    return null;
+  }
+}
+
+async function disposeAutoPacCsv(sourcePath: string): Promise<void> {
+  const cfg = loadConfig();
+  const enabled = !!cfg.paths.autoPacArchiveEnabled;
+  const autoPacDir = (cfg.paths.autoPacCsvDir ?? '').trim();
+
+  if (enabled && autoPacDir) {
+    const archived = await archiveAutoPacCsv(sourcePath, autoPacDir);
+    if (archived) {
+      logger.info({ file: sourcePath, archived }, 'watcher: archived AutoPAC CSV');
+      return;
+    }
+  }
+
+  // Fallback (default behavior): delete.
+  await unlinkWithRetry(sourcePath);
+  logger.info({ file: sourcePath }, 'watcher: deleted AutoPAC CSV');
+}
+
 async function handleAutoPacCsv(path: string) {
   const fileName = basename(path);
   // Enforce naming:
@@ -1260,23 +1329,61 @@ async function handleAutoPacCsv(path: string) {
 
     const raw = await readFile(path, 'utf8');
 
-    // Validate CSV format before parsing
-    const lines = raw.split(/\r?\n/).filter(line => line.trim().length > 0);
-    if (lines.length === 0) {
-      logger.warn({ file: path, machineToken }, 'watcher: autopac CSV file is empty');
+    const preview = raw
+      .split(/\r?\n/)
+      .slice(0, 10)
+      .map((line) => line.slice(0, 200))
+      .join('\n');
+
+    const expected =
+      "Expected a .csv file with comma or semicolon delimiters, at least 2 columns per row, the machine token from the filename present somewhere in the CSV, and the NC base in column 1 (with or without .nc).";
+
+    const reportFormatError = async (params: { reason: string; found: string }) => {
+      const message =
+        `File: ${fileName}\n` +
+        `Machine token: ${machineToken}\n\n` +
+        `Reason: ${params.reason}\n\n` +
+        `Expected: ${expected}\n\n` +
+        `Found: ${params.found}\n\n` +
+        `CSV Preview:\n${preview}`;
+
+      // Modal dialog (immediate operator feedback)
       postMessageToMain({
         type: 'userAlert',
         title: 'AutoPAC CSV Format Error',
-        message: `AutoPAC CSV ${machineToken} has incorrect format: file is empty`
+        message
       });
-      recordWatcherError(AUTOPAC_WATCHER_NAME, new Error('Empty CSV file'), {
+
+      // Messages page (red box, persistent)
+      emitAppMessage(
+        'autopac.csv.format_error',
+        {
+          fileName,
+          expected,
+          found: params.found,
+          preview
+        },
+        'autopac'
+      );
+
+      recordWatcherError(AUTOPAC_WATCHER_NAME, new Error(params.reason), {
         path,
         machineToken,
         label: AUTOPAC_WATCHER_LABEL
       });
-      await unlinkWithRetry(path);
+
+      await disposeAutoPacCsv(path);
       autoPacHashes.delete(path);
-      logger.info({ file: path, machineToken }, 'watcher: deleted empty autopac CSV file');
+    };
+
+    // Validate CSV format before parsing
+    const lines = raw.split(/\r?\n/).filter(line => line.trim().length > 0);
+    if (lines.length === 0) {
+      logger.warn({ file: path, machineToken }, 'watcher: autopac CSV file is empty');
+      await reportFormatError({
+        reason: 'File is empty',
+        found: '0 non-empty lines'
+      });
       return;
     }
 
@@ -1284,19 +1391,10 @@ async function handleAutoPacCsv(path: string) {
     const hasDelimiters = lines.some(line => line.includes(',') || line.includes(';'));
     if (!hasDelimiters) {
       logger.warn({ file: path, machineToken, lineCount: lines.length, sampleLine: lines[0]?.slice(0, 100) }, 'watcher: autopac CSV has no delimiters (comma or semicolon)');
-      postMessageToMain({
-        type: 'userAlert',
-        title: 'AutoPAC CSV Format Error',
-        message: `AutoPAC CSV ${machineToken} has incorrect format: no comma or semicolon delimiters found`
+      await reportFormatError({
+        reason: 'No delimiters found',
+        found: `No ',' or ';' found in any of ${lines.length} line(s)`
       });
-      recordWatcherError(AUTOPAC_WATCHER_NAME, new Error('Invalid CSV format: no delimiters'), {
-        path,
-        machineToken,
-        label: AUTOPAC_WATCHER_LABEL
-      });
-      await unlinkWithRetry(path);
-      autoPacHashes.delete(path);
-      logger.info({ file: path, machineToken }, 'watcher: deleted autopac CSV with no delimiters');
       return;
     }
 
@@ -1306,19 +1404,10 @@ async function handleAutoPacCsv(path: string) {
     const validRows = rows.filter(row => row.length > 1);
     if (validRows.length === 0) {
       logger.warn({ file: path, machineToken, totalRows: rows.length, sampleRow: rows[0] }, 'watcher: autopac CSV has no multi-column rows');
-      postMessageToMain({
-        type: 'userAlert',
-        title: 'AutoPAC CSV Format Error',
-        message: `AutoPAC CSV ${machineToken} has incorrect format: no valid multi-column rows found`
+      await reportFormatError({
+        reason: 'No multi-column rows',
+        found: `Parsed ${rows.length} row(s), but all rows had 0 or 1 column`
       });
-      recordWatcherError(AUTOPAC_WATCHER_NAME, new Error('Invalid CSV format: single column only'), {
-        path,
-        machineToken,
-        label: AUTOPAC_WATCHER_LABEL
-      });
-      await unlinkWithRetry(path);
-      autoPacHashes.delete(path);
-      logger.info({ file: path, machineToken }, 'watcher: deleted autopac CSV with single column only');
       return;
     }
     // Enforce machine token appears in CSV and matches filename
@@ -1331,10 +1420,9 @@ async function handleAutoPacCsv(path: string) {
     );
     if (!csvHasMachine) {
       logger.warn({ file: path, machineToken, wantedToken, fileName }, 'watcher: autopac CSV machine token not found in file content');
-      postMessageToMain({
-        type: 'userAlert',
-        title: 'AutoPAC CSV Format Error',
-        message: `AutoPAC CSV ${machineToken} has incorrect format: machine name mismatch`
+      await reportFormatError({
+        reason: 'Machine token mismatch',
+        found: `Filename expects '${machineToken}', but CSV does not contain a matching token`
       });
       setMachineHealthIssue({
         machineId: null,
@@ -1343,14 +1431,6 @@ async function handleAutoPacCsv(path: string) {
         severity: 'warning',
         context: { file: path, expected: machineToken }
       });
-      recordWatcherError(AUTOPAC_WATCHER_NAME, new Error('AutoPAC machine mismatch'), {
-        path,
-        expected: machineToken,
-        label: AUTOPAC_WATCHER_LABEL
-      });
-      await unlinkWithRetry(path);
-      autoPacHashes.delete(path);
-      logger.info({ file: path, machineToken }, 'watcher: deleted autopac CSV with machine mismatch');
       return;
     }
     // Strict: first column is NC, only accept base or base.nc
@@ -1367,10 +1447,9 @@ async function handleAutoPacCsv(path: string) {
     })();
     if (!bases.length) {
       logger.warn({ file: path, machineToken, rowCount: rows.length, sampleFirstColumn: rows.slice(0, 3).map(r => r[0]) }, 'watcher: autopac file had no identifiable bases');
-      postMessageToMain({
-        type: 'userAlert',
-        title: 'AutoPAC CSV Format Error',
-        message: `AutoPAC CSV ${machineToken} has incorrect format: no parts found`
+      await reportFormatError({
+        reason: 'No identifiable bases found in column 1',
+        found: `First column values did not match base or base.nc (allowed chars: A-Z a-z 0-9 _ . -)`
       });
       setMachineHealthIssue({
         machineId: null,
@@ -1379,14 +1458,6 @@ async function handleAutoPacCsv(path: string) {
         severity: 'warning',
         context: { file: path }
       });
-      recordWatcherError(AUTOPAC_WATCHER_NAME, new Error('No parts found'), {
-        path,
-        machineToken,
-        label: AUTOPAC_WATCHER_LABEL
-      });
-      await unlinkWithRetry(path);
-      autoPacHashes.delete(path);
-      logger.info({ file: path, machineToken }, 'watcher: deleted autopac CSV with no identifiable parts');
       return;
     }
 
@@ -1396,6 +1467,10 @@ async function handleAutoPacCsv(path: string) {
     const machine = machines.find((m) => sanitizeToken(m.name) === wanted || sanitizeToken(String(m.machineId)) === wanted);
     if (!machine) {
       logger.warn({ file: path, machineToken }, 'watcher: autopac file specifies unknown machine');
+      await reportFormatError({
+        reason: 'Unknown machine token',
+        found: `No configured machine matched token '${machineToken}' (from filename ${fileName})`
+      });
       return;
     }
     let processedAny = false;
@@ -1463,9 +1538,9 @@ async function handleAutoPacCsv(path: string) {
     });
     if (processedAny) {
       clearMachineHealthIssue(null, HEALTH_CODES.noParts);
-      // Delete the source CSV after successful processing
+      // Archive/delete the source CSV after successful processing
       try {
-        await unlinkWithRetry(path);
+        await disposeAutoPacCsv(path);
       } finally {
         autoPacHashes.delete(path);
       }
@@ -2222,6 +2297,9 @@ async function collectAutoPacCsvs(root: string, depth = 0, maxDepth = 3): Promis
   for (const entry of entries) {
     const entryPath = join(root, entry.name);
     if (entry.isDirectory()) {
+      if (entry.name.toLowerCase() === AUTOPAC_ARCHIVE_DIRNAME.toLowerCase()) {
+        continue;
+      }
       if (depth < maxDepth) {
         const nested = await collectAutoPacCsvs(entryPath, depth + 1, maxDepth);
         if (nested.length) results.push(...nested);
@@ -2244,6 +2322,7 @@ function setupAutoPacWatcher(dir: string) {
   const watcher = chokidar.watch(dir, {
     ignoreInitial: true,
     depth: 3,
+    ignored: shouldIgnoreAutoPacPath,
     awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 }
   });
   trackWatcher(watcher);

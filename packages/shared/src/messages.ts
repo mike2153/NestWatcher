@@ -287,6 +287,13 @@ const definitions: Record<string, MessageDefinition> = {
     title: 'MES Jobs Missing',
     body: '{{missing}} file(s) from validation.json did not match any jobs.',
     tone: 'warning'
+  },
+  'autopac.csv.format_error': {
+    key: 'autopac.csv.format_error',
+    title: 'AutoPAC CSV Format Error',
+    body:
+      'Rejected AutoPAC file {{fileName}}.\n\nExpected: {{expected}}\n\nFound: {{found}}\n\nCSV Preview:\n{{preview}}',
+    tone: 'error'
   }
 };
 

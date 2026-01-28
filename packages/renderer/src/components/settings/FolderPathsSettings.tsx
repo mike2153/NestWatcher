@@ -10,6 +10,7 @@ type PathValidationState = { status: 'empty' | 'checking' | 'valid' | 'invalid';
 const DEFAULT_PATHS: PathsState = {
   processedJobsRoot: '',
   autoPacCsvDir: '',
+  autoPacArchiveEnabled: false,
   grundnerFolderPath: '',
   archiveRoot: '',
   jobsRoot: '',
@@ -252,6 +253,24 @@ export function FolderPathsSettings() {
             <span className={`text-xs ${getStatusColor(pathStatus.autoPacCsvDir.status)}`}>
               {pathStatus.autoPacCsvDir.message}
             </span>
+
+            <div className="mt-3 flex items-start gap-2">
+              <input
+                id="autoPacArchiveEnabled"
+                type="checkbox"
+                className="mt-1"
+                checked={!!paths.autoPacArchiveEnabled}
+                onChange={(e) => setPaths({ ...paths, autoPacArchiveEnabled: e.target.checked })}
+              />
+              <div>
+                <label htmlFor="autoPacArchiveEnabled" className="text-sm font-medium">
+                  Archive AutoPAC status CSVs
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  When enabled, processed AutoPAC CSVs are moved into an "archieve" subfolder with a timestamp suffix.
+                </p>
+              </div>
+            </div>
           </div>
 
           <div>

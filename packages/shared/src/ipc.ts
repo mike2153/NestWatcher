@@ -223,11 +223,12 @@ export const SettingsSchema = z.object({
   paths: z.object({
     processedJobsRoot: z.string().default(''),
     autoPacCsvDir: z.string().default(''),
+    autoPacArchiveEnabled: z.boolean().default(false),
     grundnerFolderPath: z.string().default(''),
     archiveRoot: z.string().default(''),
     jobsRoot: z.string().default(''),
     quarantineRoot: z.string().default(''),
-  }).default({ processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' }),
+  }).default({ processedJobsRoot: '', autoPacCsvDir: '', autoPacArchiveEnabled: false, grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' }),
   test: z.object({
     testDataFolderPath: z.string().default(''),
     useTestDataMode: z.boolean().default(false),
