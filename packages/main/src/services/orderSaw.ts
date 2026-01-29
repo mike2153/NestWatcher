@@ -2,6 +2,8 @@ import { existsSync, promises as fsp } from 'fs';
 import { join, normalize } from 'path';
 import { loadConfig } from './config';
 import { logger } from '../logger';
+import { pushAppMessage } from './messages';
+import { archiveGrundnerReplyFile } from './grundnerArchive';
 
 type OrderItem = { key: string; ncfile: string | null; material: string | null };
 
@@ -99,12 +101,36 @@ export async function placeOrderSawCsv(
   }
 
   // Delete erl after processing to avoid stale confirmations
-  try {
-    await fsp.unlink(erlPath);
-    logger.info({ folder }, 'orderSaw: deleted order_saw.erl after processing');
-  } catch (err) {
-    logger.warn({ folder, err }, 'orderSaw: failed to delete order_saw.erl');
+  let cleaned = false;
+  let archivedAs: string | null = null;
+  const archiveRes = await archiveGrundnerReplyFile({ grundnerFolder: folder, sourcePath: erlPath });
+  if (archiveRes.ok) {
+    archivedAs = archiveRes.archivedPath;
+    cleaned = true;
+    logger.info({ folder, archivedAs }, 'orderSaw: archived order_saw.erl');
+  } else {
+    try {
+      await fsp.unlink(erlPath);
+      cleaned = true;
+      logger.info({ folder }, 'orderSaw: deleted order_saw.erl after processing');
+    } catch (err) {
+      logger.warn({ folder, err }, 'orderSaw: failed to delete order_saw.erl');
+    }
   }
 
-  return { confirmed, erl, csv: lines, folder, checked: true, deleted: true };
+  // Only show these archive notifications in test mode to avoid spamming operators.
+  if (cfg.test?.disableErlTimeouts && archivedAs) {
+    const key = confirmed ? 'grundner.erl.archived' : 'grundner.erl.mismatch';
+    pushAppMessage(
+      key,
+      {
+        fileName: 'order_saw.erl',
+        archivedAs,
+        note: confirmed ? 'Reply matched request.' : 'Reply did not match request.'
+      },
+      { source: 'grundner' }
+    );
+  }
+
+  return { confirmed, erl, csv: lines, folder, checked: true, deleted: cleaned };
 }

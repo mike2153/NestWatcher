@@ -293,6 +293,18 @@ const definitions: Record<string, MessageDefinition> = {
     title: 'AutoPAC CSV Format Error',
     body: '{{message}}',
     tone: 'error'
+  },
+  'grundner.erl.archived': {
+    key: 'grundner.erl.archived',
+    title: 'Grundner Reply Archived',
+    body: 'Archived {{fileName}} to {{archivedAs}}. {{note}}',
+    tone: 'info'
+  },
+  'grundner.erl.mismatch': {
+    key: 'grundner.erl.mismatch',
+    title: 'Grundner Reply Mismatch',
+    body: 'Reply {{fileName}} did not match request. Archived to {{archivedAs}}. {{note}}',
+    tone: 'warning'
   }
 };
 

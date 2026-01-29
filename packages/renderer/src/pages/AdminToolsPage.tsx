@@ -48,6 +48,7 @@ type AdminToolsCacheV1 = {
       | 'order_saw.erl'
       | 'ChangeMachNr.csv'
       | 'ChangeMachNr.erl'
+      | 'get_production.erl'
       | 'get_production.csv'
       | 'productionLIST_del.csv';
     bases: string;
@@ -363,15 +364,6 @@ function GenericFolderWriter(props: {
         />
       </FormGroup>
 
-      <FormGroup>
-        <FieldLabel>Preview</FieldLabel>
-        <FormTextarea
-          value={preview}
-          readOnly
-          className="bg-muted/30"
-        />
-      </FormGroup>
-
       <div className="flex flex-wrap items-center gap-3 pt-2">
         <Button
           size="sm"
@@ -410,7 +402,7 @@ export function AdminToolsPage() {
   const { session } = useAuth();
 
   const cacheHydratedRef = useRef(false);
-  const cacheSaveTimerRef = useRef<number | null>(null);
+  const cacheLatestRef = useRef<AdminToolsCacheV1 | null>(null);
 
   const allowed = Boolean(
     session?.role === 'admin' && typeof session?.username === 'string' && session.username.toLowerCase() === 'admin'
@@ -439,6 +431,7 @@ export function AdminToolsPage() {
     | 'order_saw.erl'
     | 'ChangeMachNr.csv'
     | 'ChangeMachNr.erl'
+    | 'get_production.erl'
     | 'get_production.csv'
     | 'productionLIST_del.csv'
   >(
@@ -535,7 +528,7 @@ export function AdminToolsPage() {
     setAutoPacLineEnding(cached.autoPac?.lineEnding ?? 'crlf');
     setAutoPacFileName(cached.autoPac?.fileName ?? '');
     setAutoPacContent(cached.autoPac?.content ?? '');
-    setAutoPacDirty(Boolean(cached.autoPac?.dirty));
+    setAutoPacDirty(Boolean(cached.autoPac?.dirty) || Boolean(cached.autoPac?.fileName) || Boolean(cached.autoPac?.content));
 
     setGrundnerFileKind(cached.grundner?.fileKind ?? 'order_saw.csv');
     setGrundnerBases(cached.grundner?.bases ?? '');
@@ -545,7 +538,7 @@ export function AdminToolsPage() {
     setGrundnerLineEnding(cached.grundner?.lineEnding ?? 'crlf');
     setGrundnerFileName(cached.grundner?.fileName ?? '');
     setGrundnerContent(cached.grundner?.content ?? '');
-    setGrundnerDirty(Boolean(cached.grundner?.dirty));
+    setGrundnerDirty(Boolean(cached.grundner?.dirty) || Boolean(cached.grundner?.fileName) || Boolean(cached.grundner?.content));
 
     setNestpickMachineId(cached.nestpick?.machineId ?? null);
     setNestpickFileKind(cached.nestpick?.fileKind ?? 'Nestpick.erl');
@@ -556,7 +549,7 @@ export function AdminToolsPage() {
     setNestpickLineEnding(cached.nestpick?.lineEnding ?? 'crlf');
     setNestpickFileName(cached.nestpick?.fileName ?? '');
     setNestpickContent(cached.nestpick?.content ?? '');
-    setNestpickDirty(Boolean(cached.nestpick?.dirty));
+    setNestpickDirty(Boolean(cached.nestpick?.dirty) || Boolean(cached.nestpick?.fileName) || Boolean(cached.nestpick?.content));
 
     setR2rMachineId(cached.r2r?.machineId ?? null);
     setR2rFileKind(cached.r2r?.fileKind ?? 'base.npt');
@@ -566,7 +559,7 @@ export function AdminToolsPage() {
     setR2rLineEnding(cached.r2r?.lineEnding ?? 'crlf');
     setR2rFileName(cached.r2r?.fileName ?? '');
     setR2rContent(cached.r2r?.content ?? '');
-    setR2rDirty(Boolean(cached.r2r?.dirty));
+    setR2rDirty(Boolean(cached.r2r?.dirty) || Boolean(cached.r2r?.fileName) || Boolean(cached.r2r?.content));
 
     setJobFolderName(cached.processedJobs?.folderName ?? '');
     setJobBase(cached.processedJobs?.base ?? '');
@@ -578,81 +571,62 @@ export function AdminToolsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persist all panel inputs
-  useEffect(() => {
-    if (!cacheHydratedRef.current) return;
-
-    if (cacheSaveTimerRef.current != null) {
-      window.clearTimeout(cacheSaveTimerRef.current);
-    }
-
-    cacheSaveTimerRef.current = window.setTimeout(() => {
-      const payload: AdminToolsCacheV1 = {
-        version: 1,
-        autoPac: {
-          type: autoPacType,
-          machineToken: autoPacMachineToken,
-          bases: autoPacBases,
-          preset: autoPacPreset,
-          writeMode: autoPacWriteMode,
-          lineEnding: autoPacLineEnding,
-          fileName: autoPacFileName,
-          content: autoPacContent,
-          dirty: autoPacDirty
-        },
-        grundner: {
-          fileKind: grundnerFileKind,
-          bases: grundnerBases,
-          machineId: grundnerMachineId,
-          preset: grundnerPreset,
-          writeMode: grundnerWriteMode,
-          lineEnding: grundnerLineEnding,
-          fileName: grundnerFileName,
-          content: grundnerContent,
-          dirty: grundnerDirty
-        },
-        nestpick: {
-          machineId: nestpickMachineId,
-          fileKind: nestpickFileKind,
-          base: nestpickBase,
-          pallet: nestpickPallet,
-          preset: nestpickPreset,
-          writeMode: nestpickWriteMode,
-          lineEnding: nestpickLineEnding,
-          fileName: nestpickFileName,
-          content: nestpickContent,
-          dirty: nestpickDirty
-        },
-        r2r: {
-          machineId: r2rMachineId,
-          fileKind: r2rFileKind,
-          base: r2rBase,
-          preset: r2rPreset,
-          writeMode: r2rWriteMode,
-          lineEnding: r2rLineEnding,
-          fileName: r2rFileName,
-          content: r2rContent,
-          dirty: r2rDirty
-        },
-        processedJobs: {
-          folderName: jobFolderName,
-          base: jobBase,
-          includeNpt: jobIncludeNpt,
-          includePts: jobIncludePts,
-          preset: jobPreset
-        }
-      };
-
-      try {
-        localStorage.setItem(ADMIN_TOOLS_CACHE_KEY, JSON.stringify(payload));
-      } catch {
-        // ignore localStorage failures
-      }
-    }, 250);
-
-    return () => {
-      if (cacheSaveTimerRef.current != null) {
-        window.clearTimeout(cacheSaveTimerRef.current);
+  // Persist all panel inputs immediately.
+  // Why: you may navigate away quickly, so debounced writes can be lost.
+  const buildCacheSnapshot = useCallback((): AdminToolsCacheV1 => {
+    return {
+      version: 1,
+      autoPac: {
+        type: autoPacType,
+        machineToken: autoPacMachineToken,
+        bases: autoPacBases,
+        preset: autoPacPreset,
+        writeMode: autoPacWriteMode,
+        lineEnding: autoPacLineEnding,
+        fileName: autoPacFileName,
+        content: autoPacContent,
+        dirty: autoPacDirty
+      },
+      grundner: {
+        fileKind: grundnerFileKind,
+        bases: grundnerBases,
+        machineId: grundnerMachineId,
+        preset: grundnerPreset,
+        writeMode: grundnerWriteMode,
+        lineEnding: grundnerLineEnding,
+        fileName: grundnerFileName,
+        content: grundnerContent,
+        dirty: grundnerDirty
+      },
+      nestpick: {
+        machineId: nestpickMachineId,
+        fileKind: nestpickFileKind,
+        base: nestpickBase,
+        pallet: nestpickPallet,
+        preset: nestpickPreset,
+        writeMode: nestpickWriteMode,
+        lineEnding: nestpickLineEnding,
+        fileName: nestpickFileName,
+        content: nestpickContent,
+        dirty: nestpickDirty
+      },
+      r2r: {
+        machineId: r2rMachineId,
+        fileKind: r2rFileKind,
+        base: r2rBase,
+        preset: r2rPreset,
+        writeMode: r2rWriteMode,
+        lineEnding: r2rLineEnding,
+        fileName: r2rFileName,
+        content: r2rContent,
+        dirty: r2rDirty
+      },
+      processedJobs: {
+        folderName: jobFolderName,
+        base: jobBase,
+        includeNpt: jobIncludeNpt,
+        includePts: jobIncludePts,
+        preset: jobPreset
       }
     };
   }, [
@@ -700,8 +674,38 @@ export function AdminToolsPage() {
     r2rWriteMode
   ]);
 
+  // Keep a live snapshot for unmount/beforeunload flush.
+  cacheLatestRef.current = buildCacheSnapshot();
+
+  const flushCacheNow = useCallback(() => {
+    if (!cacheHydratedRef.current) return;
+    if (!cacheLatestRef.current) return;
+    try {
+      localStorage.setItem(ADMIN_TOOLS_CACHE_KEY, JSON.stringify(cacheLatestRef.current));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    flushCacheNow();
+  }, [flushCacheNow, buildCacheSnapshot]);
+
+  useEffect(() => {
+    const onBeforeUnload = () => flushCacheNow();
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      // Also flush when navigating within the SPA and this component unmounts.
+      flushCacheNow();
+    };
+  }, [flushCacheNow]);
+
+  // Note: buildCacheSnapshot's dependency list drives persistence.
+
   // AutoPAC preview generator
   useEffect(() => {
+    if (!cacheHydratedRef.current) return;
     const bases = normalizeBasesList(autoPacBases);
     const machine = autoPacMachineToken.trim() || 'WT1';
     const fileName = `${autoPacType}${machine}.csv`;
@@ -717,6 +721,7 @@ export function AdminToolsPage() {
 
   // Grundner preview generator
   useEffect(() => {
+    if (!cacheHydratedRef.current) return;
     const bases = normalizeBasesList(grundnerBases);
     const machineIdNum = Number(grundnerMachineId);
     const machineId = Number.isFinite(machineIdNum) ? Math.trunc(machineIdNum) : 1;
@@ -730,6 +735,7 @@ export function AdminToolsPage() {
         case 'ChangeMachNr.erl': {
           return bases.map((b) => `${b};${machineId};`).join('\r\n') + (bases.length ? '\r\n' : '');
         }
+        case 'get_production.erl':
         case 'get_production.csv': {
           const deleteMachineId = 0;
           return (
@@ -765,6 +771,7 @@ export function AdminToolsPage() {
 
   // Nestpick preview generator
   useEffect(() => {
+    if (!cacheHydratedRef.current) return;
     const machineId = nestpickMachineId ?? machines[0]?.machineId ?? 1;
     const base = nestpickBase.trim() || 'TEST 001';
     const pallet = nestpickPallet.trim() || '12';
@@ -782,6 +789,7 @@ export function AdminToolsPage() {
 
   // Ready-To-Run preview generator
   useEffect(() => {
+    if (!cacheHydratedRef.current) return;
     const machineId = r2rMachineId ?? machines[0]?.machineId ?? 1;
     const base = r2rBase.trim() || 'TEST 001';
 
@@ -844,46 +852,36 @@ export function AdminToolsPage() {
   return (
     <div className="flex flex-col gap-6 p-6">
       {/* Page Header */}
-      <header className="space-y-4">
+      <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Admin Tools</h1>
-          <p className="text-sm text-muted-foreground mt-1">File fuzzer for testing watched folders</p>
         </div>
 
         {/* Test Mode Toggle */}
-        <Card>
-          <CardContent className="py-1">
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                className="mt-1 custom-checkbox"
-                checked={!!settings?.test?.disableErlTimeouts}
-                onChange={async (e) => {
-                  if (!settings) return;
-                  const next = {
-                    test: {
-                      ...settings.test,
-                      disableErlTimeouts: e.target.checked
-                    }
-                  };
-                  const res = await window.api.settings.save(next);
-                  if (res.ok) {
-                    setSettings(res.value);
-                  } else {
-                    alert(`Failed to save setting: ${res.error.message}`);
-                  }
-                }}
-                disabled={!settings}
-              />
-              <div className="flex-1">
-                <div className="text-sm font-medium text-foreground">Disable .erl timeouts</div>
-                <div className="text-xs text-muted-foreground mt-0.5">
-                  When enabled, the app will wait indefinitely for Grundner confirmations .erl files.
-                </div>
-              </div>
-            </label>
-          </CardContent>
-        </Card>
+        <label className="flex items-center gap-2 cursor-pointer shrink-0">
+          <input
+            type="checkbox"
+            className="custom-checkbox"
+            checked={!!settings?.test?.disableErlTimeouts}
+            onChange={async (e) => {
+              if (!settings) return;
+              const next = {
+                test: {
+                  ...settings.test,
+                  disableErlTimeouts: e.target.checked
+                }
+              };
+              const res = await window.api.settings.save(next);
+              if (res.ok) {
+                setSettings(res.value);
+              } else {
+                alert(`Failed to save setting: ${res.error.message}`);
+              }
+            }}
+            disabled={!settings}
+          />
+          <span className="text-base font-medium text-foreground">Disable .erl timeouts</span>
+        </label>
       </header>
 
       {/* Loading / Error States */}
@@ -894,10 +892,152 @@ export function AdminToolsPage() {
         <div className="text-sm text-destructive">Failed to load: {loadError}</div>
       )}
 
-      {/* Main Grid - Primary Panels */}
+      {/* Main Two-Column Layout */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        {/* AutoPAC CSV Panel */}
-        <SectionCard title="AutoPAC CSV Directory" icon={FileText}>
+        {/* LEFT COLUMN: Grundner, AutoPAC, Ready-To-Run, Processed Jobs, Test Data */}
+        <div className="flex flex-col gap-6">
+          {/* Grundner Panel */}
+          <SectionCard title="Grundner Folder" icon={Folder}>
+            <FormGroup>
+              <FieldLabel>Target Folder</FieldLabel>
+              <ReadOnlyPath value={paths?.grundnerFolderPath ?? ''} />
+            </FormGroup>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <FormGroup>
+                <FieldLabel>File Type</FieldLabel>
+                <FormSelect
+                  value={grundnerFileKind}
+                  onChange={(e) => {
+                    const next = e.target.value as typeof grundnerFileKind;
+                    // Switching file types should reset the filename + content to match the template.
+                    setGrundnerDirty(false);
+                    setGrundnerResult(null);
+                    setGrundnerFileName(next);
+                    setGrundnerContent('');
+                    setGrundnerFileKind(next);
+                  }}
+                >
+                  <option value="order_saw.csv">order_saw.csv</option>
+                  <option value="order_saw.erl">order_saw.erl</option>
+                  <option value="ChangeMachNr.csv">ChangeMachNr.csv</option>
+                  <option value="ChangeMachNr.erl">ChangeMachNr.erl</option>
+                  <option value="get_production.csv">get_production.csv</option>
+                  <option value="get_production.erl">get_production.erl</option>
+                  <option value="productionLIST_del.csv">productionLIST_del.csv</option>
+                </FormSelect>
+              </FormGroup>
+              <FormGroup>
+                <FieldLabel>Machine Id (for ChangeMachNr)</FieldLabel>
+                <FormInput
+                  value={grundnerMachineId}
+                  onChange={(e) => setGrundnerMachineId(e.target.value)}
+                  placeholder="1"
+                />
+              </FormGroup>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <FormGroup>
+                <FieldLabel>Corruption</FieldLabel>
+                <FormSelect
+                  value={grundnerPreset}
+                  onChange={(e) => setGrundnerPreset(e.target.value as CorruptPreset)}
+                >
+                  <option value="valid">Valid</option>
+                  <option value="incorrectDelimiter">Incorrect delimiter</option>
+                  <option value="noDelimiter">No delimiter</option>
+                  <option value="singleColumn">Single column</option>
+                  <option value="truncateHalf">Truncate half</option>
+                  <option value="empty">Empty file</option>
+                  <option value="randomGarbage">Random garbage</option>
+                </FormSelect>
+              </FormGroup>
+              <FormGroup>
+                <FieldLabel>Write Mode</FieldLabel>
+                <FormSelect
+                  value={grundnerWriteMode}
+                  onChange={(e) => setGrundnerWriteMode(e.target.value as WriteMode)}
+                >
+                  <option value="atomic">Atomic (tmp+rename)</option>
+                  <option value="direct">Direct</option>
+                  <option value="chunked">Chunked</option>
+                </FormSelect>
+              </FormGroup>
+              <FormGroup>
+                <FieldLabel>Line Endings</FieldLabel>
+                <FormSelect
+                  value={grundnerLineEnding}
+                  onChange={(e) => setGrundnerLineEnding(e.target.value as LineEnding)}
+                >
+                  <option value="crlf">CRLF</option>
+                  <option value="lf">LF</option>
+                </FormSelect>
+              </FormGroup>
+            </div>
+
+            <FormGroup>
+              <FieldLabel>File Name</FieldLabel>
+              <FormInput
+                value={grundnerFileName}
+                onChange={(e) => {
+                  setGrundnerDirty(true);
+                  setGrundnerFileName(e.target.value);
+                }}
+              />
+            </FormGroup>
+
+            <FormGroup>
+              <FieldLabel>File Contents</FieldLabel>
+              <FormTextarea
+                value={grundnerContent}
+                onChange={(e) => {
+                  setGrundnerDirty(true);
+                  setGrundnerContent(e.target.value);
+                }}
+              />
+            </FormGroup>
+
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              <Button
+                size="sm"
+                onClick={async () => {
+                  try {
+                    setGrundnerResult(null);
+                    const fullPath = await writeFile({
+                      target: { kind: 'grundnerFolderPath' },
+                      fileName: grundnerFileName,
+                      content: grundnerContent,
+                      writeMode: grundnerWriteMode,
+                      lineEnding: grundnerLineEnding,
+                      overwrite: true
+                    });
+                    setGrundnerResult(`Wrote: ${fullPath}`);
+                  } catch (e) {
+                    setGrundnerResult(`ERROR: ${e instanceof Error ? e.message : String(e)}`);
+                  }
+                }}
+                disabled={!paths?.grundnerFolderPath}
+              >
+                Generate
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setGrundnerDirty(false);
+                  setGrundnerResult(null);
+                }}
+                disabled={!paths?.grundnerFolderPath}
+              >
+                Reset Preview
+              </Button>
+              {grundnerResult && <ResultMessage>{grundnerResult}</ResultMessage>}
+            </div>
+          </SectionCard>
+
+          {/* AutoPAC CSV Panel */}
+          <SectionCard title="AutoPAC CSV Directory" icon={FileText}>
           <FormGroup>
             <FieldLabel>Target Folder</FieldLabel>
             <ReadOnlyPath value={paths?.autoPacCsvDir ?? ''} />
@@ -908,7 +1048,14 @@ export function AdminToolsPage() {
               <FieldLabel>CSV Type</FieldLabel>
               <FormSelect
                 value={autoPacType}
-                onChange={(e) => setAutoPacType(e.target.value as typeof autoPacType)}
+                onChange={(e) => {
+                  const next = e.target.value as typeof autoPacType;
+                  setAutoPacDirty(false);
+                  setAutoPacResult(null);
+                  setAutoPacFileName('');
+                  setAutoPacContent('');
+                  setAutoPacType(next);
+                }}
               >
                 <option value="load_finish">load_finish</option>
                 <option value="label_finish">label_finish</option>
@@ -924,15 +1071,6 @@ export function AdminToolsPage() {
               />
             </FormGroup>
           </div>
-
-          <FormGroup>
-            <FieldLabel>NC Bases (one per line)</FieldLabel>
-            <FormTextarea
-              value={autoPacBases}
-              onChange={(e) => setAutoPacBases(e.target.value)}
-              className="min-h-[5rem]"
-            />
-          </FormGroup>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <FormGroup>
@@ -1035,151 +1173,8 @@ export function AdminToolsPage() {
           </div>
         </SectionCard>
 
-        {/* Grundner Panel */}
-        <SectionCard title="Grundner Folder" icon={Folder}>
-          <FormGroup>
-            <FieldLabel>Target Folder</FieldLabel>
-            <ReadOnlyPath value={paths?.grundnerFolderPath ?? ''} />
-          </FormGroup>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FormGroup>
-              <FieldLabel>File Type</FieldLabel>
-              <FormSelect
-                value={grundnerFileKind}
-                onChange={(e) => setGrundnerFileKind(e.target.value as typeof grundnerFileKind)}
-              >
-                <option value="order_saw.csv">order_saw.csv</option>
-                <option value="order_saw.erl">order_saw.erl</option>
-                <option value="ChangeMachNr.csv">ChangeMachNr.csv</option>
-                <option value="ChangeMachNr.erl">ChangeMachNr.erl</option>
-                <option value="get_production.csv">get_production.csv</option>
-                <option value="productionLIST_del.csv">productionLIST_del.csv</option>
-              </FormSelect>
-            </FormGroup>
-            <FormGroup>
-              <FieldLabel>Machine Id (for ChangeMachNr)</FieldLabel>
-              <FormInput
-                value={grundnerMachineId}
-                onChange={(e) => setGrundnerMachineId(e.target.value)}
-                placeholder="1"
-              />
-            </FormGroup>
-          </div>
-
-          <FormGroup>
-            <FieldLabel>NC Bases (one per line)</FieldLabel>
-            <FormTextarea
-              value={grundnerBases}
-              onChange={(e) => setGrundnerBases(e.target.value)}
-              className="min-h-[5rem]"
-            />
-          </FormGroup>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <FormGroup>
-              <FieldLabel>Corruption</FieldLabel>
-              <FormSelect
-                value={grundnerPreset}
-                onChange={(e) => setGrundnerPreset(e.target.value as CorruptPreset)}
-              >
-                <option value="valid">Valid</option>
-                <option value="incorrectDelimiter">Incorrect delimiter</option>
-                <option value="noDelimiter">No delimiter</option>
-                <option value="singleColumn">Single column</option>
-                <option value="truncateHalf">Truncate half</option>
-                <option value="empty">Empty file</option>
-                <option value="randomGarbage">Random garbage</option>
-              </FormSelect>
-            </FormGroup>
-            <FormGroup>
-              <FieldLabel>Write Mode</FieldLabel>
-              <FormSelect
-                value={grundnerWriteMode}
-                onChange={(e) => setGrundnerWriteMode(e.target.value as WriteMode)}
-              >
-                <option value="atomic">Atomic (tmp+rename)</option>
-                <option value="direct">Direct</option>
-                <option value="chunked">Chunked</option>
-              </FormSelect>
-            </FormGroup>
-            <FormGroup>
-              <FieldLabel>Line Endings</FieldLabel>
-              <FormSelect
-                value={grundnerLineEnding}
-                onChange={(e) => setGrundnerLineEnding(e.target.value as LineEnding)}
-              >
-                <option value="crlf">CRLF</option>
-                <option value="lf">LF</option>
-              </FormSelect>
-            </FormGroup>
-          </div>
-
-          <FormGroup>
-            <FieldLabel>File Name</FieldLabel>
-            <FormInput
-              value={grundnerFileName}
-              onChange={(e) => {
-                setGrundnerDirty(true);
-                setGrundnerFileName(e.target.value);
-              }}
-            />
-          </FormGroup>
-
-          <FormGroup>
-            <FieldLabel>File Contents</FieldLabel>
-            <FormTextarea
-              value={grundnerContent}
-              onChange={(e) => {
-                setGrundnerDirty(true);
-                setGrundnerContent(e.target.value);
-              }}
-            />
-          </FormGroup>
-
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            <Button
-              size="sm"
-              onClick={async () => {
-                try {
-                  setGrundnerResult(null);
-                  const fullPath = await writeFile({
-                    target: { kind: 'grundnerFolderPath' },
-                    fileName: grundnerFileName,
-                    content: grundnerContent,
-                    writeMode: grundnerWriteMode,
-                    lineEnding: grundnerLineEnding,
-                    overwrite: true
-                  });
-                  setGrundnerResult(`Wrote: ${fullPath}`);
-                } catch (e) {
-                  setGrundnerResult(`ERROR: ${e instanceof Error ? e.message : String(e)}`);
-                }
-              }}
-              disabled={!paths?.grundnerFolderPath}
-            >
-              Generate
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setGrundnerDirty(false);
-                setGrundnerResult(null);
-              }}
-              disabled={!paths?.grundnerFolderPath}
-            >
-              Reset Preview
-            </Button>
-            {grundnerResult && <ResultMessage>{grundnerResult}</ResultMessage>}
-          </div>
-        </SectionCard>
-      </div>
-
-      {/* Machine-specific Panels */}
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        {/* Ready-To-Run Panel */}
-        <SectionCard title="Machine Ready-To-Run (apJobfolder)" icon={Server}>
+          {/* Ready-To-Run Panel */}
+          <SectionCard title="Machine Ready-To-Run (apJobfolder)" icon={Server}>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <FormGroup>
               <FieldLabel>Machine</FieldLabel>
@@ -1212,7 +1207,14 @@ export function AdminToolsPage() {
               <FieldLabel>File Type</FieldLabel>
               <FormSelect
                 value={r2rFileKind}
-                onChange={(e) => setR2rFileKind(e.target.value as typeof r2rFileKind)}
+                onChange={(e) => {
+                  const next = e.target.value as typeof r2rFileKind;
+                  setR2rDirty(false);
+                  setR2rResult(null);
+                  setR2rFileName('');
+                  setR2rContent('');
+                  setR2rFileKind(next);
+                }}
               >
                 <option value="base.npt">base.npt</option>
                 <option value="base.nc">base.nc</option>
@@ -1321,8 +1323,148 @@ export function AdminToolsPage() {
           </div>
         </SectionCard>
 
-        {/* Nestpick Panel */}
-        <SectionCard title="Machine Nestpick Folder" icon={SettingsIcon}>
+          {/* Processed Jobs - Job Folder Builder */}
+          <SectionCard title="Processed Jobs Root: Create Job Folder" icon={Wrench}>
+            <FormGroup>
+              <FieldLabel>Target Folder</FieldLabel>
+              <ReadOnlyPath value={paths?.processedJobsRoot ?? ''} />
+            </FormGroup>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <FormGroup>
+                <FieldLabel>Job Folder Name</FieldLabel>
+                <FormInput
+                  value={jobFolderName}
+                  onChange={(e) => setJobFolderName(e.target.value)}
+                />
+              </FormGroup>
+              <FormGroup>
+                <FieldLabel>Base Name</FieldLabel>
+                <FormInput
+                  value={jobBase}
+                  onChange={(e) => setJobBase(e.target.value)}
+                />
+              </FormGroup>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-6">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="custom-checkbox"
+                  checked={jobIncludeNpt}
+                  onChange={(e) => setJobIncludeNpt(e.target.checked)}
+                />
+                <span>Include .npt</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="custom-checkbox"
+                  checked={jobIncludePts}
+                  onChange={(e) => setJobIncludePts(e.target.checked)}
+                />
+                <span>Include .pts</span>
+              </label>
+              <FormGroup className="flex-1 min-w-[180px]">
+                <FieldLabel>Corruption</FieldLabel>
+                <FormSelect
+                  value={jobPreset}
+                  onChange={(e) => setJobPreset(e.target.value as CorruptPreset)}
+                >
+                  <option value="valid">Valid</option>
+                  <option value="truncateHalf">Truncate half</option>
+                  <option value="empty">Empty (NC file empty)</option>
+                  <option value="randomGarbage">Random garbage</option>
+                </FormSelect>
+              </FormGroup>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              <Button
+                size="sm"
+                onClick={async () => {
+                  try {
+                    setJobResult(null);
+                    const folder = jobFolderName.trim();
+                    const base = jobBase.trim();
+                    if (!folder) throw new Error('Job folder name required');
+                    if (!base) throw new Error('Base name required');
+
+                    const ncGood = `; minimal test NC\r\nID=TEST\r\nG100 X2400 Y1200 Z18\r\n`;
+                    const ncContent = applyCorruption(ncGood, jobPreset);
+
+                    const created: string[] = [];
+
+                    created.push(
+                      await writeFile({
+                        target: { kind: 'processedJobsRoot' },
+                        relativeDir: folder,
+                        fileName: `${base}.nc`,
+                        content: ncContent,
+                        writeMode: 'atomic',
+                        lineEnding: 'crlf',
+                        overwrite: true
+                      })
+                    );
+
+                    if (jobIncludeNpt) {
+                      const nptGood = `Job;Destination;SourceMachine;\r\n${base};99;1;\r\n`;
+                      created.push(
+                        await writeFile({
+                          target: { kind: 'processedJobsRoot' },
+                          relativeDir: folder,
+                          fileName: `${base}.npt`,
+                          content: nptGood,
+                          writeMode: 'atomic',
+                          lineEnding: 'crlf',
+                          overwrite: true
+                        })
+                      );
+                    }
+
+                    if (jobIncludePts) {
+                      const ptsGood = `PART-001\r\nPART-002\r\n`;
+                      created.push(
+                        await writeFile({
+                          target: { kind: 'processedJobsRoot' },
+                          relativeDir: folder,
+                          fileName: `${base}.pts`,
+                          content: ptsGood,
+                          writeMode: 'atomic',
+                          lineEnding: 'crlf',
+                          overwrite: true
+                        })
+                      );
+                    }
+
+                    setJobResult(`Created ${created.length} file(s)`);
+                  } catch (e) {
+                    setJobResult(`ERROR: ${e instanceof Error ? e.message : String(e)}`);
+                  }
+                }}
+                disabled={!paths?.processedJobsRoot}
+              >
+                Create Job Folder
+              </Button>
+              {jobResult && <ResultMessage>{jobResult}</ResultMessage>}
+            </div>
+          </SectionCard>
+
+          {/* Test Data Folder */}
+          <GenericFolderWriter
+            title="Test Data Folder"
+            icon={Folder}
+            folderPath={settings?.test?.testDataFolderPath ?? ''}
+            targetKind="testDataFolderPath"
+            writeFile={writeFile}
+          />
+        </div>
+
+        {/* RIGHT COLUMN: Nestpick, Jobs Root, Archive, Quarantine */}
+        <div className="flex flex-col gap-6">
+          {/* Nestpick Panel */}
+          <SectionCard title="Machine Nestpick Folder" icon={SettingsIcon}>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <FormGroup>
               <FieldLabel>Machine</FieldLabel>
@@ -1348,7 +1490,14 @@ export function AdminToolsPage() {
               <FieldLabel>File Type</FieldLabel>
               <FormSelect
                 value={nestpickFileKind}
-                onChange={(e) => setNestpickFileKind(e.target.value as typeof nestpickFileKind)}
+                onChange={(e) => {
+                  const next = e.target.value as typeof nestpickFileKind;
+                  setNestpickDirty(false);
+                  setNestpickResult(null);
+                  setNestpickFileName(next);
+                  setNestpickContent('');
+                  setNestpickFileKind(next);
+                }}
               >
                 <option value="Nestpick.erl">Nestpick.erl</option>
                 <option value="Report_FullNestpickUnstack.csv">Report_FullNestpickUnstack.csv</option>
@@ -1472,140 +1621,8 @@ export function AdminToolsPage() {
             {nestpickResult && <ResultMessage>{nestpickResult}</ResultMessage>}
           </div>
         </SectionCard>
-      </div>
 
-      {/* Job Folder Builder & Generic Writers */}
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[5fr_4fr]">
-        {/* Processed Jobs - Job Folder Builder */}
-        <SectionCard title="Processed Jobs Root: Create Job Folder" icon={Wrench}>
-          <FormGroup>
-            <FieldLabel>Target Folder</FieldLabel>
-            <ReadOnlyPath value={paths?.processedJobsRoot ?? ''} />
-          </FormGroup>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FormGroup>
-              <FieldLabel>Job Folder Name</FieldLabel>
-              <FormInput
-                value={jobFolderName}
-                onChange={(e) => setJobFolderName(e.target.value)}
-              />
-            </FormGroup>
-            <FormGroup>
-              <FieldLabel>Base Name</FieldLabel>
-              <FormInput
-                value={jobBase}
-                onChange={(e) => setJobBase(e.target.value)}
-              />
-            </FormGroup>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-6">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                className="custom-checkbox"
-                checked={jobIncludeNpt}
-                onChange={(e) => setJobIncludeNpt(e.target.checked)}
-              />
-              <span>Include <code className="font-semibold text-foreground/80">.npt</code></span>
-            </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                className="custom-checkbox"
-                checked={jobIncludePts}
-                onChange={(e) => setJobIncludePts(e.target.checked)}
-              />
-              <span>Include <code className="font-semibold text-foreground/80">.pts</code></span>
-            </label>
-            <FormGroup className="flex-1 min-w-[180px]">
-              <FieldLabel>Corruption</FieldLabel>
-              <FormSelect
-                value={jobPreset}
-                onChange={(e) => setJobPreset(e.target.value as CorruptPreset)}
-              >
-                <option value="valid">Valid</option>
-                <option value="truncateHalf">Truncate half</option>
-                <option value="empty">Empty (NC file empty)</option>
-                <option value="randomGarbage">Random garbage</option>
-              </FormSelect>
-            </FormGroup>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            <Button
-              size="sm"
-              onClick={async () => {
-                try {
-                  setJobResult(null);
-                  const folder = jobFolderName.trim();
-                  const base = jobBase.trim();
-                  if (!folder) throw new Error('Job folder name required');
-                  if (!base) throw new Error('Base name required');
-
-                  const ncGood = `; minimal test NC\r\nID=TEST\r\nG100 X2400 Y1200 Z18\r\n`;
-                  const ncContent = applyCorruption(ncGood, jobPreset);
-
-                  const created: string[] = [];
-
-                  created.push(
-                    await writeFile({
-                      target: { kind: 'processedJobsRoot' },
-                      relativeDir: folder,
-                      fileName: `${base}.nc`,
-                      content: ncContent,
-                      writeMode: 'atomic',
-                      lineEnding: 'crlf',
-                      overwrite: true
-                    })
-                  );
-
-                  if (jobIncludeNpt) {
-                    const nptGood = `Job;Destination;SourceMachine;\r\n${base};99;1;\r\n`;
-                    created.push(
-                      await writeFile({
-                        target: { kind: 'processedJobsRoot' },
-                        relativeDir: folder,
-                        fileName: `${base}.npt`,
-                        content: nptGood,
-                        writeMode: 'atomic',
-                        lineEnding: 'crlf',
-                        overwrite: true
-                      })
-                    );
-                  }
-
-                  if (jobIncludePts) {
-                    const ptsGood = `PART-001\r\nPART-002\r\n`;
-                    created.push(
-                      await writeFile({
-                        target: { kind: 'processedJobsRoot' },
-                        relativeDir: folder,
-                        fileName: `${base}.pts`,
-                        content: ptsGood,
-                        writeMode: 'atomic',
-                        lineEnding: 'crlf',
-                        overwrite: true
-                      })
-                    );
-                  }
-
-                  setJobResult(`Created ${created.length} file(s)`);
-                } catch (e) {
-                  setJobResult(`ERROR: ${e instanceof Error ? e.message : String(e)}`);
-                }
-              }}
-              disabled={!paths?.processedJobsRoot}
-            >
-              Create Job Folder
-            </Button>
-            {jobResult && <ResultMessage>{jobResult}</ResultMessage>}
-          </div>
-        </SectionCard>
-
-        {/* Generic Folder Writers */}
-        <div className="flex flex-col gap-6">
+          {/* Jobs Root */}
           <GenericFolderWriter
             title="Jobs Root"
             icon={Folder}
@@ -1613,6 +1630,8 @@ export function AdminToolsPage() {
             targetKind="jobsRoot"
             writeFile={writeFile}
           />
+
+          {/* Archive Root */}
           <GenericFolderWriter
             title="Archive Root"
             icon={Folder}
@@ -1620,18 +1639,13 @@ export function AdminToolsPage() {
             targetKind="archiveRoot"
             writeFile={writeFile}
           />
+
+          {/* Quarantine Root */}
           <GenericFolderWriter
             title="Quarantine Root"
             icon={Folder}
             folderPath={paths?.quarantineRoot ?? ''}
             targetKind="quarantineRoot"
-            writeFile={writeFile}
-          />
-          <GenericFolderWriter
-            title="Test Data Folder"
-            icon={Folder}
-            folderPath={settings?.test?.testDataFolderPath ?? ''}
-            targetKind="testDataFolderPath"
             writeFile={writeFile}
           />
         </div>

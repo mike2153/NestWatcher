@@ -20,6 +20,7 @@ import type {
   MachineHealthCode,
   NcCatValidationReport
 } from '../../../shared/src';
+import { enqueueUiDialog } from '@/lib/uiDialogs';
 import { JOB_STATUS_VALUES } from '../../../shared/src';
 import { cn } from '../utils/cn';
 import { GlobalTable } from '@/components/table/GlobalTable';
@@ -805,17 +806,25 @@ export function JobsPage() {
       if (!targetKeys.length) return;
       setActionBusy(true);
       try {
-        if (mode === 'lock') {
-          const res = await window.api.jobs.lockBatch(targetKeys);
-          if (!res.ok) {
-            alert(`Reserve failed: ${res.error.message}`);
+          if (mode === 'lock') {
+            const res = await window.api.jobs.lockBatch(targetKeys);
+            if (!res.ok) {
+              enqueueUiDialog({
+                severity: 'error',
+                title: 'Reserve Failed',
+                message: res.error.message
+              });
+            }
+          } else {
+            const res = await window.api.jobs.unlockBatch(targetKeys);
+            if (!res.ok) {
+              enqueueUiDialog({
+                severity: 'error',
+                title: 'Unreserve Failed',
+                message: res.error.message
+              });
+            }
           }
-        } else {
-          const res = await window.api.jobs.unlockBatch(targetKeys);
-          if (!res.ok) {
-            alert(`Unreserve failed: ${res.error.message}`);
-          }
-        }
         await refresh();
         setRowSelection({});
       } finally {
@@ -924,8 +933,21 @@ export function JobsPage() {
         dispatchValidationReport(report);
       }
 
-      if (stagedCount) alert(`Staged ${stagedCount} job(s).`);
-      if (failures.length) alert(`Failed to stage ${failures.length} job(s):\n\n${failures.join('\n')}`);
+      if (stagedCount) {
+        enqueueUiDialog({
+          severity: 'info',
+          title: 'Staging Complete',
+          message: `Staged ${stagedCount} job(s).`
+        });
+      }
+      if (failures.length) {
+        enqueueUiDialog({
+          severity: 'error',
+          title: 'Staging Failed',
+          message: `Failed to stage ${failures.length} job(s).`,
+          detail: failures.join('\n')
+        });
+      }
 
       await refresh();
       setRowSelection({});
@@ -945,14 +967,32 @@ export function JobsPage() {
       const res = await window.api.ncCatalyst.openJobs(targetKeys);
       console.log('[JobsPage] openJobs response:', res);
       if (!res.ok) {
-        const details = res.error.details ? `\n\nDetails: ${JSON.stringify(res.error.details)}` : '';
-        alert(`Failed to open in simulator: ${res.error.message}${details}`);
+        const details = res.error.details ? `Details: ${JSON.stringify(res.error.details)}` : '';
+        enqueueUiDialog({
+          severity: 'error',
+          title: 'Open In Simulator Failed',
+          message: res.error.message,
+          detail: details || undefined
+        });
       } else if (!res.value.ok) {
-        // Response indicates failure
-        alert(`Failed to open in simulator: ${res.value.error || 'Unknown error'}`);
+        enqueueUiDialog({
+          severity: 'error',
+          title: 'Open In Simulator Failed',
+          message: res.value.error || 'Unknown error'
+        });
       } else if (res.value.error) {
-        // Partial success - some files failed
-        alert(`Opened ${res.value.jobCount} job(s) in simulator.\n\nWarning: ${res.value.error}`);
+        enqueueUiDialog({
+          severity: 'warning',
+          title: 'Simulator',
+          message: `Opened ${res.value.jobCount} job(s) in simulator.`,
+          detail: `Warning: ${res.value.error}`
+        });
+      } else {
+        enqueueUiDialog({
+          severity: 'info',
+          title: 'Simulator',
+          message: `Opened ${res.value.jobCount} job(s) in simulator.`
+        });
       }
       // Don't clear selection - user might want to do other actions
     } finally {

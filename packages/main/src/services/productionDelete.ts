@@ -2,6 +2,8 @@ import { existsSync, promises as fsp } from 'fs';
 import { join, normalize } from 'path';
 import { loadConfig } from './config';
 import { logger } from '../logger';
+import { pushAppMessage } from './messages';
+import { archiveGrundnerReplyFile } from './grundnerArchive';
 
 type DeleteItem = { ncfile: string | null; machineId: number | null };
 
@@ -100,12 +102,40 @@ export async function placeProductionDeleteCsv(
   const raw = await fsp.readFile(ansPath, 'utf8');
   const confirmed = normalizeGrundnerReply(raw) === normalizeGrundnerReply(lines);
 
-  // Remove answer file to avoid stale confirmations.
-  try {
-    await fsp.unlink(ansPath);
-  } catch (err) {
-    logger.warn({ folder, err }, 'productionDelete: failed to delete get_production.erl');
+  // Archive answer file to avoid stale confirmations.
+  let cleaned = false;
+  let archivedAs: string | null = null;
+  const archiveRes = await archiveGrundnerReplyFile({ grundnerFolder: folder, sourcePath: ansPath });
+  if (archiveRes.ok) {
+    archivedAs = archiveRes.archivedPath;
+    cleaned = true;
+  } else {
+    try {
+      await fsp.unlink(ansPath);
+      cleaned = true;
+    } catch (err) {
+      logger.warn({ folder, err }, 'productionDelete: failed to delete get_production.erl');
+    }
   }
 
-  return { confirmed, folder, checked: true, deleted: true, message: confirmed ? undefined : 'Delete confirmation did not match request' };
+  if (cfg.test?.disableErlTimeouts && archivedAs) {
+    const key = confirmed ? 'grundner.erl.archived' : 'grundner.erl.mismatch';
+    pushAppMessage(
+      key,
+      {
+        fileName: 'get_production.erl',
+        archivedAs,
+        note: confirmed ? 'Reply matched request.' : 'Reply did not match request.'
+      },
+      { source: 'grundner' }
+    );
+  }
+
+  return {
+    confirmed,
+    folder,
+    checked: true,
+    deleted: cleaned,
+    message: confirmed ? undefined : 'Delete confirmation did not match request'
+  };
 }

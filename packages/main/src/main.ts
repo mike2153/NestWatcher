@@ -67,6 +67,7 @@ function createWindow() {
   const options: Electron.BrowserWindowConstructorOptions = {
     width: state.width,
     height: state.height,
+    title: 'Woodtron',
     webPreferences: {
       preload: join(__dirname, '../../preload/dist/index.js'),
       contextIsolation: true,
@@ -82,6 +83,7 @@ function createWindow() {
   }
 
   win = new BrowserWindow(options);
+  win.setTitle('Woodtron');
   monitorWindowState(win);
 
   applyWindowNavigationGuards(win.webContents);
@@ -199,6 +201,10 @@ async function shutdownAppServices(reason: string) {
 }
 
 app.whenReady().then(async () => {
+
+  // Ensure the native window title and any OS-level labels use our product name,
+  // not Electron defaults.
+  app.setName('Woodtron');
 
   const userDataPath = app.getPath('userData');
   process.env.WOODTRON_USER_DATA_PATH = userDataPath;

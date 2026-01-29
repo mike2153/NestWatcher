@@ -32,6 +32,7 @@ import { ingestProcessedJobsRoot } from '../services/ingest';
 import { appendProductionListDel } from '../services/nestpick';
 import { archiveCompletedJob } from '../services/archive';
 import { buildNcCatValidationReport } from '../services/ncCatValidationReport';
+import { archiveGrundnerReplyFile } from '../services/grundnerArchive';
 
 const { access, copyFile, readFile, readdir, rename, stat, unlink, open } = fsp;
 
@@ -1373,13 +1374,32 @@ async function handleAutoPacOrderSawCsv(path: string) {
     const norm = (s: string) => s.replace(/\r\n/g, '\n').trim();
     const ok = norm(erlRaw) === norm(csvLines);
 
+    // Always archive the reply file to avoid stale confirmations.
+    // This also makes testing easier: you can inspect archived replies later.
+    let archivedAs: string | null = null;
+    const archiveRes = await archiveGrundnerReplyFile({ grundnerFolder: grundnerRoot, sourcePath: outErl });
+    if (archiveRes.ok) {
+      archivedAs = archiveRes.archivedPath;
+    } else {
+      try { await fsp.unlink(outErl); } catch { /* ignore */ }
+    }
+
+    if (cfg.test?.disableErlTimeouts && archivedAs) {
+      emitAppMessage(
+        ok ? 'grundner.erl.archived' : 'grundner.erl.mismatch',
+        {
+          fileName: 'ChangeMachNr.erl',
+          archivedAs,
+          note: ok ? 'Reply matched request.' : 'Reply did not match request.'
+        },
+        'grundner'
+      );
+    }
+
     if (!ok) {
       logger.warn({ file: path }, 'watcher: ChangeMachNr.erl does not match request');
       return;
     }
-
-    // Delete erl to prevent stale confirmations
-    try { await fsp.unlink(outErl); } catch { /* ignore */ }
 
     // Update lifecycle: STAGED -> RUNNING (per job)
     for (const it of items) {

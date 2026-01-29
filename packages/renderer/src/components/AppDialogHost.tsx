@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, HelpCircle, Info, X, XCircle } from 'lucide-react';
 import type { AppDialogRequest, AppDialogSeverity } from '../../../shared/src';
+import { UI_DIALOG_ENQUEUE_CHANNEL } from '../../../shared/src';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -69,6 +70,18 @@ export function AppDialogHost() {
     });
     return () => {
       unsub?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent<AppDialogRequest>;
+      if (!custom.detail) return;
+      setQueue((prev) => prev.concat(custom.detail));
+    };
+    window.addEventListener(UI_DIALOG_ENQUEUE_CHANNEL, handler);
+    return () => {
+      window.removeEventListener(UI_DIALOG_ENQUEUE_CHANNEL, handler);
     };
   }, []);
 
