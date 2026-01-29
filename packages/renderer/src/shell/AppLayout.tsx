@@ -14,6 +14,7 @@ import type {
 import { cn } from '../utils/cn';
 import { selectCurrentAlarms } from './alarmUtils';
 import { NcCatValidationResultsModal } from '@/components/NcCatValidationResultsModal';
+import { AppDialogHost } from '@/components/AppDialogHost';
 import { Button } from '@/components/ui/button';
 import { PanelLeft } from 'lucide-react';
 import { formatAuDateTime, formatAuTime } from '@/utils/datetime';
@@ -446,6 +447,12 @@ export function AppLayout() {
   }, [fetchLogList, showDiagnostics]);
 
   useEffect(() => {
+    // logSelectedFile can change via the dropdown OR programmatically (e.g. when refreshing the list).
+    // Always reset the live buffer on file change so we never mix lines from two different files.
+    setLogLinesLive(null);
+  }, [logSelectedFile]);
+
+  useEffect(() => {
     if (!showDiagnostics) return;
     if (!logSelectedFile) return;
     // Initial fetch
@@ -458,8 +465,13 @@ export function AppLayout() {
       const unsubscribe = maybeSub(logSelectedFile, ({ lines }: { file: string; lines: string[] }) => {
         if (!Array.isArray(lines) || lines.length === 0) return;
         setLogLinesLive((prev) => {
-          const next = prev ? [...lines].reverse().concat(prev) : [...lines].reverse();
-          return next.slice(0, Math.max(2000, logLimit));
+          // Newest-first for UI, so reverse the incoming chunk.
+          const incoming = [...lines].reverse();
+
+          // Keep this as a *buffer of new lines*, not a full replacement of the file tail.
+          // The render path combines `logLinesLive + logTail` and slices to `logLimit`.
+          const next = prev ? incoming.concat(prev) : incoming;
+          return next.slice(0, logLimit);
         });
       });
       return () => {
@@ -485,8 +497,23 @@ export function AppLayout() {
   });
   const diagnosticsAlertCount =
     machineHealthAlerts.length + watcherIssues.length + (recentErrorIsFresh ? 1 : 0);
-  const logLines = useMemo(() => (logLinesLive ?? (logTail?.lines ? [...logTail.lines].reverse() : [])), [logLinesLive, logTail]);
-  const logAvailable = logTail?.available ?? null;
+  const logLines = useMemo(() => {
+    // Only render the stored tail if it matches the currently selected file.
+    // This avoids briefly showing stale lines from a previously-selected file.
+    const tail =
+      logTail?.file && logSelectedFile && logTail.file === logSelectedFile && logTail.lines
+        ? [...logTail.lines].reverse()
+        : [];
+
+    // logLinesLive is a small buffer of *new* lines streamed since the last tail fetch.
+    // It should never replace the tail; it should prepend to it.
+    const live = logLinesLive ?? [];
+
+    // Enforce the UI limit here so we always show a stable "last N lines" window,
+    // even as new lines stream in.
+    return live.concat(tail).slice(0, logLimit);
+  }, [logLimit, logLinesLive, logSelectedFile, logTail]);
+  const logAvailable = logTail?.file && logSelectedFile && logTail.file === logSelectedFile ? (logTail.available ?? null) : null;
   const validationAlertCount = useMemo(() => {
     if (!latestValidationReport) return 0;
     let count = 0;
@@ -629,6 +656,8 @@ export function AppLayout() {
           loadError={validationReportsError}
           onRefresh={() => void loadValidationReports()}
         />
+
+        <AppDialogHost />
 
         {alarms.length > 0 && (
           <div className="fixed right-8 top-16 z-50 space-y-2">
@@ -859,7 +888,12 @@ export function AppLayout() {
                   <select
                     className="border border-[var(--border)] rounded px-2 py-1 text-xs bg-[var(--input-bg)] text-[var(--foreground)]"
                     value={logLimit}
-                    onChange={(e) => setLogLimit(Number(e.target.value))}
+                    onChange={(e) => {
+                      setLogLimit(Number(e.target.value));
+                      // Reset the live buffer so the next render is a clean tail.
+                      // This avoids confusing mixes of "old tail" + "buffer from a different limit".
+                      setLogLinesLive(null);
+                    }}
                     disabled={logLoading || !logSelectedFile}
                   >
                     {[200, 500, 1000, 2000].map((value) => (
@@ -900,7 +934,7 @@ export function AppLayout() {
                   </div>
                 ) : (
                   <>
-                    {logTail && (
+                    {logTail?.file && logSelectedFile && logTail.file === logSelectedFile && (
                       <div className="text-xs text-[var(--muted-foreground)]">
                         Showing {logLines.length} {logLines.length === 1 ? "line" : "lines"}
                         {logAvailable != null ? ` of ${logAvailable}` : ""} (limit {logLimit})

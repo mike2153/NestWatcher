@@ -64,7 +64,10 @@ import type {
   SubscriptionAuthState,
   SubscriptionLoginReq,
   SubscriptionLoginRes,
-  LogWriteReq
+  AdminToolsWriteFileReq,
+  AdminToolsWriteFileRes,
+  LogWriteReq,
+  AppDialogRequest
 } from '../../../shared/src';
 import type { TelemetrySummaryReq, TelemetrySummaryRes, AlarmsHistoryReq, AlarmsHistoryRes } from '../../../shared/src';
 
@@ -103,6 +106,12 @@ declare global {
         getPath: () => Promise<Result<string, AppError>>;
         save: (next: Partial<Settings>) => Promise<Result<Settings, AppError>>;
         validatePath: (input: PathValidationReq) => Promise<Result<PathValidationRes, AppError>>;
+      };
+      uiDialogs: {
+        subscribe: (listener: (payload: AppDialogRequest) => void) => () => void;
+      };
+      adminTools: {
+        writeFile: (req: AdminToolsWriteFileReq) => Promise<Result<AdminToolsWriteFileRes, AppError>>;
       };
       db: {
         testConnection: (db: DbSettings) => Promise<Result<{ ok: true } | { ok: false; error: string }, AppError>>;

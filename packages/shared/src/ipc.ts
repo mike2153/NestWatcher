@@ -956,3 +956,36 @@ export const ValidationWarningsListRes = z.object({
   errorCount: z.number().int()
 });
 export type ValidationWarningsListRes = z.infer<typeof ValidationWarningsListRes>;
+
+// Admin Tools (file fuzz / generator)
+
+export const AdminToolsTarget = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('autoPacCsvDir') }),
+  z.object({ kind: z.literal('grundnerFolderPath') }),
+  z.object({ kind: z.literal('processedJobsRoot') }),
+  z.object({ kind: z.literal('archiveRoot') }),
+  z.object({ kind: z.literal('jobsRoot') }),
+  z.object({ kind: z.literal('quarantineRoot') }),
+  z.object({ kind: z.literal('testDataFolderPath') }),
+  z.object({ kind: z.literal('machineApJobfolder'), machineId: z.number().int() }),
+  z.object({ kind: z.literal('machineNestpickFolder'), machineId: z.number().int() })
+]);
+export type AdminToolsTarget = z.infer<typeof AdminToolsTarget>;
+
+export const AdminToolsWriteFileReq = z.object({
+  target: AdminToolsTarget,
+  // Optional subfolder inside the target root (for example a job folder inside processedJobsRoot).
+  relativeDir: z.string().optional(),
+  fileName: z.string().min(1),
+  content: z.string().default(''),
+  overwrite: z.boolean().optional(),
+  writeMode: z.enum(['atomic', 'direct', 'chunked']).optional(),
+  lineEnding: z.enum(['crlf', 'lf']).optional(),
+  chunkDelayMs: z.number().int().min(0).max(60_000).optional()
+});
+export type AdminToolsWriteFileReq = z.infer<typeof AdminToolsWriteFileReq>;
+
+export const AdminToolsWriteFileRes = z.object({
+  fullPath: z.string()
+});
+export type AdminToolsWriteFileRes = z.infer<typeof AdminToolsWriteFileRes>;

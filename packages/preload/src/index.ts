@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { UI_DIALOG_ENQUEUE_CHANNEL } from '../../shared/src';
+
 import type {
   CopyDiagnosticsResult,
   DbSettings,
@@ -43,6 +45,8 @@ import type {
   RouterListRes,
   SaveMachineReq,
   Settings,
+  AdminToolsWriteFileReq,
+  AdminToolsWriteFileRes,
   WorklistAddResult,
   TelemetrySummaryReq,
   TelemetrySummaryRes,
@@ -81,7 +85,8 @@ import type {
   SharedSettingsSnapshot,
   SubscriptionAuthState,
   SubscriptionLoginReq,
-  SubscriptionLoginRes
+  SubscriptionLoginRes,
+  AppDialogRequest
 } from '../../shared/src';
 import { type ResultEnvelope } from '../../shared/src/result';
 
@@ -160,6 +165,25 @@ const api = {
     getPath: () => invokeResult<string>('settings:path'),
     save: (next: Partial<Settings>) => invokeResult<Settings>('settings:save', next),
     validatePath: (input: PathValidationReq) => invokeResult<PathValidationRes>('settings:validatePath', input)
+  },
+  uiDialogs: {
+    subscribe: (listener: (payload: AppDialogRequest) => void) => {
+      const channel = UI_DIALOG_ENQUEUE_CHANNEL;
+      const handler = (_event: Electron.IpcRendererEvent, payload: AppDialogRequest) => {
+        listener(payload);
+      };
+
+      // Signal to Main that the renderer is ready to receive queued dialogs.
+      ipcRenderer.send('ui:dialog:ready');
+
+      ipcRenderer.on(channel, handler);
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+      };
+    }
+  },
+  adminTools: {
+    writeFile: (input: AdminToolsWriteFileReq) => invokeResult<AdminToolsWriteFileRes>('adminTools:writeFile', input)
   },
   db: {
     testConnection: (db: DbSettings) => invokeResult<{ ok: true } | { ok: false; error: string }>('db:test', db),

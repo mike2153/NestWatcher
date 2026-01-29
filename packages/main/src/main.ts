@@ -20,6 +20,7 @@ import { registerOrderingIpc } from './ipc/ordering';
 import { registerAuthIpc } from './ipc/auth';
 import { registerMesDataIpc } from './ipc/mesData';
 import { registerNcCatValidationReportsIpc } from './ipc/ncCatValidationReports';
+import { registerAdminToolsIpc } from './ipc/adminTools';
 import { registerAppIpc, requestShowMainWindow, setShowMainWindow } from './ipc/app';
 import { initWatchers, shutdownWatchers } from './services/watchers';
 import { initMesValidationScanner, stopMesValidationScanner } from './services/mesValidation';
@@ -227,6 +228,7 @@ app.whenReady().then(async () => {
   registerOrderingIpc();
   registerMesDataIpc();
   registerNcCatValidationReportsIpc();
+  registerAdminToolsIpc();
   registerAppIpc();
 
   try {

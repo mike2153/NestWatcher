@@ -17,6 +17,7 @@ import { TelemetryPage } from './pages/TelemetryPage';
 import { CncAlarmsPage } from './pages/CncAlarmsPage';
 import { GrundnerPage } from './pages/GrundnerPage';
 import { MessagesPage } from './pages/MessagesPage';
+import { AdminToolsPage } from './pages/AdminToolsPage';
 import { OrderingPage } from './pages/OrderingPage';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -63,6 +64,7 @@ const makeRoutes = () => ([
           { path: '/telemetry', element: <TelemetryPage /> },
           { path: '/cnc-alarms', element: <CncAlarmsPage /> },
           { path: '/messages', element: <MessagesPage /> },
+          { path: '/admin-tools', element: <AdminToolsPage /> },
           { path: '/grundner', element: <GrundnerPage /> },
           { path: '/ordering', element: <OrderingPage /> },
           { path: '/machines', element: <MachinesPage /> },

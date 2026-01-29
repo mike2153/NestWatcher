@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, History, Settings, BellRing, Gauge, ListCheck, AlignVerticalJustifyEnd, MessageSquare, ShoppingCart, UserRound, LogOut, Rocket, Fan } from 'lucide-react';
+import { LayoutDashboard, History, Settings, BellRing, Gauge, ListCheck, AlignVerticalJustifyEnd, MessageSquare, ShoppingCart, UserRound, LogOut, Rocket, Fan, FlaskConical } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -156,6 +156,21 @@ export function AppSidebar() {
                 </SidebarMenuItem>
               );
             })}
+
+            {session?.role === 'admin' && session?.username?.toLowerCase() === 'admin' ? (
+              <SidebarMenuItem key="/admin-tools">
+                <NavLink
+                  to="/admin-tools"
+                  className={({ isActive }) =>
+                    cn(sidebarItemBase, sidebarItemCollapsible, isActive ? sidebarItemActive : sidebarItemInactive)
+                  }
+                  title="Admin Tools"
+                >
+                  <FlaskConical className={cn('transition-colors')} />
+                  <span className="truncate group-data-[collapsible=icon]/sidebar-wrapper:hidden">Admin Tools</span>
+                </NavLink>
+              </SidebarMenuItem>
+            ) : null}
 
           </SidebarMenu>
         </SidebarContent>
