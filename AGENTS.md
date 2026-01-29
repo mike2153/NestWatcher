@@ -290,6 +290,44 @@ flowchart LR
   --> MAIN --> UI
 ```
 
+### Mermaid style rules for this repo
+
+Goal: A beginner developer or operator should be able to read the diagram and understand the logic.
+Use descriptive labels that explain what happens, not just component names.
+
+Rules:
+
+* Default direction is top down using `flowchart TD`.
+* Node ids should be short and stable (example: `FS`, `WK`, `DB`).
+* Node labels (inside `[]`) must describe what the step does in plain English.
+  * Include key numbers and limits in the label when relevant (example: `7.5 seconds`, `double each time`, `max delay 240 seconds`).
+* Use simple arrows `A --> B` unless edge labels add real clarity.
+* Strictly no parentheses characters in Mermaid text. Mermaid syntax errors on this repo when `()` appear.
+* Avoid jargon and acronyms in labels unless the term is already defined nearby.
+
+Example watcher self heal backoff flow:
+
+```mermaid
+flowchart TD
+  FS[Network folder or share goes offline or denies access]
+  WK[Watchers worker receives filesystem error from chokidar]
+  ONCE[Record one offline error and one health issue then stop repeating logs]
+  CLOSE[Close the file watcher immediately to stop error spam]
+  BACKOFF[Back off and try again 7.5 seconds then double each time max delay 240 seconds]
+  RETRY[Restart the watcher and wait for ready signal]
+  READY[On ready reset backoff to zero clear health issue emit recovered event]
+  AGAIN[If restart fails go back to close and keep backing off]
+
+  FS --> WK
+  WK --> ONCE
+  ONCE --> CLOSE
+  CLOSE --> BACKOFF
+  BACKOFF --> RETRY
+  RETRY --> READY
+  RETRY --> AGAIN
+  AGAIN --> CLOSE
+```
+
 ### Before / After explanation
 
 You must explain:

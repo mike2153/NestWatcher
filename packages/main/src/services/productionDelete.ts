@@ -51,6 +51,7 @@ export async function placeProductionDeleteCsv(
 ): Promise<{ confirmed: boolean; folder: string; checked?: boolean; deleted?: boolean; message?: string }>{
   if (!items.length) return { confirmed: false, folder: '', checked: false, deleted: false, message: 'No items to delete' };
   const cfg = loadConfig();
+  const effectiveTimeoutMs = cfg.test?.disableErlTimeouts ? Number.POSITIVE_INFINITY : timeoutMs;
   const folderRaw = cfg.paths.grundnerFolderPath?.trim() ?? '';
   if (!folderRaw) return { confirmed: false, folder: '', checked: false, deleted: false, message: 'Grundner folder not configured' };
   const folder = normalize(folderRaw);
@@ -89,7 +90,7 @@ export async function placeProductionDeleteCsv(
   await fsp.rename(tmpPath, reqPath).catch(async () => { await fsp.writeFile(reqPath, lines, 'utf8'); });
 
   // Wait for the answer file
-  const ok = await waitFor(async () => existsSync(ansPath), timeoutMs);
+  const ok = await waitFor(async () => existsSync(ansPath), effectiveTimeoutMs);
   if (!ok) {
     logger.warn({ folder }, 'productionDelete: timed out waiting for get_production.erl');
     return { confirmed: false, folder, checked: false, deleted: false, message: 'Timed out waiting for delete confirmation (get_production.erl)' };

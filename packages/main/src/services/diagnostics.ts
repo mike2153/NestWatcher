@@ -286,6 +286,24 @@ export function recordWatcherEvent(
   emitUpdate();
 }
 
+// Backoff updates are like watcher errors, but they are expected and repeated.
+// We want the UI to show the latest retry schedule without spamming recentErrors.
+export function recordWatcherBackoff(
+  name: string,
+  info?: { label?: string; message?: string; context?: unknown }
+) {
+  const watcher = ensureWatcher(name, info?.label);
+  watcher.status = 'error';
+  watcher.lastErrorAt = new Date().toISOString();
+  watcher.lastError = info?.message ?? null;
+  try {
+    const lbl = watcher.label ?? name;
+    const msg = info?.message ?? 'backoff';
+    logger.warn({ watcher: name, label: lbl, context: info?.context }, `watcher:backoff - ${lbl}: ${msg}`);
+  } catch { /* noop */ void 0; }
+  emitUpdate();
+}
+
 export function recordWatcherError(
   name: string,
   error: unknown,

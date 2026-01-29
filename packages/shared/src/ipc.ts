@@ -232,7 +232,8 @@ export const SettingsSchema = z.object({
   test: z.object({
     testDataFolderPath: z.string().default(''),
     useTestDataMode: z.boolean().default(false),
-  }).default({ testDataFolderPath: '', useTestDataMode: false }),
+    disableErlTimeouts: z.boolean().default(false),
+  }).default({ testDataFolderPath: '', useTestDataMode: false, disableErlTimeouts: false }),
   grundner: z.object({
     tableColumns: z.object({
       typeData: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(1) }).default({}),

@@ -11,6 +11,7 @@ import {
   registerWatcher,
   watcherReady,
   recordWatcherEvent,
+  recordWatcherBackoff,
   recordWatcherError,
   recordWorkerError,
   setMachineHealthIssue,
@@ -39,6 +40,11 @@ let startupTimer: NodeJS.Timeout | null = null;
 let startupDebounceTimer: NodeJS.Timeout | null = null;
 let startupStartedAt = 0;
 const startupWatchers = new Map<string, StartupWatcherState>();
+
+// Prevent UI message spam if a watcher emits repeated errors.
+// The diagnostics panel still updates, but the operator message feed should not flood.
+const OFFLINE_BANNER_THROTTLE_MS = 60_000;
+const offlineBannerLastSentAt = new Map<string, number>();
 const STARTUP_DEBOUNCE_MS = 250;
 const STARTUP_TIMEOUT_MS = 15_000;
 
@@ -210,6 +216,27 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
         context: message.context
       });
       break;
+    case 'watcherBackoff': {
+      if (startupMode) {
+        const existing = startupWatchers.get(message.name);
+        startupWatchers.set(message.name, {
+          name: message.name,
+          label: message.label ?? existing?.label ?? message.name,
+          status: 'error',
+          lastError: message.message
+        });
+        scheduleStartupEvaluation();
+      }
+
+      // Backoff messages are expected and repeated while a folder is offline.
+      // They update the watcher status text, but should not create a new worker error entry.
+      recordWatcherBackoff(message.name, {
+        label: message.label ?? message.name,
+        message: message.message,
+        context: message.context
+      });
+      break;
+    }
     case 'watcherError': {
       if (startupMode) {
         const existing = startupWatchers.get(message.name);
@@ -230,14 +257,20 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
         (message.context as { dir?: string; path?: string } | undefined)?.dir ??
         (message.context as { path?: string } | undefined)?.path;
       if (offlinePath) {
-        pushAppMessage(
-          'watcher.offline',
-          {
-            watcherName: message.label ?? message.name,
-            path: offlinePath
-          },
-          { source: 'watchers' }
-        );
+        const key = `${message.name}|${offlinePath}`;
+        const now = Date.now();
+        const last = offlineBannerLastSentAt.get(key) ?? 0;
+        if (now - last >= OFFLINE_BANNER_THROTTLE_MS) {
+          offlineBannerLastSentAt.set(key, now);
+          pushAppMessage(
+            'watcher.offline',
+            {
+              watcherName: message.label ?? message.name,
+              path: offlinePath
+            },
+            { source: 'watchers' }
+          );
+        }
       }
       recordWatcherError(message.name, toError(message.error), context);
       break;

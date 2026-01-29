@@ -27,7 +27,7 @@ const DEFAULT_SETTINGS: Settings = {
     statementTimeoutMs: 30000
   },
   paths: { processedJobsRoot: '', autoPacCsvDir: '', autoPacArchiveEnabled: false, grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' },
-  test: { testDataFolderPath: '', useTestDataMode: false },
+  test: { testDataFolderPath: '', useTestDataMode: false, disableErlTimeouts: false },
   grundner: {
     tableColumns: {
       typeData: { visible: true, order: 1 },

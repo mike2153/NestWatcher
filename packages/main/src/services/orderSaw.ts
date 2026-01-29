@@ -44,6 +44,7 @@ export async function placeOrderSawCsv(
 ): Promise<{ confirmed: boolean; erl?: string; csv?: string; folder: string; checked?: boolean; deleted?: boolean }>{
   if (!items.length) throw new Error('No items to order');
   const cfg = loadConfig();
+  const effectiveTimeoutMs = cfg.test?.disableErlTimeouts ? Number.POSITIVE_INFINITY : timeoutMs;
   const folderRaw = cfg.paths.grundnerFolderPath?.trim() ?? '';
   if (!folderRaw) throw new Error('Grundner folder path is not configured');
   const folder = normalize(folderRaw);
@@ -77,7 +78,7 @@ export async function placeOrderSawCsv(
   await fsp.rename(tmpPath, csvPath).catch(async () => { await fsp.writeFile(csvPath, lines, 'utf8'); });
 
   // Wait for reply
-  const ok = await waitFor(async () => existsSync(erlPath), timeoutMs);
+  const ok = await waitFor(async () => existsSync(erlPath), effectiveTimeoutMs);
   if (!ok) {
     logger.warn({ folder }, 'orderSaw: timed out waiting for order_saw.erl');
     return { confirmed: false, folder, checked: false, deleted: false };

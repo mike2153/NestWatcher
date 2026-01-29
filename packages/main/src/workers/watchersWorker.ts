@@ -84,6 +84,13 @@ function recordWatcherEvent(
   postMessageToMain({ type: 'watcherEvent', name, label: event.label, message: event.message, context: event.context });
 }
 
+function recordWatcherBackoff(
+  name: string,
+  event: { label?: string; message: string; context?: Record<string, unknown> }
+) {
+  postMessageToMain({ type: 'watcherBackoff', name, label: event.label, message: event.message, context: event.context });
+}
+
 function recordWatcherError(
   name: string,
   error: unknown,
@@ -208,7 +215,7 @@ function trackWatcher(watcher: FSWatcher) {
 }
 
 let shuttingDown = false;
-let jobsIngestInterval: NodeJS.Timeout | null = null;
+let jobsIngestTimer: NodeJS.Timeout | null = null;
 let processedRootMissingNotified = false;
 let stageSanityTimer: NodeJS.Timeout | null = null;
 let sourceSanityTimer: NodeJS.Timeout | null = null;
@@ -342,6 +349,259 @@ function nestpickUnstackWatcherLabel(machine: Machine) {
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ---------------------------------------------------------------------------------
+// Watcher self-heal backoff
+//
+// Goal: network shares go offline in real shops. A watcher should never spam logs
+// or freeze the app. On error we close the watcher, then retry using exponential
+// backoff starting at 7.5 seconds and doubling up to 240 seconds.
+// ---------------------------------------------------------------------------------
+
+const WATCHER_BACKOFF_INITIAL_MS = 7_500;
+const WATCHER_BACKOFF_MAX_MS = 240_000;
+
+type BackoffState = {
+  attempt: number;
+  offlineSinceMs: number;
+  maxDelayReachAtMs: number;
+  nextRetryAtMs: number;
+};
+
+function computeBackoffDelayMs(attempt: number): number {
+  // attempt: 0 => 7.5 seconds
+  // attempt: 1 => 15 seconds
+  // attempt: 2 => 30 seconds
+  // ... capped at 240 seconds
+  return Math.min(WATCHER_BACKOFF_MAX_MS, WATCHER_BACKOFF_INITIAL_MS * Math.pow(2, attempt));
+}
+
+function computeMaxDelayReachAtMs(offlineSinceMs: number): number {
+  // This is the time when the backoff first reaches the max delay.
+  // For the configured backoff this is after 5 retries:
+  // 7.5 + 15 + 30 + 60 + 120 seconds.
+  let total = 0;
+  let delayMs = WATCHER_BACKOFF_INITIAL_MS;
+  while (delayMs < WATCHER_BACKOFF_MAX_MS) {
+    total += delayMs;
+    delayMs = Math.min(WATCHER_BACKOFF_MAX_MS, delayMs * 2);
+  }
+  return offlineSinceMs + total;
+}
+
+function formatSeconds(ms: number): string {
+  const seconds = ms / 1000;
+  // Only the first delay is fractional (7.5). Everything else is a whole number.
+  if (Number.isInteger(seconds)) {
+    return `${seconds} seconds`;
+  }
+  return `${seconds.toFixed(1)} seconds`;
+}
+
+function formatTimeOfDay(ms: number): string {
+  const d = new Date(ms);
+  let h = d.getHours();
+  const ampm = h >= 12 ? 'pm' : 'am';
+  h = h % 12;
+  if (h === 0) h = 12;
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${h}:${mm}:${ss}${ampm}`;
+}
+
+function buildBackoffStatusMessage(params: {
+  delayMs: number;
+  nextRetryAtMs: number;
+  maxDelayReachAtMs: number;
+}): string {
+  const nextTime = formatTimeOfDay(params.nextRetryAtMs);
+  const capTime = formatTimeOfDay(params.maxDelayReachAtMs);
+  return `Still offline. Retrying in ${formatSeconds(params.delayMs)} at ${nextTime}. Trying to connect until ${capTime} then restarting watcher every ${Math.round(WATCHER_BACKOFF_MAX_MS / 1000)} seconds.`;
+}
+
+function scheduleBackoffRetry(state: BackoffState, nowMs: number): { delayMs: number; nextRetryAtMs: number } {
+  const delayMs = computeBackoffDelayMs(state.attempt);
+  const nextRetryAtMs = nowMs + delayMs;
+  state.attempt += 1;
+  state.nextRetryAtMs = nextRetryAtMs;
+  return { delayMs, nextRetryAtMs };
+}
+
+function shouldAttemptBackoff(state: BackoffState | undefined, nowMs: number): boolean {
+  if (!state) return true;
+  return nowMs >= state.nextRetryAtMs;
+}
+
+// Generic backoff storage for pollers and per-folder checks.
+const backoffByKey = new Map<string, BackoffState>();
+
+function getOrCreateBackoff(key: string, nowMs: number): BackoffState {
+  const existing = backoffByKey.get(key);
+  if (existing) return existing;
+  const state: BackoffState = {
+    attempt: 0,
+    offlineSinceMs: nowMs,
+    maxDelayReachAtMs: computeMaxDelayReachAtMs(nowMs),
+    nextRetryAtMs: nowMs
+  };
+  backoffByKey.set(key, state);
+  return state;
+}
+
+function clearBackoff(key: string) {
+  backoffByKey.delete(key);
+}
+
+type ResilientWatcherOptions = {
+  name: string;
+  label: string;
+  createWatcher: () => FSWatcher;
+  targetContext?: Record<string, unknown>;
+  shouldIgnoreError?: (err: unknown) => boolean;
+  onOfflineOnce?: (err: unknown) => void;
+  onReady?: () => void;
+  onRecovered?: () => void;
+};
+
+type ResilientWatcherController = {
+  start: () => void;
+  stop: () => Promise<void>;
+};
+
+const resilientWatchers: ResilientWatcherController[] = [];
+
+function createResilientWatcher(options: ResilientWatcherOptions): ResilientWatcherController {
+  let watcher: FSWatcher | null = null;
+  let retryTimer: NodeJS.Timeout | null = null;
+  let handlingError = false;
+  let backoff: BackoffState | null = null;
+
+  function clearRetryTimer() {
+    if (!retryTimer) return;
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+
+  async function closeWatcherInstance() {
+    const current = watcher;
+    watcher = null;
+    if (!current) return;
+    try {
+      await current.close();
+    } catch {
+      // close failures should not crash the worker
+    }
+  }
+
+  function attachBaseListeners(w: FSWatcher) {
+    w.on('ready', () => {
+      const wasOffline = backoff != null;
+      backoff = null;
+      handlingError = false;
+      clearRetryTimer();
+      watcherReady(options.name, options.label);
+      try {
+        options.onReady?.();
+      } catch {
+        // onReady should never crash the watcher loop
+      }
+      if (wasOffline) {
+        recordWatcherEvent(options.name, {
+          label: options.label,
+          message: 'Recovered'
+        });
+        try {
+          options.onRecovered?.();
+        } catch {
+          // ignore recovery callback failures
+        }
+      }
+    });
+
+    w.on('error', (err) => {
+      if (options.shouldIgnoreError?.(err)) {
+        return;
+      }
+      void handleError(err);
+    });
+  }
+
+  async function handleError(err: unknown) {
+    if (shuttingDown) return;
+    if (handlingError) return;
+    handlingError = true;
+
+    const now = Date.now();
+    if (!backoff) {
+      backoff = {
+        attempt: 0,
+        offlineSinceMs: now,
+        maxDelayReachAtMs: computeMaxDelayReachAtMs(now),
+        nextRetryAtMs: now
+      };
+      try {
+        options.onOfflineOnce?.(err);
+      } catch {
+        // onOfflineOnce should never crash the worker loop
+      }
+      recordWatcherError(options.name, err, { ...(options.targetContext ?? {}), label: options.label });
+    }
+
+    // Stop watcher spam at the source.
+    await closeWatcherInstance();
+    clearRetryTimer();
+
+    const { delayMs, nextRetryAtMs } = scheduleBackoffRetry(backoff, now);
+    const message = buildBackoffStatusMessage({
+      delayMs,
+      nextRetryAtMs,
+      maxDelayReachAtMs: backoff.maxDelayReachAtMs
+    });
+
+    recordWatcherBackoff(options.name, {
+      label: options.label,
+      message,
+      context: {
+        ...(options.targetContext ?? {}),
+        delayMs,
+        nextRetryAt: new Date(nextRetryAtMs).toISOString(),
+        maxDelayReachAt: new Date(backoff.maxDelayReachAtMs).toISOString(),
+        attempt: backoff.attempt
+      }
+    });
+
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      handlingError = false;
+      start();
+    }, delayMs);
+    if (typeof retryTimer.unref === 'function') retryTimer.unref();
+  }
+
+  function start() {
+    if (shuttingDown) return;
+    if (watcher) return;
+    try {
+      const w = options.createWatcher();
+      watcher = w;
+      trackWatcher(w);
+      attachBaseListeners(w);
+    } catch (err) {
+      void handleError(err);
+    }
+  }
+
+  async function stop() {
+    clearRetryTimer();
+    backoff = null;
+    handlingError = false;
+    await closeWatcherInstance();
+  }
+
+  const controller: ResilientWatcherController = { start, stop };
+  resilientWatchers.push(controller);
+  return controller;
 }
 
 async function waitForDbReady(maxAttempts = 10, initialDelayMs = 500) {
@@ -1100,7 +1360,9 @@ async function handleAutoPacOrderSawCsv(path: string) {
     });
 
     // Wait for confirmation
-    const confirmed = await waitForExists(outErl, 30_000);
+    const cfg = loadConfig();
+    const erlTimeoutMs = cfg.test?.disableErlTimeouts ? Number.POSITIVE_INFINITY : 30_000;
+    const confirmed = await waitForExists(outErl, erlTimeoutMs);
     if (!confirmed) {
       logger.warn({ outErl, file: path }, 'watcher: ChangeMachNr.erl not received');
       return;
@@ -1932,12 +2194,20 @@ async function shutdown(reason?: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info({ reason }, 'watchersWorker: shutting down background services');
-  if (jobsIngestInterval) {
-    clearInterval(jobsIngestInterval);
-    jobsIngestInterval = null;
+  if (jobsIngestTimer) {
+    clearTimeout(jobsIngestTimer);
+    jobsIngestTimer = null;
+  }
+  if (stageSanityTimer) {
+    clearTimeout(stageSanityTimer);
+    stageSanityTimer = null;
+  }
+  if (sourceSanityTimer) {
+    clearTimeout(sourceSanityTimer);
+    sourceSanityTimer = null;
   }
   if (grundnerTimer) {
-    clearInterval(grundnerTimer);
+    clearTimeout(grundnerTimer);
     grundnerTimer = null;
   }
   if (notificationRestartTimer) {
@@ -1957,6 +2227,15 @@ async function shutdown(reason?: string) {
         logger.warn({ err }, 'watchersWorker: failed to release db listener');
       }
       notificationClient = null;
+    }
+  }
+
+  // Stop any backoff retry timers before closing FS watchers.
+  for (const ctrl of resilientWatchers) {
+    try {
+      await ctrl.stop();
+    } catch {
+      // ignore shutdown failures
     }
   }
   const watchers = Array.from(fsWatchers);
@@ -2274,23 +2553,26 @@ function setupTestDataWatcher(root: string) {
     if (event === 'add') enqueueTestDataFile(file, 'watcher:add');
   };
 
-  const watcher = chokidar.watch(normalizedRoot, {
-    ignoreInitial: true,
-    depth: 4
+  const ctrl = createResilientWatcher({
+    name: TESTDATA_WATCHER_NAME,
+    label: TESTDATA_WATCHER_LABEL,
+    targetContext: { folder: normalizedRoot },
+    createWatcher: () => {
+      const w = chokidar.watch(normalizedRoot, {
+        ignoreInitial: true,
+        depth: 4
+      });
+      w.on('add', (file) => processIfMatches(file, 'add'));
+      return w;
+    },
+    onReady: () => {
+      void (async () => {
+        await buildInitialTestDataIndex(normalizedRoot);
+        await processNextTestData();
+      })();
+    }
   });
-  trackWatcher(watcher);
-  watcher.on('add', (file) => processIfMatches(file, 'add'));
-  watcher.on('error', (err) => {
-    recordWatcherError(TESTDATA_WATCHER_NAME, err, { folder: normalizedRoot, label: TESTDATA_WATCHER_LABEL });
-    logger.error({ err, folder: normalizedRoot }, 'test-data: watcher error');
-  });
-  watcher.on('ready', () => {
-    watcherReady(TESTDATA_WATCHER_NAME, TESTDATA_WATCHER_LABEL);
-    void (async () => {
-      await buildInitialTestDataIndex(normalizedRoot);
-      await processNextTestData();
-    })();
-  });
+  ctrl.start();
   logger.info({ folder: normalizedRoot }, 'Test data watcher started');
 }
 
@@ -2328,39 +2610,49 @@ function setupAutoPacWatcher(dir: string) {
     watcherName: AUTOPAC_WATCHER_NAME,
     watcherLabel: AUTOPAC_WATCHER_LABEL
   });
-  const watcher = chokidar.watch(dir, {
-    ignoreInitial: true,
-    depth: 3,
-    ignored: shouldIgnoreAutoPacPath,
-    awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 }
+
+  const ctrl = createResilientWatcher({
+    name: AUTOPAC_WATCHER_NAME,
+    label: AUTOPAC_WATCHER_LABEL,
+    targetContext: { dir },
+    createWatcher: () => {
+      const w = chokidar.watch(dir, {
+        ignoreInitial: true,
+        depth: 3,
+        ignored: shouldIgnoreAutoPacPath,
+        awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 }
+      });
+      w.on('add', onAdd);
+      w.on('change', onAdd);
+      return w;
+    },
+    onOfflineOnce: (err) => {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      setMachineHealthIssue({
+        machineId: null,
+        code: HEALTH_CODES.copyFailure,
+        message: `AutoPAC watcher error${code ? ` (${code})` : ''}`,
+        severity: 'critical',
+        context: { dir, code }
+      });
+    },
+    onReady: () => {
+      clearMachineHealthIssue(null, HEALTH_CODES.copyFailure);
+      void (async () => {
+        const existing = await collectAutoPacCsvs(dir);
+        if (!existing.length) return;
+        logger.info({ dir, count: existing.length }, 'AutoPAC watcher: processing existing CSV files on startup');
+        for (const file of existing) {
+          onAdd(file);
+        }
+      })();
+    },
+    onRecovered: () => {
+      clearMachineHealthIssue(null, HEALTH_CODES.copyFailure);
+    }
   });
-  trackWatcher(watcher);
-  watcher.on('add', onAdd);
-  watcher.on('change', onAdd);
-  watcher.on('error', (err) => {
-    const code = (err as NodeJS.ErrnoException)?.code;
-    setMachineHealthIssue({
-      machineId: null,
-      code: HEALTH_CODES.copyFailure,
-      message: `AutoPAC watcher error${code ? ` (${code})` : ''}`,
-      severity: 'critical',
-      context: { dir, code }
-    });
-    recordWatcherError(AUTOPAC_WATCHER_NAME, err, { dir, label: AUTOPAC_WATCHER_LABEL });
-    logger.error({ err, dir }, 'watcher: AutoPAC error');
-  });
-  watcher.on('ready', () => {
-    watcherReady(AUTOPAC_WATCHER_NAME, AUTOPAC_WATCHER_LABEL);
-    clearMachineHealthIssue(null, HEALTH_CODES.copyFailure);
-    void (async () => {
-      const existing = await collectAutoPacCsvs(dir);
-      if (!existing.length) return;
-      logger.info({ dir, count: existing.length }, 'AutoPAC watcher: processing existing CSV files on startup');
-      for (const file of existing) {
-        onAdd(file);
-      }
-    })();
-  });
+
+  ctrl.start();
   logger.info({ dir }, 'AutoPAC watcher started');
 }
 
@@ -2379,93 +2671,94 @@ async function setupNestpickWatchers() {
       const ackWatcherLabel = nestpickAckWatcherLabel(machine);
       registerWatcher(ackWatcherName, ackWatcherLabel);
 
-      const ackWatcher = chokidar.watch(ackPath, {
-        ignoreInitial: true,
-        depth: 0,
-        disableGlobbing: true,
-        ignored: shouldIgnoreShareTempFile,
-        awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 250 }
-      });
-      trackWatcher(ackWatcher);
-
       const handleAck = stableProcess(
         (path) => handleNestpickAck(machine, path),
         500,
         { watcherName: ackWatcherName, watcherLabel: ackWatcherLabel }
       );
-      ackWatcher.on('add', handleAck);
-      ackWatcher.on('change', handleAck);
-      ackWatcher.on('error', (err) => {
-        if (isBenignChokidarLstatTempError(err)) {
-          logger.debug({ err, file: ackPath }, 'watcher: ignoring chokidar temp-file lstat error');
-          return;
+
+      const ackCtrl = createResilientWatcher({
+        name: ackWatcherName,
+        label: ackWatcherLabel,
+        targetContext: { folder: ackPath, machineId: machine.machineId },
+        shouldIgnoreError: isBenignChokidarLstatTempError,
+        createWatcher: () => {
+          const w = chokidar.watch(ackPath, {
+            ignoreInitial: true,
+            depth: 0,
+            disableGlobbing: true,
+            ignored: shouldIgnoreShareTempFile,
+            awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 250 }
+          });
+          w.on('add', handleAck);
+          w.on('change', handleAck);
+          return w;
+        },
+        onOfflineOnce: (err) => {
+          const code = (err as NodeJS.ErrnoException)?.code;
+          setMachineHealthIssue({
+            machineId: machine.machineId ?? null,
+            code: HEALTH_CODES.nestpickShare,
+            message: `Nestpick share unreachable${code ? ` (${code})` : ''}`,
+            severity: 'critical',
+            context: { file: ackPath, machineId: machine.machineId, code }
+          });
+        },
+        onReady: () => {
+          clearMachineHealthIssue(machine.machineId ?? null, HEALTH_CODES.nestpickShare);
+        },
+        onRecovered: () => {
+          clearMachineHealthIssue(machine.machineId ?? null, HEALTH_CODES.nestpickShare);
         }
-        const code = (err as NodeJS.ErrnoException)?.code;
-        setMachineHealthIssue({
-          machineId: machine.machineId ?? null,
-          code: HEALTH_CODES.nestpickShare,
-          message: `Nestpick share unreachable${code ? ` (${code})` : ''}`,
-          severity: 'critical',
-          context: { file: ackPath, machineId: machine.machineId, code }
-        });
-        recordWatcherError(ackWatcherName, err, {
-          folder: ackPath,
-          machineId: machine.machineId,
-          label: ackWatcherLabel
-        });
-        logger.error({ err, file: ackPath }, 'watcher: nestpick ack error');
       });
-      ackWatcher.on('ready', () => {
-        watcherReady(ackWatcherName, ackWatcherLabel);
-        clearMachineHealthIssue(machine.machineId ?? null, HEALTH_CODES.nestpickShare);
-      });
+      ackCtrl.start();
 
 
       const reportPath = join(folder, NESTPICK_UNSTACK_FILENAME);
       const unstackWatcherName = nestpickUnstackWatcherName(machine);
       const unstackWatcherLabel = nestpickUnstackWatcherLabel(machine);
       registerWatcher(unstackWatcherName, unstackWatcherLabel);
-      const reportWatcher = chokidar.watch(reportPath, {
-        ignoreInitial: true,
-        depth: 0,
-        disableGlobbing: true,
-        ignored: shouldIgnoreShareTempFile,
-        awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 250 }
-      });
-
-      trackWatcher(reportWatcher);
       const handleReport = stableProcess(
         (path) => handleNestpickUnstack(machine, path),
         500,
         { watcherName: unstackWatcherName, watcherLabel: unstackWatcherLabel }
       );
-      reportWatcher.on('add', handleReport);
-      reportWatcher.on('change', handleReport);
-      reportWatcher.on('error', (err) => {
-        if (isBenignChokidarLstatTempError(err)) {
-          logger.debug({ err, file: reportPath }, 'watcher: ignoring chokidar temp-file lstat error');
-          return;
-        }
-        const code = (err as NodeJS.ErrnoException)?.code;
-        setMachineHealthIssue({
-          machineId: machine.machineId ?? null,
-          code: HEALTH_CODES.nestpickShare,
-          message: `Nestpick unstack share unreachable${code ? ` (${code})` : ''}`,
-          severity: 'critical',
-          context: { file: reportPath, machineId: machine.machineId, code }
-        });
-        recordWatcherError(unstackWatcherName, err, {
-          folder: reportPath,
-          machineId: machine.machineId,
-          label: unstackWatcherLabel
-        });
-        logger.error({ err, folder: reportPath }, 'watcher: nestpick unstack error');
-      });
 
-      reportWatcher.on('ready', () => {
-        watcherReady(unstackWatcherName, unstackWatcherLabel);
-        clearMachineHealthIssue(machine.machineId ?? null, HEALTH_CODES.nestpickShare);
+      const reportCtrl = createResilientWatcher({
+        name: unstackWatcherName,
+        label: unstackWatcherLabel,
+        targetContext: { folder: reportPath, machineId: machine.machineId },
+        shouldIgnoreError: isBenignChokidarLstatTempError,
+        createWatcher: () => {
+          const w = chokidar.watch(reportPath, {
+            ignoreInitial: true,
+            depth: 0,
+            disableGlobbing: true,
+            ignored: shouldIgnoreShareTempFile,
+            awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 250 }
+          });
+          w.on('add', handleReport);
+          w.on('change', handleReport);
+          return w;
+        },
+        onOfflineOnce: (err) => {
+          const code = (err as NodeJS.ErrnoException)?.code;
+          setMachineHealthIssue({
+            machineId: machine.machineId ?? null,
+            code: HEALTH_CODES.nestpickShare,
+            message: `Nestpick unstack share unreachable${code ? ` (${code})` : ''}`,
+            severity: 'critical',
+            context: { file: reportPath, machineId: machine.machineId, code }
+          });
+        },
+        onReady: () => {
+          clearMachineHealthIssue(machine.machineId ?? null, HEALTH_CODES.nestpickShare);
+        },
+        onRecovered: () => {
+          clearMachineHealthIssue(machine.machineId ?? null, HEALTH_CODES.nestpickShare);
+        }
       });
+      reportCtrl.start();
 
       logger.info({ folder }, 'Nestpick watcher started');
     }
@@ -2651,21 +2944,44 @@ async function stageSanityPollOnce() {
       const m = machines.find((mm) => mm.machineId === machineId);
       const folder = m?.apJobfolder?.trim?.();
       if (!m || !folder) continue;
+
+      // If a folder is offline, do not hit it every 10 seconds.
+      const now = Date.now();
+      const folderBackoffKey = `stage-sanity:machine:${machineId}`;
+      const folderBackoff = backoffByKey.get(folderBackoffKey);
+      if (!shouldAttemptBackoff(folderBackoff, now)) {
+        continue;
+      }
+
       const { bases: present, hadError, error } = await collectNcBaseNames(folder);
-      // If filesystem traversal failed, skip this machine to avoid false negatives
+      // If filesystem traversal failed, skip this machine to avoid false negatives.
+      // Also apply backoff so we do not spam logs on dead shares.
       if (hadError) {
+        const existing = backoffByKey.get(folderBackoffKey);
+        const state = existing ?? getOrCreateBackoff(folderBackoffKey, now);
+        const { delayMs, nextRetryAtMs } = scheduleBackoffRetry(state, now);
+
         const machineLabel = m.name ?? `Machine ${machineId}`;
         const errSuffix = error ? ` (dir=${error.dir}, code=${error.code ?? 'unknown'})` : '';
         logger.warn(
           { machineId, machine: machineLabel, apJobfolder: folder, error },
           'stage-sanity: folder traversal error'
         );
-        recordWatcherEvent(STAGE_SANITY_WATCHER_NAME, {
+
+        recordWatcherBackoff(STAGE_SANITY_WATCHER_NAME, {
           label: STAGE_SANITY_WATCHER_LABEL,
-          message: `Skipped stage sanity (machine=${machineLabel}, folder=${folder})${errSuffix}`
+          message: `Skipped stage sanity (machine=${machineLabel}, folder=${folder})${errSuffix}. ${buildBackoffStatusMessage({
+            delayMs,
+            nextRetryAtMs,
+            maxDelayReachAtMs: state.maxDelayReachAtMs
+          })}`,
+          context: { machineId, folder, error, delayMs }
         });
         continue;
       }
+
+      // Folder is readable again.
+      clearBackoff(folderBackoffKey);
       // Missing items
       const missing = items.filter((it) => !present.has(it.nc));
       const ncNamesToRelease: string[] = [];
@@ -2720,20 +3036,62 @@ async function stageSanityPollOnce() {
       });
     }
   } catch (err) {
-    recordWatcherError(STAGE_SANITY_WATCHER_NAME, err, { label: STAGE_SANITY_WATCHER_LABEL });
+    throw err;
   }
 }
 
 function startStageSanityPoller() {
   registerWatcher(STAGE_SANITY_WATCHER_NAME, STAGE_SANITY_WATCHER_LABEL);
-  const run = () => {
+
+  const baseIntervalMs = 10_000;
+  const backoffKey = `poller:${STAGE_SANITY_WATCHER_NAME}`;
+
+  const scheduleNext = (delayMs: number) => {
     if (shuttingDown) return;
-    void stageSanityPollOnce();
+    if (stageSanityTimer) {
+      clearTimeout(stageSanityTimer);
+      stageSanityTimer = null;
+    }
+    stageSanityTimer = setTimeout(() => {
+      stageSanityTimer = null;
+      void loop();
+    }, delayMs);
+    if (typeof stageSanityTimer.unref === 'function') stageSanityTimer.unref();
   };
-  void run();
-  stageSanityTimer = setInterval(run, 10_000);
-  if (typeof stageSanityTimer.unref === 'function') stageSanityTimer.unref();
+
+  const loop = async () => {
+    if (shuttingDown) return;
+    const now = Date.now();
+    const hadBackoff = backoffByKey.has(backoffKey);
+    try {
+      await stageSanityPollOnce();
+      if (hadBackoff) {
+        recordWatcherEvent(STAGE_SANITY_WATCHER_NAME, { label: STAGE_SANITY_WATCHER_LABEL, message: 'Recovered' });
+      }
+      clearBackoff(backoffKey);
+      scheduleNext(baseIntervalMs);
+    } catch (err) {
+      const existing = backoffByKey.get(backoffKey);
+      const state = existing ?? getOrCreateBackoff(backoffKey, now);
+      if (!existing) {
+        recordWatcherError(STAGE_SANITY_WATCHER_NAME, err, { label: STAGE_SANITY_WATCHER_LABEL });
+      }
+      const { delayMs, nextRetryAtMs } = scheduleBackoffRetry(state, now);
+      recordWatcherBackoff(STAGE_SANITY_WATCHER_NAME, {
+        label: STAGE_SANITY_WATCHER_LABEL,
+        message: buildBackoffStatusMessage({
+          delayMs,
+          nextRetryAtMs,
+          maxDelayReachAtMs: state.maxDelayReachAtMs
+        }),
+        context: { delayMs }
+      });
+      scheduleNext(delayMs);
+    }
+  };
+
   watcherReady(STAGE_SANITY_WATCHER_NAME, STAGE_SANITY_WATCHER_LABEL);
+  void loop();
 }
 
 async function collectProcessedJobKeys(
@@ -2786,16 +3144,33 @@ async function sourceSanityPollOnce() {
     const root = cfg.paths.processedJobsRoot?.trim?.() ?? '';
     if (!root || !(await fileExists(root))) return;
 
+    const now = Date.now();
+    const rootBackoffKey = 'source-sanity:processedJobsRoot';
+    const rootBackoff = backoffByKey.get(rootBackoffKey);
+    if (!shouldAttemptBackoff(rootBackoff, now)) {
+      return;
+    }
+
     const { keys: presentKeys, hadError, error } = await collectProcessedJobKeys(root);
     if (hadError) {
+      const existing = backoffByKey.get(rootBackoffKey);
+      const state = existing ?? getOrCreateBackoff(rootBackoffKey, now);
+      const { delayMs, nextRetryAtMs } = scheduleBackoffRetry(state, now);
       const errSuffix = error ? ` (dir=${error.dir}, code=${error.code ?? 'unknown'})` : '';
       logger.warn({ processedJobsRoot: root, error }, 'source-sanity: root traversal error');
-      recordWatcherEvent(SOURCE_SANITY_WATCHER_NAME, {
+      recordWatcherBackoff(SOURCE_SANITY_WATCHER_NAME, {
         label: SOURCE_SANITY_WATCHER_LABEL,
-        message: `Skipped source sanity (root=${root})${errSuffix}`
+        message: `Skipped source sanity (root=${root})${errSuffix}. ${buildBackoffStatusMessage({
+          delayMs,
+          nextRetryAtMs,
+          maxDelayReachAtMs: state.maxDelayReachAtMs
+        })}`,
+        context: { processedJobsRoot: root, error, delayMs }
       });
       return;
     }
+
+    clearBackoff(rootBackoffKey);
     // Find PENDING jobs whose key is not present on disk
     const pending = await withClient((c) =>
       c
@@ -2841,20 +3216,62 @@ async function sourceSanityPollOnce() {
       });
     }
   } catch (err) {
-    recordWatcherError(SOURCE_SANITY_WATCHER_NAME, err, { label: SOURCE_SANITY_WATCHER_LABEL });
+    throw err;
   }
 }
 
 function startSourceSanityPoller() {
   registerWatcher(SOURCE_SANITY_WATCHER_NAME, SOURCE_SANITY_WATCHER_LABEL);
-  const run = () => {
+
+  const baseIntervalMs = 30_000;
+  const backoffKey = `poller:${SOURCE_SANITY_WATCHER_NAME}`;
+
+  const scheduleNext = (delayMs: number) => {
     if (shuttingDown) return;
-    void sourceSanityPollOnce();
+    if (sourceSanityTimer) {
+      clearTimeout(sourceSanityTimer);
+      sourceSanityTimer = null;
+    }
+    sourceSanityTimer = setTimeout(() => {
+      sourceSanityTimer = null;
+      void loop();
+    }, delayMs);
+    if (typeof sourceSanityTimer.unref === 'function') sourceSanityTimer.unref();
   };
-  void run();
-  sourceSanityTimer = setInterval(run, 30_000);
-  if (typeof sourceSanityTimer.unref === 'function') sourceSanityTimer.unref();
+
+  const loop = async () => {
+    if (shuttingDown) return;
+    const now = Date.now();
+    const hadBackoff = backoffByKey.has(backoffKey);
+    try {
+      await sourceSanityPollOnce();
+      if (hadBackoff) {
+        recordWatcherEvent(SOURCE_SANITY_WATCHER_NAME, { label: SOURCE_SANITY_WATCHER_LABEL, message: 'Recovered' });
+      }
+      clearBackoff(backoffKey);
+      scheduleNext(baseIntervalMs);
+    } catch (err) {
+      const existing = backoffByKey.get(backoffKey);
+      const state = existing ?? getOrCreateBackoff(backoffKey, now);
+      if (!existing) {
+        recordWatcherError(SOURCE_SANITY_WATCHER_NAME, err, { label: SOURCE_SANITY_WATCHER_LABEL });
+      }
+      const { delayMs, nextRetryAtMs } = scheduleBackoffRetry(state, now);
+      recordWatcherBackoff(SOURCE_SANITY_WATCHER_NAME, {
+        label: SOURCE_SANITY_WATCHER_LABEL,
+        message: buildBackoffStatusMessage({
+          delayMs,
+          nextRetryAtMs,
+          maxDelayReachAtMs: state.maxDelayReachAtMs
+        }),
+        context: { delayMs }
+      });
+      scheduleNext(delayMs);
+    }
+  };
+
   watcherReady(SOURCE_SANITY_WATCHER_NAME, SOURCE_SANITY_WATCHER_LABEL);
+  void loop();
 }
 
 async function grundnerPollOnce(folder: string) {
@@ -3075,12 +3492,13 @@ async function grundnerPollOnce(folder: string) {
       message: `Synced Grundner stock (inserted ${result.inserted}, updated ${result.updated}, deleted ${result.deleted})`
     });
   } catch (err) {
-    recordWatcherError(GRUNDNER_WATCHER_NAME, err, { label: GRUNDNER_WATCHER_LABEL });
+    throw err;
   }
 }
 
 function startGrundnerPoller(folder: string) {
   registerWatcher(GRUNDNER_WATCHER_NAME, GRUNDNER_WATCHER_LABEL);
+  const baseIntervalMs = 30_000;
   const trimmed = folder?.trim?.() ?? '';
   if (!trimmed) {
     recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Disabled (folder not configured)' });
@@ -3093,22 +3511,62 @@ function startGrundnerPoller(folder: string) {
     return;
   }
 
-  const run = () => {
+  const backoffKey = `poller:${GRUNDNER_WATCHER_NAME}`;
+
+  const scheduleNext = (delayMs: number) => {
     if (shuttingDown) return;
-    void grundnerPollOnce(normalizedRoot);
+    if (grundnerTimer) {
+      clearTimeout(grundnerTimer);
+      grundnerTimer = null;
+    }
+    grundnerTimer = setTimeout(() => {
+      grundnerTimer = null;
+      void loop();
+    }, delayMs);
+    if (typeof grundnerTimer.unref === 'function') grundnerTimer.unref();
   };
-  // immediate + interval
-  void run();
-  grundnerTimer = setInterval(run, 30_000);
-  if (typeof grundnerTimer.unref === 'function') grundnerTimer.unref();
+
+  const loop = async () => {
+    if (shuttingDown) return;
+    const now = Date.now();
+    const hadBackoff = backoffByKey.has(backoffKey);
+    try {
+      await grundnerPollOnce(normalizedRoot);
+      if (hadBackoff) {
+        recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Recovered' });
+      }
+      clearBackoff(backoffKey);
+      scheduleNext(baseIntervalMs);
+    } catch (err) {
+      const existing = backoffByKey.get(backoffKey);
+      const state = existing ?? getOrCreateBackoff(backoffKey, now);
+      if (!existing) {
+        recordWatcherError(GRUNDNER_WATCHER_NAME, err, { folder: normalizedRoot, label: GRUNDNER_WATCHER_LABEL });
+      }
+      const { delayMs, nextRetryAtMs } = scheduleBackoffRetry(state, now);
+      recordWatcherBackoff(GRUNDNER_WATCHER_NAME, {
+        label: GRUNDNER_WATCHER_LABEL,
+        message: buildBackoffStatusMessage({
+          delayMs,
+          nextRetryAtMs,
+          maxDelayReachAtMs: state.maxDelayReachAtMs
+        }),
+        context: { folder: normalizedRoot, delayMs }
+      });
+      scheduleNext(delayMs);
+    }
+  };
+
   watcherReady(GRUNDNER_WATCHER_NAME, GRUNDNER_WATCHER_LABEL);
+  void loop();
 }
 
 function startJobsIngestPolling() {
   const INGEST_INTERVAL_MS = 5000; // 5 seconds
+  const backoffKey = 'poller:jobs-ingest';
 
-  async function runIngest() {
-    if (shuttingDown) return;
+  async function runIngestOnce(): Promise<boolean> {
+    if (shuttingDown) return true;
     try {
       const cfg = loadConfig();
       const root = cfg.paths.processedJobsRoot?.trim?.() ?? '';
@@ -3121,7 +3579,7 @@ function startJobsIngestPolling() {
           );
           processedRootMissingNotified = true;
         }
-        return;
+        return true;
       }
       if (!existsSync(root)) {
         if (!processedRootMissingNotified) {
@@ -3132,7 +3590,7 @@ function startJobsIngestPolling() {
           );
           processedRootMissingNotified = true;
         }
-        return;
+        return true;
       }
       processedRootMissingNotified = false;
 
@@ -3164,23 +3622,51 @@ function startJobsIngestPolling() {
           }
         }
       }
+      return true;
     } catch (err) {
       logger.error({ err }, 'Jobs ingest poll failed');
+      return false;
     }
   }
 
-  // Run immediately on startup
-  void runIngest();
+  const scheduleNext = (delayMs: number) => {
+    if (shuttingDown) return;
+    if (jobsIngestTimer) {
+      clearTimeout(jobsIngestTimer);
+      jobsIngestTimer = null;
+    }
+    jobsIngestTimer = setTimeout(() => {
+      jobsIngestTimer = null;
+      void loop();
+    }, delayMs);
+    if (typeof jobsIngestTimer.unref === 'function') {
+      jobsIngestTimer.unref();
+    }
+  };
 
-  // Then poll every 5 seconds
-  jobsIngestInterval = setInterval(() => {
-    void runIngest();
-  }, INGEST_INTERVAL_MS);
+  const loop = async () => {
+    if (shuttingDown) return;
+    const now = Date.now();
+    const ok = await runIngestOnce();
+    if (ok) {
+      clearBackoff(backoffKey);
+      scheduleNext(INGEST_INTERVAL_MS);
+      return;
+    }
 
-  if (typeof jobsIngestInterval.unref === 'function') {
-    jobsIngestInterval.unref();
-  }
+    const state = getOrCreateBackoff(backoffKey, now);
+    const { delayMs, nextRetryAtMs } = scheduleBackoffRetry(state, now);
+    const message = buildBackoffStatusMessage({
+      delayMs,
+      nextRetryAtMs,
+      maxDelayReachAtMs: state.maxDelayReachAtMs
+    });
+    logger.warn({ nextRetryAt: new Date(nextRetryAtMs).toISOString() }, `jobs-ingest: ${message}`);
+    scheduleNext(delayMs);
+  };
 
+  // Run immediately on startup and then self-schedule.
+  void loop();
   logger.info({ intervalMs: INGEST_INTERVAL_MS }, 'Jobs ingest polling started');
 }
 
@@ -3947,43 +4433,48 @@ function setupNcCatJobsWatcher(dir: string) {
     watcherLabel: NCCAT_WATCHER_LABEL
   });
 
-  const watcher = chokidar.watch(dir, {
-    ignoreInitial: false, // Process existing files on startup
-    depth: 10, // Allow deeper nesting under jobsRoot
-    awaitWriteFinish: {
-      stabilityThreshold: 2000, // Wait 2 seconds for file to stabilize
-      pollInterval: 250
+
+  const ctrl = createResilientWatcher({
+    name: NCCAT_WATCHER_NAME,
+    label: NCCAT_WATCHER_LABEL,
+    targetContext: { dir },
+    createWatcher: () => {
+      const w = chokidar.watch(dir, {
+        ignoreInitial: false, // Process existing files on startup
+        depth: 10, // Allow deeper nesting under jobsRoot
+        awaitWriteFinish: {
+          stabilityThreshold: 2000, // Wait 2 seconds for file to stabilize
+          pollInterval: 250
+        }
+      });
+      // Only trigger for .nc files
+      w.on('add', (path) => {
+        if (path.toLowerCase().endsWith('.nc')) {
+          onAdd(path);
+        }
+      });
+      return w;
+    },
+    onOfflineOnce: (err) => {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      setMachineHealthIssue({
+        machineId: null,
+        code: HEALTH_CODES.copyFailure,
+        message: `NC Cat jobs watcher error${code ? ` (${code})` : ''}`,
+        severity: 'critical',
+        context: { dir, code }
+      });
+    },
+    onReady: () => {
+      clearMachineHealthIssue(null, HEALTH_CODES.copyFailure);
+      logger.info({ dir }, 'nccat: jobs watcher ready');
+    },
+    onRecovered: () => {
+      clearMachineHealthIssue(null, HEALTH_CODES.copyFailure);
     }
   });
 
-  trackWatcher(watcher);
-
-  // Only trigger for .nc files
-  watcher.on('add', (path) => {
-    if (path.toLowerCase().endsWith('.nc')) {
-      onAdd(path);
-    }
-  });
-
-  watcher.on('error', (err) => {
-    const code = (err as NodeJS.ErrnoException)?.code;
-    setMachineHealthIssue({
-      machineId: null,
-      code: HEALTH_CODES.copyFailure,
-      message: `NC Cat jobs watcher error${code ? ` (${code})` : ''}`,
-      severity: 'critical',
-      context: { dir, code }
-    });
-    recordWatcherError(NCCAT_WATCHER_NAME, err, { dir, label: NCCAT_WATCHER_LABEL });
-    logger.error({ err, dir }, 'nccat: watcher error');
-  });
-
-  watcher.on('ready', () => {
-    watcherReady(NCCAT_WATCHER_NAME, NCCAT_WATCHER_LABEL);
-    clearMachineHealthIssue(null, HEALTH_CODES.copyFailure);
-    logger.info({ dir }, 'nccat: jobs watcher ready');
-  });
-
+  ctrl.start();
   logger.info({ dir }, 'nccat: jobs watcher started');
 }
 

@@ -34,7 +34,7 @@ type GrundnerState = Settings['grundner'];
 type InventoryExportState = Settings['inventoryExport'];
 
 const DEFAULT_PATHS: PathsState = { processedJobsRoot: '', autoPacCsvDir: '', autoPacArchiveEnabled: false, grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' };
-const DEFAULT_TEST: TestState = { testDataFolderPath: '', useTestDataMode: false };
+const DEFAULT_TEST: TestState = { testDataFolderPath: '', useTestDataMode: false, disableErlTimeouts: false };
 const DEFAULT_GRUNDNER: GrundnerState = {
   tableColumns: {
     typeData: { visible: true, order: 1 },

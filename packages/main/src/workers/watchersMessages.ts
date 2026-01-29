@@ -28,6 +28,13 @@ export type WatcherWorkerToMainMessage =
       context?: Record<string, unknown>;
     }
   | {
+      type: 'watcherBackoff';
+      name: string;
+      label?: string;
+      message: string;
+      context?: Record<string, unknown>;
+    }
+  | {
       type: 'userAlert';
       title: string;
       message: string;

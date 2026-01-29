@@ -1,7 +1,6 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
-import { GlowingEffect } from "@/components/ui/glowing-effect"
 
 function Card({ className, children, ...props }: React.ComponentProps<"div">) {
   return (
@@ -13,18 +12,6 @@ function Card({ className, children, ...props }: React.ComponentProps<"div">) {
       )}
       {...props}
     >
-      <GlowingEffect
-        // Neon deep purple configuration
-        variant="teal"
-        blur={12}
-        inactiveZone={0.7}
-        proximity={96}
-        spread={32}
-        movementDuration={1.2}
-        borderWidth={2}
-        disabled={false}
-        glow={false}
-      />
       {children}
     </div>
   )
