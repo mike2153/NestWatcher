@@ -29,6 +29,7 @@ const DEFAULT_SETTINGS: Settings = {
   paths: { processedJobsRoot: '', autoPacCsvDir: '', autoPacArchiveEnabled: false, grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' },
   test: { testDataFolderPath: '', useTestDataMode: false, disableErlTimeouts: false },
   grundner: {
+    archiveErlReplies: false,
     tableColumns: {
       typeData: { visible: true, order: 1 },
       materialName: { visible: false, order: 2 },
@@ -53,7 +54,6 @@ const DEFAULT_SETTINGS: Settings = {
         { kind: 'field', enabled: true, header: 'Length', field: 'lengthMm' },
         { kind: 'field', enabled: true, header: 'Width', field: 'widthMm' },
         { kind: 'field', enabled: true, header: 'Thickness', field: 'thicknessMm' },
-        { kind: 'field', enabled: true, header: 'Pre-Reserved', field: 'preReserved' },
         { kind: 'field', enabled: true, header: 'Stock', field: 'stock' },
         { kind: 'field', enabled: true, header: 'Reserved', field: 'reservedStock' },
         { kind: 'field', enabled: true, header: 'Available', field: 'stockAvailable' },
@@ -82,7 +82,7 @@ function cloneDefaults(): Settings {
     db: { ...DEFAULT_SETTINGS.db },
     paths: { ...DEFAULT_SETTINGS.paths },
     test: { ...DEFAULT_SETTINGS.test },
-    grundner: { ...DEFAULT_SETTINGS.grundner },
+    grundner: { ...DEFAULT_SETTINGS.grundner, tableColumns: { ...DEFAULT_SETTINGS.grundner.tableColumns } },
     inventoryExport: {
       template: {
         ...DEFAULT_SETTINGS.inventoryExport.template,
@@ -152,7 +152,12 @@ function normalizeSettings(input: MaybeSettings): Settings {
     DEFAULT_SETTINGS.grundner.tableColumns
   );
 
-  const grundner: Settings['grundner'] = { tableColumns };
+  const archiveErlReplies =
+    typeof grundnerBase.archiveErlReplies === 'boolean'
+      ? grundnerBase.archiveErlReplies
+      : DEFAULT_SETTINGS.grundner.archiveErlReplies;
+
+  const grundner: Settings['grundner'] = { archiveErlReplies, tableColumns };
 
   return {
     version: typeof base.version === 'number' && base.version > 0 ? base.version : CURRENT_SETTINGS_VERSION,

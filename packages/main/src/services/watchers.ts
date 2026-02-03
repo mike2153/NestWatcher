@@ -41,10 +41,30 @@ let startupDebounceTimer: NodeJS.Timeout | null = null;
 let startupStartedAt = 0;
 const startupWatchers = new Map<string, StartupWatcherState>();
 
-// Prevent UI message spam if a watcher emits repeated errors.
-// The diagnostics panel still updates, but the operator message feed should not flood.
-const OFFLINE_BANNER_THROTTLE_MS = 60_000;
-const offlineBannerLastSentAt = new Map<string, number>();
+type OfflineEpisodeState = {
+  key: string;
+  watcherName: string;
+  watcherLabel: string;
+  path: string;
+  offlineSinceMs: number;
+  firstNotified: boolean;
+  capNotified: boolean;
+  recoveredNotified: boolean;
+  status: 'offline' | 'recovered';
+};
+
+// Track offline episodes so we can show exactly one message per episode,
+// plus an additional notification when we enter long retry mode and when we recover.
+const offlineEpisodes = new Map<string, OfflineEpisodeState>();
+
+// Popups are helpful, but multiple machines can go offline at once.
+// Throttle popups globally so operators do not get spammed.
+const OFFLINE_POPUP_THROTTLE_MS = 5000;
+let lastOfflinePopupAtMs = 0;
+
+// Backoff cap defined in watchers worker.
+// When we hit this delay we enter "long retry" mode.
+const OFFLINE_CAP_DELAY_MS = 60_000;
 const STARTUP_DEBOUNCE_MS = 250;
 const STARTUP_TIMEOUT_MS = 15_000;
 
@@ -149,6 +169,76 @@ function toError(serialized: SerializableError): Error {
   return err;
 }
 
+function extractOfflinePath(context: unknown): string | null {
+  const ctx = context as {
+    folder?: unknown;
+    dir?: unknown;
+    path?: unknown;
+    processedJobsRoot?: unknown;
+    apJobfolder?: unknown;
+  } | null;
+  if (!ctx) return null;
+  if (typeof ctx.folder === 'string' && ctx.folder.trim()) return ctx.folder;
+  if (typeof ctx.dir === 'string' && ctx.dir.trim()) return ctx.dir;
+  if (typeof ctx.path === 'string' && ctx.path.trim()) return ctx.path;
+  if (typeof ctx.processedJobsRoot === 'string' && ctx.processedJobsRoot.trim()) return ctx.processedJobsRoot;
+  if (typeof ctx.apJobfolder === 'string' && ctx.apJobfolder.trim()) return ctx.apJobfolder;
+  return null;
+}
+
+function shouldShowOfflinePopupNow(): boolean {
+  const now = Date.now();
+  if (now - lastOfflinePopupAtMs < OFFLINE_POPUP_THROTTLE_MS) {
+    return false;
+  }
+  lastOfflinePopupAtMs = now;
+  return true;
+}
+
+function ensureOfflineEpisode(params: { name: string; label: string; path: string; nowMs: number }): OfflineEpisodeState {
+  const key = `${params.name}|${params.path}`;
+  const existing = offlineEpisodes.get(key);
+  if (existing && existing.status === 'offline') {
+    return existing;
+  }
+  const next: OfflineEpisodeState = {
+    key,
+    watcherName: params.name,
+    watcherLabel: params.label,
+    path: params.path,
+    offlineSinceMs: params.nowMs,
+    firstNotified: false,
+    capNotified: false,
+    recoveredNotified: false,
+    status: 'offline'
+  };
+  offlineEpisodes.set(key, next);
+  return next;
+}
+
+function markWatcherRecovered(name: string, label: string) {
+  for (const ep of offlineEpisodes.values()) {
+    if (ep.watcherName !== name) continue;
+    if (ep.status !== 'offline') continue;
+
+    ep.status = 'recovered';
+    if (ep.recoveredNotified) continue;
+    ep.recoveredNotified = true;
+
+    pushAppMessage('watcher.recovered', { watcherName: label, path: ep.path }, { source: 'watchers' });
+
+    if (shouldShowOfflinePopupNow()) {
+      enqueueDialog({
+        type: 'info',
+        title: 'Watcher Recovered',
+        message: `Watcher ${label} can access ${ep.path} again. Monitoring resumed.`,
+        buttons: ['OK'],
+        defaultId: 0
+      });
+    }
+  }
+}
+
 function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
   switch (message.type) {
     case 'log': {
@@ -199,6 +289,8 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
         scheduleStartupEvaluation();
       }
       watcherReady(message.name, message.label ?? message.name);
+      // Treat a ready signal as recovery for any offline episode for this watcher.
+      markWatcherRecovered(message.name, message.label ?? message.name);
       break;
     case 'watcherEvent':
       if (startupMode) {
@@ -215,6 +307,12 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
         message: message.message,
         context: message.context
       });
+
+      // Some pollers emit a "Recovered" watcherEvent without a corresponding watcherReady.
+      // Treat this as recovery for any offline episode.
+      if (message.message === 'Recovered') {
+        markWatcherRecovered(message.name, message.label ?? message.name);
+      }
       break;
     case 'watcherBackoff': {
       if (startupMode) {
@@ -235,6 +333,59 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
         message: message.message,
         context: message.context
       });
+
+      // Use backoff updates to drive "long retry" notifications.
+      // The worker includes delayMs in context for resilient watchers.
+      {
+        const offlinePath = extractOfflinePath(message.context);
+        const ctx = message.context as { delayMs?: unknown } | undefined;
+        const delayMs = typeof ctx?.delayMs === 'number' ? ctx.delayMs : null;
+        if (offlinePath && delayMs != null) {
+          const now = Date.now();
+          const label = message.label ?? message.name;
+          const ep = ensureOfflineEpisode({ name: message.name, label, path: offlinePath, nowMs: now });
+
+          // Some watcher implementations might only emit watcherBackoff events.
+          // Ensure we send the first offline notification once.
+          if (!ep.firstNotified) {
+            ep.firstNotified = true;
+            pushAppMessage('watcher.offline', { watcherName: label, path: offlinePath }, { source: 'watchers' });
+            if (shouldShowOfflinePopupNow()) {
+              enqueueDialog({
+                type: 'warning',
+                title: 'Watcher Offline',
+                message: `Watcher ${label} cannot access ${offlinePath}.\n\nThe app will retry automatically.`,
+                buttons: ['OK'],
+                defaultId: 0
+              });
+            }
+          }
+
+          if (!ep.capNotified && delayMs >= OFFLINE_CAP_DELAY_MS) {
+            ep.capNotified = true;
+            pushAppMessage(
+              'watcher.offline_long',
+              {
+                watcherName: label,
+                path: offlinePath,
+                intervalSeconds: Math.round(OFFLINE_CAP_DELAY_MS / 1000)
+              },
+              { source: 'watchers' }
+            );
+            if (shouldShowOfflinePopupNow()) {
+              enqueueDialog({
+                type: 'warning',
+                title: 'Watcher Still Offline',
+                message:
+                  `Watcher ${label} is still offline for ${offlinePath}.\n\n` +
+                  `The app will now retry every ${Math.round(OFFLINE_CAP_DELAY_MS / 1000)} seconds until it recovers.`,
+                buttons: ['OK'],
+                defaultId: 0
+              });
+            }
+          }
+        }
+      }
       break;
     }
     case 'watcherError': {
@@ -252,24 +403,23 @@ function handleWorkerMessage(message: WatcherWorkerToMainMessage) {
         ...(message.context ?? {}),
         label: message.label ?? message.name
       };
-      const offlinePath =
-        (message.context as { folder?: string; dir?: string; path?: string } | undefined)?.folder ??
-        (message.context as { dir?: string; path?: string } | undefined)?.dir ??
-        (message.context as { path?: string } | undefined)?.path;
+      const offlinePath = extractOfflinePath(message.context);
       if (offlinePath) {
-        const key = `${message.name}|${offlinePath}`;
         const now = Date.now();
-        const last = offlineBannerLastSentAt.get(key) ?? 0;
-        if (now - last >= OFFLINE_BANNER_THROTTLE_MS) {
-          offlineBannerLastSentAt.set(key, now);
-          pushAppMessage(
-            'watcher.offline',
-            {
-              watcherName: message.label ?? message.name,
-              path: offlinePath
-            },
-            { source: 'watchers' }
-          );
+        const label = message.label ?? message.name;
+        const ep = ensureOfflineEpisode({ name: message.name, label, path: offlinePath, nowMs: now });
+        if (!ep.firstNotified) {
+          ep.firstNotified = true;
+          pushAppMessage('watcher.offline', { watcherName: label, path: offlinePath }, { source: 'watchers' });
+          if (shouldShowOfflinePopupNow()) {
+            enqueueDialog({
+              type: 'warning',
+              title: 'Watcher Offline',
+              message: `Watcher ${label} cannot access ${offlinePath}.\n\nThe app will retry automatically.`,
+              buttons: ['OK'],
+              defaultId: 0
+            });
+          }
         }
       }
       recordWatcherError(message.name, toError(message.error), context);

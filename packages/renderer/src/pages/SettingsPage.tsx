@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Trash2 } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { DbSettings, Settings, Machine, SaveMachineReq, DbStatus } from '../../../shared/src';
 import { CURRENT_SETTINGS_VERSION, InventoryExportSettingsSchema } from '../../../shared/src';
 
@@ -36,6 +43,7 @@ type InventoryExportState = Settings['inventoryExport'];
 const DEFAULT_PATHS: PathsState = { processedJobsRoot: '', autoPacCsvDir: '', autoPacArchiveEnabled: false, grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' };
 const DEFAULT_TEST: TestState = { testDataFolderPath: '', useTestDataMode: false, disableErlTimeouts: false };
 const DEFAULT_GRUNDNER: GrundnerState = {
+  archiveErlReplies: false,
   tableColumns: {
     typeData: { visible: true, order: 1 },
     materialName: { visible: false, order: 2 },
@@ -157,7 +165,7 @@ function extractResult<T>(raw: unknown): ResultEnvelope<T> {
 }
 
 export function SettingsPage() {
-  const { register, handleSubmit, reset, formState: { isSubmitting } } = useForm<FormValues>({
+  const { register, handleSubmit, reset, control, formState: { isSubmitting } } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: DEFAULT_FORM_VALUES
   });
@@ -672,17 +680,21 @@ export function SettingsPage() {
                   </span>
                 </label>
               </div>
-              <label className="form-label">
+              <div className="form-label">
                 <span>Nestpick Enabled</span>
-                <select
-                  className="form-input"
+                <Select
                   value={editingMachine.nestpickEnabled ? 'true' : 'false'}
-                  onChange={(e) => setEditingMachine((prev) => prev ? { ...prev, nestpickEnabled: e.target.value === 'true' } : prev)}
+                  onValueChange={(v) => setEditingMachine((prev) => prev ? { ...prev, nestpickEnabled: v === 'true' } : prev)}
                 >
-                  <option value="true">Yes</option>
-                  <option value="false">No</option>
-                </select>
-              </label>
+                  <SelectTrigger className="form-input">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="true">Yes</SelectItem>
+                    <SelectItem value="false">No</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           ) : (
             <div className="text-sm text-muted-foreground p-4 text-center">Select a machine to edit</div>
@@ -755,7 +767,7 @@ export function SettingsPage() {
                   Archive AutoPAC status CSVs
                 </label>
                 <div className="text-xs text-muted-foreground">
-                  Moves processed AutoPAC status CSVs into a "archieve" subfolder with a dd.mm_hh.mm.ss suffix.
+                  Moves processed AutoPAC status CSVs into a "archive" subfolder with a dd.mm_hh.mm.ss suffix.
                 </div>
               </div>
             </div>
@@ -885,15 +897,26 @@ export function SettingsPage() {
             <span>Password</span>
             <input className="form-input" type="password" autoComplete="off" {...register('password')} />
           </label>
-          <label className="form-label">
+          <div className="form-label">
             <span>SSL Mode</span>
-            <select className="form-input" {...register('sslMode')}>
-              <option value="disable">disable</option>
-              <option value="require">require</option>
-              <option value="verify-ca">verify-ca</option>
-              <option value="verify-full">verify-full</option>
-            </select>
-          </label>
+            <Controller
+              name="sslMode"
+              control={control}
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger className="form-input">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="disable">disable</SelectItem>
+                    <SelectItem value="require">require</SelectItem>
+                    <SelectItem value="verify-ca">verify-ca</SelectItem>
+                    <SelectItem value="verify-full">verify-full</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
           <label className="form-label">
             <span>Statement Timeout (ms)</span>
             <input className="form-input" type="number" {...register('statementTimeoutMs', { valueAsNumber: true })} />

@@ -98,7 +98,7 @@ export type IngestResult = {
   pruned: number;
   addedJobs: { ncFile: string; folder: string }[];
   updatedJobs: { ncFile: string; folder: string }[];
-  prunedJobs: { key: string; folder: string; ncFile: string; material: string | null; preReserved: boolean; isLocked: boolean }[];
+  prunedJobs: { key: string; folder: string; ncFile: string; material: string | null; isLocked: boolean }[];
 };
 
 export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
@@ -155,8 +155,8 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
     presentKeys.add(key);
     const { material, size, thickness } = parseNc(nc);
     const parts = countParts(dir, baseNoExt);
-    const sql = `INSERT INTO public.jobs(key, folder, ncfile, material, parts, size, thickness, dateadded, updated_at, pre_reserved)
-                   VALUES($1,$2,$3,$4,$5,$6,$7, now(), now(), true)
+    const sql = `INSERT INTO public.jobs(key, folder, ncfile, material, parts, size, thickness, dateadded, updated_at)
+                   VALUES($1,$2,$3,$4,$5,$6,$7, now(), now())
                    ON CONFLICT (key) DO UPDATE SET
                      folder=EXCLUDED.folder,
                      ncfile=EXCLUDED.ncfile,
@@ -202,34 +202,10 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
     }
   }
 
-  // Sync Grundner pre_reserved counts for all materials that had new jobs inserted
-  if (inserted > 0) {
-    const materialsToSync = new Set<string>();
-    for (const job of addedJobs) {
-      const nc = files.find(f => f.includes(job.ncFile));
-      if (nc) {
-        const { material } = parseNc(nc);
-        if (material && material.trim()) {
-          materialsToSync.add(material.trim());
-        }
-      }
-    }
-    if (materialsToSync.size > 0) {
-      try {
-        const { resyncGrundnerPreReservedForMaterial } = await import('../repo/jobsRepo');
-        for (const material of materialsToSync) {
-          await resyncGrundnerPreReservedForMaterial(material);
-        }
-      } catch (err) {
-        logger.warn({ err }, 'Failed to resync Grundner reserved counts after insertion');
-      }
-    }
-  }
-
   // Prune jobs that no longer exist on disk and are still PENDING
   // Once a job has moved beyond PENDING (pushed to production), keep it as historical record
   let pruned = 0;
-  const prunedJobs: { key: string; folder: string; ncFile: string; material: string | null; preReserved: boolean; isLocked: boolean }[] = [];
+  const prunedJobs: { key: string; folder: string; ncFile: string; material: string | null; isLocked: boolean }[] = [];
   try {
     // Additional safety: if scanning had errors, do not prune this cycle to avoid accidental mass deletes
     if (hadScanError) {
@@ -251,16 +227,16 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
       )
       DELETE FROM public.jobs j
       USING (
-        SELECT j.key, j.ncfile, j.folder, j.material, j.pre_reserved, j.is_locked
+        SELECT j.key, j.ncfile, j.folder, j.material, j.is_locked
         FROM public.jobs j
         LEFT JOIN present p ON p.key = j.key
         WHERE p.key IS NULL AND j.status = 'PENDING'
       ) d
       WHERE j.key = d.key
-      RETURNING d.key, d.ncfile, d.folder, d.material, d.pre_reserved, d.is_locked`;
+      RETURNING d.key, d.ncfile, d.folder, d.material, d.is_locked`;
 
     const result = await withClient((c) =>
-      c.query<{ key: string; ncfile: string | null; folder: string | null; material: string | null; pre_reserved: boolean | null; is_locked: boolean | null }>(pruneSql, [keys])
+      c.query<{ key: string; ncfile: string | null; folder: string | null; material: string | null; is_locked: boolean | null }>(pruneSql, [keys])
     );
     pruned = result.rowCount ?? 0;
 
@@ -275,27 +251,8 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
           folder,
           ncFile,
           material: row.material,
-          preReserved: Boolean(row.pre_reserved),
           isLocked: Boolean(row.is_locked)
         });
-      }
-      // For any materials that had pre-reserved rows deleted, resync the Grundner pre_reserved count
-      const affectedMaterials = new Set<string>();
-      for (const row of result.rows) {
-        if ((row.pre_reserved ?? false) && row.material && row.material.trim()) {
-          affectedMaterials.add(row.material.trim());
-        }
-      }
-      if (affectedMaterials.size > 0) {
-        try {
-          // Lazy import to avoid cycles
-          const { resyncGrundnerPreReservedForMaterial } = await import('../repo/jobsRepo');
-          for (const material of affectedMaterials) {
-            await resyncGrundnerPreReservedForMaterial(material);
-          }
-        } catch (err) {
-          logger.warn({ err }, 'Failed to resync Grundner reserved counts after prune');
-        }
       }
       logger.info({ pruned }, 'ingest: pruned missing uncut jobs');
     }

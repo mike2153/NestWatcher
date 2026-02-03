@@ -7,6 +7,8 @@ import { getConfigPath, loadConfig, mergeSettings, overwriteConfig } from '../se
 import { testConnection, resetPool } from '../services/db';
 import { triggerDbStatusCheck } from '../services/dbWatchdog';
 import { syncInventoryExportScheduler } from '../services/inventoryExportScheduler';
+import { restartWatchers } from '../services/watchers';
+import { logger } from '../logger';
 import { createAppError } from './errors';
 import { registerResultHandler } from './result';
 
@@ -17,6 +19,7 @@ export function registerSettingsIpc() {
   registerResultHandler('settings:path', async () => ok(getConfigPath()), { requiresAdmin: true });
 
   registerResultHandler('settings:save', async (_e, next) => {
+    const prevSettings = loadConfig();
     const update = (typeof next === 'object' && next !== null ? (next as Partial<Settings>) : {}) ?? {};
     const resolved = mergeSettings({ ...update });
 
@@ -38,6 +41,25 @@ export function registerSettingsIpc() {
 
     // Apply scheduled export changes immediately.
     syncInventoryExportScheduler();
+
+    // Watchers read many path settings only on startup.
+    // If these change, restart watchers so monitoring reflects the latest configuration.
+    const shouldRestartWatchers =
+      (prevSettings.paths.autoPacCsvDir ?? '') !== (nextSettings.paths.autoPacCsvDir ?? '') ||
+      (prevSettings.paths.grundnerFolderPath ?? '') !== (nextSettings.paths.grundnerFolderPath ?? '') ||
+      (prevSettings.paths.jobsRoot ?? '') !== (nextSettings.paths.jobsRoot ?? '') ||
+      Boolean(prevSettings.test?.useTestDataMode) !== Boolean(nextSettings.test?.useTestDataMode) ||
+      (prevSettings.test?.testDataFolderPath ?? '') !== (nextSettings.test?.testDataFolderPath ?? '');
+
+    if (shouldRestartWatchers) {
+      const res = await restartWatchers();
+      if (!res.ok) {
+        // Settings are already saved. Restart failure should not block saving,
+        // but we do want it in logs so it can be diagnosed.
+        const message = res.error ?? 'Unknown error';
+        logger.warn({ message }, 'settings: saved but failed to restart watchers');
+      }
+    }
 
     return ok(nextSettings);
   }, { requiresAdmin: true });

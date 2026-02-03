@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { HistoryListReq, HistoryRow, JobTimelineRes, Machine } from "../../../shared/src";
 
 function formatDate(value: string | null | undefined) {
@@ -221,19 +228,23 @@ export function HistoryPage() {
             onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))}
           />
         </label>
-        <label className="text-sm flex flex-col gap-1">
+        <div className="text-sm flex flex-col gap-1">
           <span>Machine</span>
-          <select
-            className="border rounded px-2 py-1"
-            value={filters.machine === "all" ? "" : String(filters.machine)}
-            onChange={(e) => setFilters((prev) => ({ ...prev, machine: e.target.value ? Number(e.target.value) : "all" }))}
+          <Select
+            value={filters.machine === "all" ? "_all_" : String(filters.machine)}
+            onValueChange={(v) => setFilters((prev) => ({ ...prev, machine: v === "_all_" ? "all" : Number(v) }))}
           >
-            <option value="">All Machines</option>
-            {machines.map((machine) => (
-              <option key={machine.machineId} value={machine.machineId}>{machine.name}</option>
-            ))}
-          </select>
-        </label>
+            <SelectTrigger className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all_">All Machines</SelectItem>
+              {machines.map((machine) => (
+                <SelectItem key={machine.machineId} value={String(machine.machineId)}>{machine.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <label className="text-sm flex flex-col gap-1">
           <span>From</span>
           <input
@@ -252,18 +263,22 @@ export function HistoryPage() {
             onChange={(e) => setFilters((prev) => ({ ...prev, to: e.target.value }))}
           />
         </label>
-        <label className="text-sm flex flex-col gap-1">
+        <div className="text-sm flex flex-col gap-1">
           <span>Limit</span>
-          <select
-            className="border rounded px-2 py-1"
-            value={filters.limit}
-            onChange={(e) => setFilters((prev) => ({ ...prev, limit: Number(e.target.value) }))}
+          <Select
+            value={String(filters.limit)}
+            onValueChange={(v) => setFilters((prev) => ({ ...prev, limit: Number(v) }))}
           >
-            {[50, 100, 150, 200].map((value) => (
-              <option key={value} value={value}>{value}</option>
-            ))}
-          </select>
-        </label>
+            <SelectTrigger className="w-24">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[50, 100, 150, 200].map((value) => (
+                <SelectItem key={value} value={String(value)}>{value}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <div className="ml-auto">
           <Button variant="default" size="sm" disabled={!selectedKey} onClick={async () => {
             if (!selectedKey) return;

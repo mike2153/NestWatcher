@@ -74,38 +74,6 @@ function combineClauses(clauses: SqlExpression[]): SqlExpression {
   return rest.reduce<SqlExpression>((acc, clause) => and(acc, clause) as SqlExpression, initial);
 }
 
-async function syncGrundnerPreReservedCount(db: AppDb, material: string | null) {
-  const trimmed = material?.trim();
-  if (!trimmed) return;
-
-  const typeData = Number(trimmed);
-  if (!Number.isFinite(typeData)) {
-    return;
-  }
-
-  const materialIsNumeric = sql`TRIM(COALESCE(${jobs.material}, '')) ~ '^[0-9]+$'`;
-  const materialMatchesTypeData = sql`TRIM(${jobs.material})::int = ${typeData}`;
-
-  const [{ count }] = await db
-    .select({ count: sql<number>`COUNT(*)` })
-    .from(jobs)
-    .where(and(materialIsNumeric, materialMatchesTypeData, eq(jobs.preReserved, true)));
-
-  await db
-    .update(grundner)
-    .set({ preReserved: count })
-    .where(eq(grundner.typeData, typeData));
-}
-
-// Public helper to resync Grundner pre-reserved count for a single material.
-// This wraps the internal function with a db handle and is intended for
-// maintenance flows where jobs may be pruned outside the reserve/unreserve path.
-export async function resyncGrundnerPreReservedForMaterial(material: string | null): Promise<void> {
-  await withDb(async (db) => {
-    await syncGrundnerPreReservedCount(db, material);
-  });
-}
-
 export async function listJobFilters(): Promise<JobsFilterOptions> {
   return withDb(async (db) => {
     const materialsRes = await db
@@ -130,7 +98,7 @@ export async function listJobFilters(): Promise<JobsFilterOptions> {
 }
 
 export async function listJobs(req: JobsListReq) {
-  const { search, sortBy, sortDir, limit, cursor, filter } = req;
+  const { search, sortBy, sortDir, limit, cursor, filter, hideCompletedFolders } = req;
   const safeLimit = Math.max(1, Math.min(limit ?? 50, 200));
 
   const conditions: SqlExpression[] = [];
@@ -159,6 +127,29 @@ export async function listJobs(req: JobsListReq) {
   }
   if (filter.machineId != null) {
     conditions.push(eq(jobs.machineId, filter.machineId));
+  }
+
+  // Jobs table requirement: hide completed jobs, but only after the entire folder group is complete.
+  // Folder group is job.folder.
+  if (hideCompletedFolders) {
+    conditions.push(
+      sql`(
+        ${jobs.folder} IS NULL OR
+        ${jobs.folder} NOT IN (
+          SELECT j2.folder
+          FROM public.jobs j2
+          LEFT JOIN public.machines m2 ON m2.machine_id = j2.machine_id
+          WHERE j2.folder IS NOT NULL
+          GROUP BY j2.folder
+          HAVING bool_and(
+            CASE
+              WHEN COALESCE(m2.nestpick_enabled, false) THEN j2.status = 'NESTPICK_COMPLETE'::public.job_status
+              ELSE j2.status IN ('CNC_FINISH'::public.job_status, 'FORWARDED_TO_NESTPICK'::public.job_status, 'NESTPICK_COMPLETE'::public.job_status)
+            END
+          )
+        )
+      )`
+    );
   }
   // Filter completed jobs by timeframe
   if (filter.completedTimeframe && filter.completedTimeframe !== 'all') {
@@ -209,8 +200,6 @@ export async function listJobs(req: JobsListReq) {
         return jobs.size;
       case 'thickness':
         return jobs.thickness;
-      case 'preReserved':
-        return jobs.preReserved;
       case 'locked':
         return jobs.isLocked;
       case 'dateadded':
@@ -232,7 +221,6 @@ export async function listJobs(req: JobsListReq) {
         size: jobs.size,
         thickness: jobs.thickness,
         dateAdded: jobs.dateAdded,
-        preReserved: jobs.preReserved,
         isLocked: jobs.isLocked,
         status: jobs.status,
         machineId: jobs.machineId,
@@ -263,7 +251,6 @@ export async function listJobs(req: JobsListReq) {
     size: row.size,
     thickness: row.thickness,
     dateadded: row.dateAdded ? row.dateAdded.toISOString() : null,
-    preReserved: !!row.preReserved,
     locked: !!row.isLocked,
     status: row.status as JobStatus,
     machineId: row.machineId ?? null,
@@ -278,52 +265,6 @@ export async function listJobs(req: JobsListReq) {
   return { items, nextCursor };
 }
 
-export async function reserveJob(key: string) {
-  return withDb((db) =>
-    db.transaction(async (tx) => {
-      const updated = await tx
-        .update(jobs)
-        .set({
-          preReserved: true,
-          updatedAt: sql<Date>`now()` as unknown as Date,
-          allocatedAt: sql<Date>`CASE WHEN ${jobs.preReserved} = false AND ${jobs.isLocked} = false THEN now() ELSE ${jobs.allocatedAt} END` as unknown as Date
-        })
-        .where(and(eq(jobs.key, key), eq(jobs.preReserved, false), eq(jobs.status, 'PENDING')))
-        .returning({ material: jobs.material });
-
-      if (!updated.length) {
-        return false;
-      }
-
-      await syncGrundnerPreReservedCount(tx, updated[0].material ?? null);
-      return true;
-    })
-  );
-}
-
-export async function unreserveJob(key: string) {
-  return withDb((db) =>
-    db.transaction(async (tx) => {
-    const updated = await tx
-      .update(jobs)
-      .set({
-        preReserved: false,
-        updatedAt: sql<Date>`now()` as unknown as Date,
-        allocatedAt: sql<Date | null>`CASE WHEN ${jobs.isLocked} = false THEN NULL ELSE ${jobs.allocatedAt} END` as unknown as Date
-      })
-        .where(and(eq(jobs.key, key), eq(jobs.preReserved, true)))
-        .returning({ material: jobs.material });
-
-      if (!updated.length) {
-        return false;
-      }
-
-      await syncGrundnerPreReservedCount(tx, updated[0].material ?? null);
-      return true;
-    })
-  );
-}
-
 export async function lockJob(key: string, actor?: string) {
   const actorName = actor?.trim() || null;
   return withDb((db) =>
@@ -332,10 +273,9 @@ export async function lockJob(key: string, actor?: string) {
         .update(jobs)
         .set({
           isLocked: true,
-          preReserved: false,
           lockedBy: actorName,
           updatedAt: sql<Date>`now()` as unknown as Date,
-          allocatedAt: sql<Date>`CASE WHEN ${jobs.preReserved} = false AND ${jobs.isLocked} = false THEN now() ELSE ${jobs.allocatedAt} END` as unknown as Date
+          allocatedAt: sql<Date>`CASE WHEN ${jobs.allocatedAt} IS NULL THEN now() ELSE ${jobs.allocatedAt} END` as unknown as Date
         })
         // Only allow manual locking when not already locked and status is PENDING
         .where(and(eq(jobs.key, key), eq(jobs.isLocked, false), eq(jobs.status, 'PENDING')))
@@ -344,10 +284,6 @@ export async function lockJob(key: string, actor?: string) {
       if (!updated.length) {
         return false;
       }
-
-      // Sync Grundner pre_reserved count after clearing pre_reserved flag
-      await syncGrundnerPreReservedCount(tx, updated[0].material ?? null);
-
       return true;
     })
   );
@@ -364,10 +300,9 @@ export async function lockJobAfterGrundnerConfirmation(key: string, actor?: stri
         .update(jobs)
         .set({
           isLocked: true,
-          preReserved: false,
           lockedBy: actorName,
           updatedAt: sql<Date>`now()` as unknown as Date,
-          allocatedAt: sql<Date>`CASE WHEN ${jobs.preReserved} = false AND ${jobs.isLocked} = false THEN now() ELSE ${jobs.allocatedAt} END` as unknown as Date
+          allocatedAt: sql<Date>`CASE WHEN ${jobs.allocatedAt} IS NULL THEN now() ELSE ${jobs.allocatedAt} END` as unknown as Date
         })
         .where(and(eq(jobs.key, key), eq(jobs.isLocked, false)))
         .returning({ key: jobs.key, material: jobs.material });
@@ -375,10 +310,6 @@ export async function lockJobAfterGrundnerConfirmation(key: string, actor?: stri
       if (!updated.length) {
         return false;
       }
-
-      // Sync Grundner pre_reserved count after clearing pre_reserved flag
-      await syncGrundnerPreReservedCount(tx, updated[0].material ?? null);
-
       return true;
     })
   );
@@ -393,7 +324,7 @@ export async function unlockJob(key: string) {
           isLocked: false,
           lockedBy: null,
           updatedAt: sql<Date>`now()` as unknown as Date,
-          allocatedAt: sql<Date | null>`CASE WHEN ${jobs.preReserved} = false THEN NULL ELSE ${jobs.allocatedAt} END` as unknown as Date
+          allocatedAt: null
         })
         .where(and(eq(jobs.key, key), eq(jobs.isLocked, true)))
         .returning({ key: jobs.key });
@@ -632,7 +563,6 @@ export async function updateLifecycle(
           cutAt: jobs.cutAt,
           nestpickCompletedAt: jobs.nestpickCompletedAt,
           updatedAt: jobs.updatedAt,
-          preReserved: jobs.preReserved,
           isLocked: jobs.isLocked,
           material: jobs.material,
           ncfile: jobs.ncfile
@@ -666,6 +596,33 @@ export async function updateLifecycle(
         touched = true;
       }
 
+      // Manual status changes from the Router page should be recorded on the job row
+      // so operators can see a quick history without digging through job_events.
+      const manualReason = (() => {
+        if (options.source !== 'router-manual') return null;
+        if (!options.payload || typeof options.payload !== 'object') return null;
+        const anyPayload = options.payload as Record<string, unknown>;
+        const reason = typeof anyPayload.reason === 'string' ? anyPayload.reason.trim() : '';
+        return reason ? reason : null;
+      })();
+
+      if (manualReason && previousStatus !== to) {
+        const actor = options.actorName?.trim() || null;
+        patch.manualLifecycle = sql`
+          COALESCE(${jobs.manualLifecycle}, '[]'::jsonb)
+          || jsonb_build_array(
+            jsonb_build_object(
+              'at', now(),
+              'actor', ${actor},
+              'from', ${previousStatus},
+              'to', ${to},
+              'reason', ${manualReason}
+            )
+          )
+        ` as unknown as any;
+        touched = true;
+      }
+
       if ((to === 'STAGED' || to === 'LOAD_FINISH' || to === 'LABEL_FINISH') && !current.stagedAt) {
         patch.stagedAt = dbNow as unknown as Date;
         touched = true;
@@ -694,14 +651,7 @@ export async function updateLifecycle(
       }
 
       // Enforce business rules:
-      // - Leaving PENDING: clear preReserved
       // - On LOAD_FINISH: clear lock (stock has been removed from Grundner)
-      let shouldDecrementReserved = false;
-      if (to !== 'PENDING' && current.preReserved) {
-        patch.preReserved = false;
-        shouldDecrementReserved = true;
-        touched = true;
-      }
       if (to === 'LOAD_FINISH' && current.isLocked) {
         patch.isLocked = false;
         touched = true;
@@ -758,10 +708,6 @@ export async function updateLifecycle(
       }
       if (options.payload !== undefined) {
         eventPayload.payload = options.payload;
-      }
-
-      if (shouldDecrementReserved) {
-        await syncGrundnerPreReservedCount(tx, current.material ?? null);
       }
 
       // On completion, increment qty on the original (base) job

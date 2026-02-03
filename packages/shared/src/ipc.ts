@@ -33,7 +33,6 @@ export const InventoryExportFieldKey = z.enum([
   'lengthMm',
   'widthMm',
   'thicknessMm',
-  'preReserved',
   'stock',
   'reservedStock',
   'stockAvailable',
@@ -65,10 +64,26 @@ export const InventoryExportColumnSchema = z
   .preprocess((value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
     const record = value as Record<string, unknown>;
-    if (!('kind' in record) && 'field' in record) {
-      return { kind: 'field', ...record };
+
+    // Backward compatibility:
+    // Older settings may have used the "preReserved" column. That field has been removed
+    // and is now treated as "reservedStock".
+    const remapLegacyPreReserved = (input: Record<string, unknown>) => {
+      const field = input.field;
+      if (field === 'preReserved') {
+        const header = typeof input.header === 'string' ? input.header : '';
+        const headerTrimmedLower = header.trim().toLowerCase();
+        const nextHeader = headerTrimmedLower === 'pre-reserved' || headerTrimmedLower === 'pre reserved' ? 'Reserved' : header;
+        return { ...input, field: 'reservedStock', header: nextHeader };
+      }
+      return input;
+    };
+
+    const normalized = remapLegacyPreReserved(record);
+    if (!('kind' in normalized) && 'field' in normalized) {
+      return { kind: 'field', ...normalized };
     }
-    return value;
+    return normalized;
   }, z.discriminatedUnion('kind', [InventoryExportFieldColumnSchema, InventoryExportCustomColumnSchema]))
   .superRefine((col, ctx) => {
     if (col.enabled && !col.header.trim()) {
@@ -92,7 +107,6 @@ export const InventoryExportTemplateSchema = z.object({
     { kind: 'field', enabled: true, header: 'Length', field: 'lengthMm' },
     { kind: 'field', enabled: true, header: 'Width', field: 'widthMm' },
     { kind: 'field', enabled: true, header: 'Thickness', field: 'thicknessMm' },
-    { kind: 'field', enabled: true, header: 'Pre-Reserved', field: 'preReserved' },
     { kind: 'field', enabled: true, header: 'Stock', field: 'stock' },
     { kind: 'field', enabled: true, header: 'Reserved', field: 'reservedStock' },
     { kind: 'field', enabled: true, header: 'Available', field: 'stockAvailable' },
@@ -235,6 +249,7 @@ export const SettingsSchema = z.object({
     disableErlTimeouts: z.boolean().default(false),
   }).default({ testDataFolderPath: '', useTestDataMode: false, disableErlTimeouts: false }),
   grundner: z.object({
+    archiveErlReplies: z.boolean().default(false),
     tableColumns: z.object({
       typeData: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(1) }).default({}),
       materialName: z.object({ visible: z.boolean().default(false), order: z.number().int().min(1).default(2) }).default({}),
@@ -294,11 +309,14 @@ export const JobsListFilter = z.object({
 
 export const JobsListReq = z.object({
   search: z.string().optional(),
-  sortBy: z.enum(['folder', 'ncfile', 'material', 'parts', 'size', 'thickness', 'dateadded', 'preReserved', 'locked', 'status']).default('dateadded'),
+  sortBy: z.enum(['folder', 'ncfile', 'material', 'parts', 'size', 'thickness', 'dateadded', 'locked', 'status']).default('dateadded'),
   sortDir: z.enum(['asc', 'desc']).default('desc'),
   cursor: z.string().nullable().optional(),
   limit: z.number().int().min(1).max(200).default(50),
-  filter: JobsListFilter.default({})
+  filter: JobsListFilter.default({}),
+  // UI hint: Jobs table can hide completed folders.
+  // Folder group is job.folder.
+  hideCompletedFolders: z.boolean().optional()
 });
 export type JobsListReq = z.infer<typeof JobsListReq>;
 
@@ -311,7 +329,6 @@ export const JobRow = z.object({
   size: z.string().nullable(),
   thickness: z.string().nullable(),
   dateadded: z.string().nullable(),
-  preReserved: z.boolean(),
   locked: z.boolean(),
   status: JobStatus,
   machineId: z.number().int().nullable(),
@@ -337,12 +354,6 @@ export type JobsFilterOptions = z.infer<typeof JobsFilterOptions>;
 
 export const JobsFiltersRes = z.object({ options: JobsFilterOptions });
 export type JobsFiltersRes = z.infer<typeof JobsFiltersRes>;
-
-export const ReserveReq = z.object({ key: z.string().min(1) });
-export type ReserveReq = z.infer<typeof ReserveReq>;
-
-export const UnreserveReq = z.object({ key: z.string().min(1) });
-export type UnreserveReq = z.infer<typeof UnreserveReq>;
 
 export const LockReq = z.object({ key: z.string().min(1) });
 export type LockReq = z.infer<typeof LockReq>;
@@ -535,6 +546,15 @@ export const LifecycleReq = z.object({
 });
 export type LifecycleReq = z.infer<typeof LifecycleReq>;
 
+// Manual lifecycle change from the Router page.
+// This requires a reason and is used for recovering abandoned jobs.
+export const ManualLifecycleReq = z.object({
+  key: z.string().min(1),
+  to: JobStatus,
+  reason: z.string().min(1).max(500)
+});
+export type ManualLifecycleReq = z.infer<typeof ManualLifecycleReq>;
+
 export const LifecycleRes = z.object({
   ok: z.boolean(),
   reason: z.enum(['NOT_FOUND', 'INVALID_TRANSITION', 'NO_CHANGE']).optional(),
@@ -569,7 +589,6 @@ export const GrundnerRow = z.object({
   stock: z.number().int().nullable(),
   stockAvailable: z.number().int().nullable(),
   reservedStock: z.number().int().nullable(),
-  preReserved: z.number().int().nullable(),
   lastUpdated: z.string().nullable()
 });
 export type GrundnerRow = z.infer<typeof GrundnerRow>;
@@ -587,9 +606,6 @@ export const GrundnerUpdateReq = z.object({
   { message: 'At least one field must be provided' }
 );
 export type GrundnerUpdateReq = z.infer<typeof GrundnerUpdateReq>;
-
-export const GrundnerResyncReq = z.object({ id: z.number().int().optional() });
-export type GrundnerResyncReq = z.infer<typeof GrundnerResyncReq>;
 
 export const GrundnerJobsReq = z.object({
   typeData: z.number().int(),
@@ -990,3 +1006,15 @@ export const AdminToolsWriteFileRes = z.object({
   fullPath: z.string()
 });
 export type AdminToolsWriteFileRes = z.infer<typeof AdminToolsWriteFileRes>;
+
+export const AdminToolsCleanupTestCsvReq = z.object({
+  target: AdminToolsTarget
+});
+export type AdminToolsCleanupTestCsvReq = z.infer<typeof AdminToolsCleanupTestCsvReq>;
+
+export const AdminToolsCleanupTestCsvRes = z.object({
+  deleted: z.array(z.string()),
+  missing: z.array(z.string()),
+  failed: z.array(z.object({ file: z.string(), error: z.string() }))
+});
+export type AdminToolsCleanupTestCsvRes = z.infer<typeof AdminToolsCleanupTestCsvRes>;

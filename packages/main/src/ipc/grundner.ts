@@ -5,7 +5,6 @@ import type { AppError, GrundnerExportRes, GrundnerCustomCsvPreviewRes } from '.
 import {
   GrundnerListReq,
   GrundnerUpdateReq,
-  GrundnerResyncReq,
   GrundnerJobsReq,
   GrundnerCustomCsvPreviewReq,
   InventoryExportSettingsSchema,
@@ -16,12 +15,10 @@ import {
   listGrundnerAll,
   listGrundnerPreview,
   updateGrundnerRow,
-  resyncGrundnerReserved,
   listGrundnerPendingJobs
 } from '../repo/grundnerRepo';
 import { loadConfig } from '../services/config';
 import { buildGrundnerCustomCsv, buildGrundnerStandardCsv } from '../services/inventoryExportCsv';
-import { pushAppMessage } from '../services/messages';
 import { createAppError } from './errors';
 import { registerResultHandler } from './result';
 
@@ -36,20 +33,6 @@ export function registerGrundnerIpc() {
     const req = GrundnerUpdateReq.parse(raw);
     const res = await updateGrundnerRow(req);
     return ok(res);
-  });
-
-  registerResultHandler('grundner:resync', async (_e, raw) => {
-    const req = GrundnerResyncReq.parse(raw ?? {});
-    const updated = await resyncGrundnerReserved(req.id);
-    pushAppMessage(
-      'grundner.resync',
-      {
-        user: 'UI',
-        mode: req.id != null ? 'single' : 'all'
-      },
-      { source: 'grundner' }
-    );
-    return ok<{ updated: number }, AppError>({ updated });
   });
 
   registerResultHandler('grundner:jobs', async (_e, raw) => {

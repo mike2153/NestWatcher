@@ -1,14 +1,19 @@
+import { BrowserWindow } from 'electron';
 import { normalize, resolve, join, basename } from 'path';
 import { promises as fsp } from 'fs';
 import { ok, err } from 'neverthrow';
 
-import type { AppError, AdminToolsWriteFileRes } from '../../../shared/src';
-import { AdminToolsWriteFileReq } from '../../../shared/src';
+import type { AppError, AdminToolsCleanupTestCsvRes, AdminToolsWriteFileRes } from '../../../shared/src';
+import { AdminToolsCleanupTestCsvReq, AdminToolsWriteFileReq } from '../../../shared/src';
 import { createAppError } from './errors';
 import { registerResultHandler } from './result';
-import { requireAdminSession } from '../services/authSessions';
+import { copySession, requireAdminSession } from '../services/authSessions';
 import { loadConfig } from '../services/config';
 import { listMachines } from '../repo/machinesRepo';
+import { applyWindowNavigationGuards } from '../security';
+import { logger } from '../logger';
+
+let adminToolsWin: BrowserWindow | null = null;
 
 function normalizeLineEndings(input: string, mode: 'crlf' | 'lf'): string {
   const lf = input.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -82,6 +87,37 @@ async function writeFileChunked(dest: string, content: string, delayMs: number):
   } finally {
     await handle.close();
   }
+}
+
+async function unlinkWithRetries(path: string, options?: { retries?: number; initialDelayMs?: number }): Promise<{ ok: true } | { ok: false; code?: string; message: string }> {
+  const retries = options?.retries ?? 5;
+  const initialDelayMs = options?.initialDelayMs ?? 200;
+
+  let delay = initialDelayMs;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      await fsp.unlink(path);
+      return { ok: true };
+    } catch (error) {
+      const errAny = error as Error & { code?: string };
+      const code = errAny?.code;
+
+      // Missing file is a "not a failure" for cleanup.
+      if (code === 'ENOENT') {
+        return { ok: false, code, message: 'missing' };
+      }
+
+      const retryable = code === 'EBUSY' || code === 'EPERM' || code === 'EACCES';
+      if (!retryable || attempt === retries) {
+        return { ok: false, code, message: errAny instanceof Error ? errAny.message : String(error) };
+      }
+
+      await new Promise((r) => setTimeout(r, delay));
+      delay = Math.min(delay * 2, 5000);
+    }
+  }
+
+  return { ok: false, message: 'unknown delete failure' };
 }
 
 async function resolveTargetRoot(target: { kind: string; machineId?: number }): Promise<{ ok: true; root: string } | { ok: false; error: AppError }> {
@@ -222,6 +258,139 @@ export function registerAdminToolsIpc() {
           error: error instanceof Error ? error.message : String(error)
         }));
       }
+    },
+    { requiresAdmin: true }
+  );
+
+  registerResultHandler<null>(
+    'adminTools:openWindow',
+    async (event) => {
+      const session = await requireAdminSession(event);
+      if (session.username.toLowerCase() !== 'admin') {
+        return err(createAppError('auth.forbidden', 'This tool is only available when signed in as the built-in "admin" user.'));
+      }
+
+      if (adminToolsWin && !adminToolsWin.isDestroyed()) {
+        if (adminToolsWin.isMinimized()) adminToolsWin.restore();
+        adminToolsWin.show();
+        adminToolsWin.focus();
+        return ok(null);
+      }
+
+      const preloadPath = join(__dirname, '../../preload/dist/index.js');
+
+      const parent = BrowserWindow.fromWebContents(event.sender);
+      adminToolsWin = new BrowserWindow({
+        width: 1200,
+        height: 800,
+        title: 'Admin Tools',
+        parent: parent ?? undefined,
+        show: false,
+        webPreferences: {
+          preload: preloadPath,
+          contextIsolation: true,
+          sandbox: true,
+          nodeIntegration: false,
+          webSecurity: true
+        }
+      });
+
+      // Share the existing auth session with the new window.
+      // Important: in this repo sessions are tracked per-webContents, so without this
+      // the popout window behaves like a fresh login.
+      copySession(event.sender, adminToolsWin.webContents);
+
+      applyWindowNavigationGuards(adminToolsWin.webContents);
+
+      adminToolsWin.on('closed', () => {
+        adminToolsWin = null;
+      });
+
+      adminToolsWin.on('ready-to-show', () => {
+        adminToolsWin?.show();
+        adminToolsWin?.focus();
+      });
+
+      adminToolsWin.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+        logger.error({ errorCode, errorDescription }, 'Admin Tools window failed to load');
+        if (adminToolsWin && !adminToolsWin.isDestroyed()) {
+          adminToolsWin.show();
+        }
+      });
+
+      try {
+        const devServer = process.env.VITE_DEV_SERVER_URL;
+        if (devServer) {
+          const url = new URL('/admin-tools?window=admin-tools', devServer).toString();
+          await adminToolsWin.loadURL(url);
+        } else {
+          await adminToolsWin.loadFile(join(__dirname, '../../renderer/dist/index.html'), {
+            search: '?window=admin-tools',
+            hash: '/admin-tools'
+          });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error({ error }, 'Failed to create Admin Tools window');
+
+        try {
+          adminToolsWin?.destroy();
+        } catch {
+          // ignore
+        }
+        adminToolsWin = null;
+
+        return err(createAppError('adminTools.openWindowFailed', message));
+      }
+
+      return ok(null);
+    },
+    { requiresAdmin: true }
+  );
+
+  registerResultHandler<AdminToolsCleanupTestCsvRes>(
+    'adminTools:cleanupTestCsv',
+    async (event, raw) => {
+      const session = await requireAdminSession(event);
+      if (session.username.toLowerCase() !== 'admin') {
+        return err(createAppError('auth.forbidden', 'This tool is only available when signed in as the built-in "admin" user.'));
+      }
+
+      const parsed = AdminToolsCleanupTestCsvReq.safeParse(raw);
+      if (!parsed.success) {
+        return err(createAppError('adminTools.invalidArguments', parsed.error.message));
+      }
+
+      const target = parsed.data.target;
+      if (target.kind !== 'grundnerFolderPath' && target.kind !== 'machineNestpickFolder') {
+        return err(createAppError('adminTools.invalidTarget', 'CSV cleanup is only supported for Grundner and Nestpick folders.'));
+      }
+
+      const allowlist = target.kind === 'grundnerFolderPath'
+        ? ['order_saw.csv', 'ChangeMachNr.csv', 'get_production.csv', 'productionLIST_del.csv']
+        : ['Report_FullNestpickUnstack.csv'];
+
+      const targetRoot = await resolveTargetRoot(target);
+      if (!targetRoot.ok) return err(targetRoot.error);
+
+      const folder = targetRoot.root;
+      const deleted: string[] = [];
+      const missing: string[] = [];
+      const failed: { file: string; error: string }[] = [];
+
+      for (const file of allowlist) {
+        const fullPath = join(folder, file);
+        const res = await unlinkWithRetries(fullPath);
+        if (res.ok) {
+          deleted.push(file);
+        } else if (res.code === 'ENOENT' || res.message === 'missing') {
+          missing.push(file);
+        } else {
+          failed.push({ file, error: res.message });
+        }
+      }
+
+      return ok({ deleted, missing, failed });
     },
     { requiresAdmin: true }
   );

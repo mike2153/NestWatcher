@@ -8,6 +8,13 @@ import {
 import type { ColumnDef, SortingState, ExpandedState } from '@tanstack/react-table';
 import { GlobalTable } from '@/components/table/GlobalTable';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 
 // Percent widths for Grundner table columns
@@ -645,14 +652,19 @@ export function GrundnerPage() {
             <input type="checkbox" checked={filters.onlyReserved} onChange={(e) => setFilters((prev) => ({ ...prev, onlyReserved: e.target.checked }))} />
             Only reserved
           </label>
-          <label className="flex flex-col gap-1 text-sm">
+          <div className="flex flex-col gap-1 text-sm">
             <span>Limit</span>
-            <select className="border rounded px-2 py-1" value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
-              {[100, 200, 300, 500].map((value) => (
-                <option key={value} value={value}>{value}</option>
-              ))}
-            </select>
-          </label>
+            <Select value={String(limit)} onValueChange={(v) => setLimit(Number(v))}>
+              <SelectTrigger className="w-24">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[100, 200, 300, 500].map((value) => (
+                  <SelectItem key={value} value={String(value)}>{value}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-2">

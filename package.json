@@ -4,7 +4,7 @@
     "author": "Michael Beasley",
     "private":  true,
     "main": "packages/main/dist/main.js",
-    "description":  "JobMan By Woodtron",
+    "description":  "NestWatch by Woodtron",
     "license":  "UNLICENSED",
     "packageManager":  "pnpm@9.0.0",
     "engines":  {

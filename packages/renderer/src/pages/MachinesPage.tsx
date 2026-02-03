@@ -9,6 +9,13 @@ import type {
 import { cn } from '../utils/cn';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 
 export function MachinesPage() {
@@ -180,7 +187,7 @@ export function MachinesPage() {
             <label className="text-sm">PC IP<input className="border rounded w-full px-2 py-1" value={(editing as { pcIp?: string | null; cncIp?: string | null }).pcIp ?? (editing as { pcIp?: string | null; cncIp?: string | null }).cncIp ?? ''} onChange={e=>setEditing({...editing, pcIp: e.target.value})} /></label>
             <label className="text-sm">AP Job Folder<div className="flex gap-2"><input className="border rounded w-full px-2 py-1" value={editing.apJobfolder} onChange={e=>setEditing({...editing, apJobfolder: e.target.value})} /><Button size="sm" onClick={async()=>{ const picked = await window.api.dialog.pickFolder(); if (picked.ok && picked.value) setEditing({...editing, apJobfolder: picked.value}); }}>Browse</Button></div></label>
             <label className="text-sm">Nestpick Folder<div className="flex gap-2"><input className="border rounded w-full px-2 py-1" value={editing.nestpickFolder} onChange={e=>setEditing({...editing, nestpickFolder: e.target.value})} /><Button size="sm" onClick={async()=>{ const picked = await window.api.dialog.pickFolder(); if (picked.ok && picked.value) setEditing({...editing, nestpickFolder: picked.value}); }}>Browse</Button></div></label>
-            <label className="text-sm">Enabled<select className="border rounded w-full px-2 py-1" value={editing.nestpickEnabled ? 'true':'false'} onChange={e=>setEditing({...editing, nestpickEnabled: e.target.value==='true'})}><option value="true">Yes</option><option value="false">No</option></select></label>
+            <div className="text-sm">Enabled<Select value={editing.nestpickEnabled ? 'true':'false'} onValueChange={v=>setEditing({...editing, nestpickEnabled: v==='true'})}><SelectTrigger className="w-full mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Yes</SelectItem><SelectItem value="false">No</SelectItem></SelectContent></Select></div>
           </div>
           <div className="flex gap-2">
             <Button size="sm" onClick={onSave}>Save</Button>

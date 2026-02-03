@@ -15,7 +15,6 @@ import type {
   AppMessage,
   GrundnerListReq,
   GrundnerListRes,
-  GrundnerResyncReq,
   GrundnerUpdateReq,
   GrundnerJobsReq,
   GrundnerJobsRes,
@@ -31,6 +30,7 @@ import type {
   JobsListReq,
   JobsListRes,
   LifecycleReq,
+  ManualLifecycleReq,
   LifecycleRes,
   MachinesListRes,
   Machine,
@@ -47,6 +47,8 @@ import type {
   Settings,
   AdminToolsWriteFileReq,
   AdminToolsWriteFileRes,
+  AdminToolsCleanupTestCsvReq,
+  AdminToolsCleanupTestCsvRes,
   WorklistAddResult,
   TelemetrySummaryReq,
   TelemetrySummaryRes,
@@ -183,7 +185,10 @@ const api = {
     }
   },
   adminTools: {
-    writeFile: (input: AdminToolsWriteFileReq) => invokeResult<AdminToolsWriteFileRes>('adminTools:writeFile', input)
+    writeFile: (input: AdminToolsWriteFileReq) => invokeResult<AdminToolsWriteFileRes>('adminTools:writeFile', input),
+    openWindow: () => invokeResult<null>('adminTools:openWindow'),
+    cleanupTestCsv: (input: AdminToolsCleanupTestCsvReq) =>
+      invokeResult<AdminToolsCleanupTestCsvRes>('adminTools:cleanupTestCsv', input)
   },
   db: {
     testConnection: (db: DbSettings) => invokeResult<{ ok: true } | { ok: false; error: string }>('db:test', db),
@@ -201,14 +206,13 @@ const api = {
     }
   },
   lifecycle: {
-    update: (key: string, to: LifecycleReq['to']) => invokeResult<LifecycleRes>('jobs:lifecycle', { key, to })
+    update: (key: string, to: LifecycleReq['to']) => invokeResult<LifecycleRes>('jobs:lifecycle', { key, to }),
+    manualUpdate: (req: ManualLifecycleReq) => invokeResult<LifecycleRes>('jobs:lifecycleManual', req)
   },
   jobs: {
     list: (req: JobsListReq) => invokeResult<JobsListRes>('jobs:list', req),
     filters: () => invokeResult<JobsFiltersRes>('jobs:filters'),
     events: (req: JobEventsReq) => invokeResult<JobEventsRes>('jobs:events', req),
-    reserve: (key: string) => invokeResult<null>('jobs:reserve', { key }),
-    unreserve: (key: string) => invokeResult<null>('jobs:unreserve', { key }),
     lock: (key: string) => invokeResult<null>('jobs:lock', { key }),
     unlock: (key: string) => invokeResult<null>('jobs:unlock', { key }),
     lockBatch: (keys: string[]) => invokeResult<null>('jobs:lockBatch', { keys }),
@@ -223,7 +227,7 @@ const api = {
         pruned: number;
         addedJobs: { ncFile: string; folder: string }[];
         updatedJobs: { ncFile: string; folder: string }[];
-        prunedJobs: { key: string; folder: string; ncFile: string; material: string | null; preReserved: boolean }[];
+        prunedJobs: { key: string; folder: string; ncFile: string; material: string | null; isLocked: boolean }[];
       }>('jobs:resync')
   },
   machines: {
@@ -250,12 +254,12 @@ const api = {
     }
   },
   router: {
-    list: (req?: RouterListReq) => invokeResult<RouterListRes>('router:list', req ?? {})
+    list: (req?: RouterListReq) => invokeResult<RouterListRes>('router:list', req ?? {}),
+    changeStatus: (req: ManualLifecycleReq) => invokeResult<LifecycleRes>('jobs:lifecycleManual', req)
   },
   grundner: {
     list: (req?: GrundnerListReq) => invokeResult<GrundnerListRes>('grundner:list', req ?? {}),
     update: (input: GrundnerUpdateReq) => invokeResult<{ ok: boolean; updated: number }>('grundner:update', input),
-    resync: (input?: GrundnerResyncReq) => invokeResult<{ updated: number }>('grundner:resync', input ?? {}),
     jobs: (req: GrundnerJobsReq) => invokeResult<GrundnerJobsRes>('grundner:jobs', req),
     exportCsv: () => invokeResult<GrundnerExportRes>('grundner:exportCsv'),
     exportCustomCsv: () => invokeResult<GrundnerExportRes>('grundner:exportCustomCsv'),

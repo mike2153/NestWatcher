@@ -3,7 +3,7 @@ import { createHash } from 'crypto';
 import { existsSync, mkdirSync } from 'fs';
 import { promises as fsp } from 'fs';
 import type { Dirent } from 'fs';
-import { basename, extname, join, normalize, relative, sep } from 'path';
+import { basename, dirname, extname, join, normalize, relative, sep } from 'path';
 import type { PoolClient } from 'pg';
 import { parentPort } from 'worker_threads';
 import type {
@@ -17,9 +17,9 @@ import { loadConfig } from '../services/config';
 import { logger } from '../logger';
 import { getPool, testConnection, withClient } from '../services/db';
 import { appendJobEvent } from '../repo/jobEventsRepo';
-import { upsertGrundnerInventory, type GrundnerCsvRow, findGrundnerAllocationConflicts } from '../repo/grundnerRepo';
+import { upsertGrundnerInventory, type GrundnerCsvRow } from '../repo/grundnerRepo';
 import { listMachines } from '../repo/machinesRepo';
-import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLifecycle, resyncGrundnerPreReservedForMaterial } from '../repo/jobsRepo';
+import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLifecycle } from '../repo/jobsRepo';
 import { bulkUpsertCncStats } from '../repo/cncStatsRepo';
 import type { CncStatsUpsert } from '../repo/cncStatsRepo';
 import { upsertNcStats } from '../repo/ncStatsRepo';
@@ -32,7 +32,7 @@ import { ingestProcessedJobsRoot } from '../services/ingest';
 import { appendProductionListDel } from '../services/nestpick';
 import { archiveCompletedJob } from '../services/archive';
 import { buildNcCatValidationReport } from '../services/ncCatValidationReport';
-import { archiveGrundnerReplyFile } from '../services/grundnerArchive';
+import { archiveGrundnerReplyFile, quarantineGrundnerReplyFile } from '../services/grundnerArchive';
 
 const { access, copyFile, readFile, readdir, rename, stat, unlink, open } = fsp;
 
@@ -224,8 +224,6 @@ let sourceSanityTimer: NodeJS.Timeout | null = null;
 const autoPacHashes = new Map<string, string>();
 const pendingGrundnerReleases = new Map<string, number>();
 const PENDING_GRUNDNER_RELEASE_TTL_MS = 60_000;
-const pendingGrundnerConflicts = new Map<string, number>();
-const GRUNDNER_CONFLICT_GRACE_MS = 120_000;
 
 const NESTPICK_FILENAME = 'Nestpick.csv';
 const NESTPICK_ACK_FILENAME = 'Nestpick.erl';
@@ -234,7 +232,8 @@ const NESTPICK_UNSTACK_FILENAME = 'Report_FullNestpickUnstack.csv';
 
 const AUTOPAC_WATCHER_NAME = 'watcher:autopac';
 const AUTOPAC_WATCHER_LABEL = 'AutoPAC CSV Watcher';
-const AUTOPAC_ARCHIVE_DIRNAME = 'archieve';
+const AUTOPAC_ARCHIVE_DIRNAME = 'archive';
+const INCORRECT_FILES_DIRNAME = 'incorrect_files';
 const HEALTH_CODES: Record<'noParts' | 'nestpickShare' | 'copyFailure', MachineHealthCode> = {
   noParts: 'NO_PARTS_CSV',
   nestpickShare: 'NESTPICK_SHARE_UNREACHABLE',
@@ -331,12 +330,24 @@ function isBenignChokidarLstatTempError(err: unknown): boolean {
 
 function shouldIgnoreAutoPacPath(path: string): boolean {
   const lower = toPosixLower(path);
-  // When AutoPAC archive is enabled, we move CSVs into an archive folder.
-  // Ignore it so we don't re-process archived files.
-  if (lower.includes(`/${AUTOPAC_ARCHIVE_DIRNAME.toLowerCase()}/`) || lower.endsWith(`/${AUTOPAC_ARCHIVE_DIRNAME.toLowerCase()}`)) {
-    return true;
-  }
-  return shouldIgnoreShareTempFile(path);
+  // Never traverse or process subfolders.
+  // Ignore our managed subfolders so we never re-process moved files.
+  const archiveLower = AUTOPAC_ARCHIVE_DIRNAME.toLowerCase();
+  const incorrectLower = INCORRECT_FILES_DIRNAME.toLowerCase();
+  if (lower.includes(`/${archiveLower}/`) || lower.endsWith(`/${archiveLower}`)) return true;
+  if (lower.includes(`/${incorrectLower}/`) || lower.endsWith(`/${incorrectLower}`)) return true;
+
+  if (shouldIgnoreShareTempFile(path)) return true;
+
+  // Strict file matching: only react to known AutoPAC CSV file name patterns.
+  // Anything else in the folder is ignored.
+  const name = basename(path).toLowerCase();
+  if (!name.endsWith('.csv')) return true;
+  if (name.startsWith('load_finish')) return false;
+  if (name.startsWith('label_finish')) return false;
+  if (name.startsWith('cnc_finish')) return false;
+  if (name.startsWith('order_saw')) return false;
+  return true;
 }
 
 
@@ -352,36 +363,53 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`Timed out after ${timeoutMs}ms while waiting for ${label}`));
+      }, timeoutMs);
+      if (typeof timer.unref === 'function') timer.unref();
+    });
+    return (await Promise.race([promise, timeout])) as T;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 // ---------------------------------------------------------------------------------
 // Watcher self-heal backoff
 //
 // Goal: network shares go offline in real shops. A watcher should never spam logs
 // or freeze the app. On error we close the watcher, then retry using exponential
-// backoff starting at 7.5 seconds and doubling up to 240 seconds.
+// backoff starting at 7.5 seconds and doubling up to 60 seconds.
 // ---------------------------------------------------------------------------------
 
 const WATCHER_BACKOFF_INITIAL_MS = 7_500;
-const WATCHER_BACKOFF_MAX_MS = 240_000;
+const WATCHER_BACKOFF_MAX_MS = 60_000;
 
 type BackoffState = {
   attempt: number;
   offlineSinceMs: number;
   maxDelayReachAtMs: number;
   nextRetryAtMs: number;
+  firstDialogShown: boolean;
+  capDialogShown: boolean;
 };
 
 function computeBackoffDelayMs(attempt: number): number {
   // attempt: 0 => 7.5 seconds
   // attempt: 1 => 15 seconds
   // attempt: 2 => 30 seconds
-  // ... capped at 240 seconds
+  // ... capped at 60 seconds
   return Math.min(WATCHER_BACKOFF_MAX_MS, WATCHER_BACKOFF_INITIAL_MS * Math.pow(2, attempt));
 }
 
 function computeMaxDelayReachAtMs(offlineSinceMs: number): number {
   // This is the time when the backoff first reaches the max delay.
-  // For the configured backoff this is after 5 retries:
-  // 7.5 + 15 + 30 + 60 + 120 seconds.
+  // For the configured backoff this is after 3 retries:
+  // 7.5 + 15 + 30 seconds.
   let total = 0;
   let delayMs = WATCHER_BACKOFF_INITIAL_MS;
   while (delayMs < WATCHER_BACKOFF_MAX_MS) {
@@ -421,6 +449,23 @@ function buildBackoffStatusMessage(params: {
   return `Still offline. Retrying in ${formatSeconds(params.delayMs)} at ${nextTime}. Trying to connect until ${capTime} then restarting watcher every ${Math.round(WATCHER_BACKOFF_MAX_MS / 1000)} seconds.`;
 }
 
+function buildBusyRetryStatusMessage(params: {
+  delayMs: number;
+  nextRetryAtMs: number;
+  maxDelayReachAtMs: number;
+}): string {
+  const nextTime = formatTimeOfDay(params.nextRetryAtMs);
+  const capTime = formatTimeOfDay(params.maxDelayReachAtMs);
+  return `ChangeMachNr is busy. Retrying in ${formatSeconds(params.delayMs)} at ${nextTime}. Trying until ${capTime} then retrying every ${Math.round(WATCHER_BACKOFF_MAX_MS / 1000)} seconds.`;
+}
+
+function shouldShowCapDialog(state: BackoffState, delayMs: number): boolean {
+  if (state.capDialogShown) return false;
+  if (delayMs < WATCHER_BACKOFF_MAX_MS) return false;
+  state.capDialogShown = true;
+  return true;
+}
+
 function scheduleBackoffRetry(state: BackoffState, nowMs: number): { delayMs: number; nextRetryAtMs: number } {
   const delayMs = computeBackoffDelayMs(state.attempt);
   const nextRetryAtMs = nowMs + delayMs;
@@ -437,6 +482,38 @@ function shouldAttemptBackoff(state: BackoffState | undefined, nowMs: number): b
 // Generic backoff storage for pollers and per-folder checks.
 const backoffByKey = new Map<string, BackoffState>();
 
+// Some watcher operations need explicit retry scheduling even when the filesystem
+// does not emit new events. This map prevents retry timer spam.
+const retryTimersByKey = new Map<string, NodeJS.Timeout>();
+
+function scheduleRetry(key: string, delayMs: number, fn: () => void) {
+  const existing = retryTimersByKey.get(key);
+  if (existing) {
+    clearTimeout(existing);
+    retryTimersByKey.delete(key);
+  }
+  const t = setTimeout(() => {
+    retryTimersByKey.delete(key);
+    fn();
+  }, delayMs);
+  if (typeof t.unref === 'function') t.unref();
+  retryTimersByKey.set(key, t);
+}
+
+function clearRetry(key: string) {
+  const existing = retryTimersByKey.get(key);
+  if (!existing) return;
+  clearTimeout(existing);
+  retryTimersByKey.delete(key);
+}
+
+function clearAllRetries() {
+  for (const t of retryTimersByKey.values()) {
+    clearTimeout(t);
+  }
+  retryTimersByKey.clear();
+}
+
 function getOrCreateBackoff(key: string, nowMs: number): BackoffState {
   const existing = backoffByKey.get(key);
   if (existing) return existing;
@@ -444,7 +521,9 @@ function getOrCreateBackoff(key: string, nowMs: number): BackoffState {
     attempt: 0,
     offlineSinceMs: nowMs,
     maxDelayReachAtMs: computeMaxDelayReachAtMs(nowMs),
-    nextRetryAtMs: nowMs
+    nextRetryAtMs: nowMs,
+    firstDialogShown: false,
+    capDialogShown: false
   };
   backoffByKey.set(key, state);
   return state;
@@ -459,6 +538,10 @@ type ResilientWatcherOptions = {
   label: string;
   createWatcher: () => FSWatcher;
   targetContext?: Record<string, unknown>;
+  // Optional: probe a path using the configured string path, so we detect
+  // offline or renamed folders even if the underlying OS watch handle stays open.
+  // This is important on Windows, where renaming a watched folder may not emit a watcher error.
+  probePath?: { path: string; intervalMs?: number; timeoutMs?: number; label?: string };
   shouldIgnoreError?: (err: unknown) => boolean;
   onOfflineOnce?: (err: unknown) => void;
   onReady?: () => void;
@@ -475,6 +558,7 @@ const resilientWatchers: ResilientWatcherController[] = [];
 function createResilientWatcher(options: ResilientWatcherOptions): ResilientWatcherController {
   let watcher: FSWatcher | null = null;
   let retryTimer: NodeJS.Timeout | null = null;
+  let probeTimer: NodeJS.Timeout | null = null;
   let handlingError = false;
   let backoff: BackoffState | null = null;
 
@@ -482,6 +566,31 @@ function createResilientWatcher(options: ResilientWatcherOptions): ResilientWatc
     if (!retryTimer) return;
     clearTimeout(retryTimer);
     retryTimer = null;
+  }
+
+  function clearProbeTimer() {
+    if (!probeTimer) return;
+    clearInterval(probeTimer);
+    probeTimer = null;
+  }
+
+  async function probeConfiguredPathOnce() {
+    if (!options.probePath) return;
+    const target = options.probePath.path;
+    const timeoutMs = options.probePath.timeoutMs ?? 2000;
+    const label = options.probePath.label ?? target;
+    try {
+      await withTimeout(stat(target), timeoutMs, `stat ${label}`);
+
+      // If we are in backoff but the path is reachable again, attempt recovery early.
+      // This makes the UI feel responsive when a share comes back online.
+      if (!watcher && backoff) {
+        handlingError = false;
+        start();
+      }
+    } catch (err) {
+      await handleError(err);
+    }
   }
 
   async function closeWatcherInstance() {
@@ -539,7 +648,9 @@ function createResilientWatcher(options: ResilientWatcherOptions): ResilientWatc
         attempt: 0,
         offlineSinceMs: now,
         maxDelayReachAtMs: computeMaxDelayReachAtMs(now),
-        nextRetryAtMs: now
+        nextRetryAtMs: now,
+        firstDialogShown: false,
+        capDialogShown: false
       };
       try {
         options.onOfflineOnce?.(err);
@@ -553,11 +664,12 @@ function createResilientWatcher(options: ResilientWatcherOptions): ResilientWatc
     await closeWatcherInstance();
     clearRetryTimer();
 
-    const { delayMs, nextRetryAtMs } = scheduleBackoffRetry(backoff, now);
+    const state = backoff;
+    const { delayMs, nextRetryAtMs } = scheduleBackoffRetry(state, now);
     const message = buildBackoffStatusMessage({
       delayMs,
       nextRetryAtMs,
-      maxDelayReachAtMs: backoff.maxDelayReachAtMs
+      maxDelayReachAtMs: state.maxDelayReachAtMs
     });
 
     recordWatcherBackoff(options.name, {
@@ -567,8 +679,8 @@ function createResilientWatcher(options: ResilientWatcherOptions): ResilientWatc
         ...(options.targetContext ?? {}),
         delayMs,
         nextRetryAt: new Date(nextRetryAtMs).toISOString(),
-        maxDelayReachAt: new Date(backoff.maxDelayReachAtMs).toISOString(),
-        attempt: backoff.attempt
+        maxDelayReachAt: new Date(state.maxDelayReachAtMs).toISOString(),
+        attempt: state.attempt
       }
     });
 
@@ -583,6 +695,19 @@ function createResilientWatcher(options: ResilientWatcherOptions): ResilientWatc
   function start() {
     if (shuttingDown) return;
     if (watcher) return;
+
+    // Start a periodic probe that uses the configured string path.
+    // This catches Windows rename cases that do not surface as chokidar errors.
+    if (options.probePath && !probeTimer) {
+      const intervalMs = options.probePath.intervalMs ?? 5_000;
+      probeTimer = setInterval(() => {
+        void probeConfiguredPathOnce();
+      }, intervalMs);
+      if (typeof probeTimer.unref === 'function') probeTimer.unref();
+      // Run one probe quickly after start so we detect typos fast.
+      void probeConfiguredPathOnce();
+    }
+
     try {
       const w = options.createWatcher();
       watcher = w;
@@ -595,6 +720,7 @@ function createResilientWatcher(options: ResilientWatcherOptions): ResilientWatc
 
   async function stop() {
     clearRetryTimer();
+    clearProbeTimer();
     backoff = null;
     handlingError = false;
     await closeWatcherInstance();
@@ -1321,13 +1447,89 @@ async function handleAutoPacOrderSawCsv(path: string) {
     return;
   }
 
+  const fileName = basename(path);
+  const sourceFolder = dirname(path);
+  const expectedExample =
+    'Example file contents:\n' +
+    'PART_123;1;\n' +
+    'PART_456;1;\n' +
+    '\n' +
+    'Rules:\n' +
+    '- Each non-empty line must contain an NC base and a machine id\n' +
+    '- Delimiter can be semicolon or comma\n' +
+    '- The NC base can be with or without .nc\n' +
+    '- Spaces are allowed\n';
+
+  const truncateForDialog = (raw: string): { text: string; truncated: boolean } => {
+    const maxChars = 6000;
+    if (raw.length <= maxChars) return { text: raw, truncated: false };
+    return { text: raw.slice(0, maxChars) + '\n\n... truncated ...', truncated: true };
+  };
+
+  const reportOrderSawFormatError = async (params: { reason: string; found: string; raw: string }) => {
+    const { text: content, truncated } = truncateForDialog(params.raw);
+    const quarantinedAs = await quarantineAutoPacCsv(path, sourceFolder);
+    const movedLine = quarantinedAs ? `Moved to: ${quarantinedAs}\n\n` : '';
+    const message =
+      `Source folder: ${sourceFolder}\n` +
+      `File: ${fileName}\n` +
+      `Grundner folder: ${grundnerRoot}\n\n` +
+      `Error: ${params.reason}\n\n` +
+      `Expected:\n${expectedExample}\n` +
+      `Found: ${params.found}\n\n` +
+      movedLine +
+      `File contents${truncated ? ' (truncated)' : ''}:\n${content}`;
+
+    postMessageToMain({
+      type: 'userAlert',
+      title: 'AutoPAC order_saw Format Error',
+      message
+    });
+
+    emitAppMessage(
+      'autopac.csv.format_error',
+      {
+        message
+      },
+      'autopac'
+    );
+
+    recordWatcherEvent(AUTOPAC_WATCHER_NAME, {
+      label: AUTOPAC_WATCHER_LABEL,
+      message: `Rejected ${fileName}: ${params.reason} (found: ${params.found})`,
+      context: {
+        originalFile: path,
+        fileName,
+        folder: sourceFolder,
+        grundnerFolder: grundnerRoot,
+        reason: params.reason,
+        found: params.found,
+        quarantinedAs
+      }
+    });
+  };
+
   try {
     await waitForStableFile(path);
 
     const raw = await readFile(path, 'utf8');
     const items = parseOrderSawChangeCsv(raw);
     if (items.length === 0) {
-      logger.warn({ file: path }, 'watcher: order_saw file had no valid rows');
+      const nonEmptyLines = raw
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+      const hasDelimiters = nonEmptyLines.some((line) => line.includes(',') || line.includes(';'));
+      await reportOrderSawFormatError({
+        reason: 'File had no valid rows',
+        found:
+          nonEmptyLines.length === 0
+            ? '0 non-empty lines'
+            : hasDelimiters
+              ? `Non-empty lines=${nonEmptyLines.length} but none had a valid nc base and machine id pair`
+              : `Non-empty lines=${nonEmptyLines.length} but no ',' or ';' delimiters were found`,
+        raw
+      });
       return;
     }
 
@@ -1336,8 +1538,14 @@ async function handleAutoPacOrderSawCsv(path: string) {
     const outTmp = join(grundnerRoot, 'ChangeMachNr.tmp');
     const outErl = join(grundnerRoot, 'ChangeMachNr.erl');
 
-    // Clear any stale confirmation file
-    try { await fsp.unlink(outErl); } catch { /* ignore */ }
+    // If a stale reply exists, quarantine it so we don't lose traceability.
+    // We need a clean slot so we don't accidentally accept an old confirmation.
+    if (await fileExists(outErl)) {
+      const stale = await quarantineGrundnerReplyFile({ grundnerFolder: grundnerRoot, sourcePath: outErl });
+      if (!stale.ok) {
+        logger.warn({ outErl, error: stale.error }, 'watcher: failed to quarantine stale ChangeMachNr.erl');
+      }
+    }
 
     // Ensure we don't overwrite an in-flight request
     await waitForSlot(outCsv).catch((err) => {
@@ -1374,26 +1582,43 @@ async function handleAutoPacOrderSawCsv(path: string) {
     const norm = (s: string) => s.replace(/\r\n/g, '\n').trim();
     const ok = norm(erlRaw) === norm(csvLines);
 
-    // Always archive the reply file to avoid stale confirmations.
-    // This also makes testing easier: you can inspect archived replies later.
-    let archivedAs: string | null = null;
-    const archiveRes = await archiveGrundnerReplyFile({ grundnerFolder: grundnerRoot, sourcePath: outErl });
-    if (archiveRes.ok) {
-      archivedAs = archiveRes.archivedPath;
-    } else {
-      try { await fsp.unlink(outErl); } catch { /* ignore */ }
-    }
+    // File disposition policy:
+    // - success equals archive
+    // - failure equals incorrect_files
+    const moveRes = ok
+      ? await archiveGrundnerReplyFile({ grundnerFolder: grundnerRoot, sourcePath: outErl })
+      : await quarantineGrundnerReplyFile({ grundnerFolder: grundnerRoot, sourcePath: outErl });
 
-    if (cfg.test?.disableErlTimeouts && archivedAs) {
-      emitAppMessage(
-        ok ? 'grundner.erl.archived' : 'grundner.erl.mismatch',
-        {
-          fileName: 'ChangeMachNr.erl',
-          archivedAs,
-          note: ok ? 'Reply matched request.' : 'Reply did not match request.'
-        },
-        'grundner'
-      );
+    if (moveRes.ok) {
+      if (ok) {
+        emitAppMessage(
+          'grundner.erl.archived',
+          {
+            fileName: 'ChangeMachNr.erl',
+            archivedAs: moveRes.archivedPath,
+            note: 'Reply matched request.'
+          },
+          'grundner'
+        );
+      } else {
+        const reason = 'Reply did not match request.';
+        emitAppMessage(
+          'grundner.file.quarantined',
+          { fileName: 'ChangeMachNr.erl', folder: grundnerRoot, reason },
+          'grundner'
+        );
+        postMessageToMain({
+          type: 'userAlert',
+          title: 'Grundner ChangeMachNr Reply Mismatch',
+          message:
+            `File: ChangeMachNr.erl\n` +
+            `Folder: ${grundnerRoot}\n\n` +
+            `Problem: ${reason}\n\n` +
+            `Action: The file was moved to incorrect_files.`
+        });
+      }
+    } else {
+      logger.warn({ file: outErl, error: moveRes.error }, 'watcher: failed to move ChangeMachNr.erl');
     }
 
     if (!ok) {
@@ -1419,8 +1644,91 @@ async function handleAutoPacOrderSawCsv(path: string) {
     }
 
     // Clean up source CSV after processing
-    await unlinkWithRetry(path);
+    const backoffKey = `autopac:order_saw:${grundnerRoot}`;
+    const hadBackoff = backoffByKey.has(backoffKey);
+    clearBackoff(backoffKey);
+    clearRetry(backoffKey);
+
+    if (hadBackoff) {
+      const title = 'AutoPAC ChangeMachNr Recovered';
+      const body =
+        `ChangeMachNr is no longer busy and the order_saw request was processed.\n\n` +
+        `Source file: ${path}\n` +
+        `Grundner folder: ${grundnerRoot}`;
+      postMessageToMain({ type: 'userAlert', title, message: body });
+      emitAppMessage('autopac.order_saw.recovered', { message: body }, 'autopac');
+    }
+    await disposeAutoPacCsv(path);
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+
+    // If the Grundner slot file never clears, treat it as a temporary busy condition.
+    // This should not spam watcher errors because it is expected during machine downtime.
+    if (msg.toLowerCase().includes('changemachnr busy') || msg.toLowerCase().includes('file busy timeout')) {
+      const now = Date.now();
+      const backoffKey = `autopac:order_saw:${grundnerRoot}`;
+      const existing = backoffByKey.get(backoffKey);
+      const state = existing ?? getOrCreateBackoff(backoffKey, now);
+      const { delayMs, nextRetryAtMs } = scheduleBackoffRetry(state, now);
+
+      const scheduleText = buildBusyRetryStatusMessage({
+        delayMs,
+        nextRetryAtMs,
+        maxDelayReachAtMs: state.maxDelayReachAtMs
+      });
+
+      // This is not a watcher offline condition. It is a workflow backpressure condition.
+      // Keep the watcher in a healthy state, but surface the retry plan to the operator.
+      recordWatcherEvent(AUTOPAC_WATCHER_NAME, {
+        label: AUTOPAC_WATCHER_LABEL,
+        message: `${msg}. ${scheduleText}`,
+        context: { path, grundnerRoot, delayMs }
+      });
+
+      // Show a popup only on the first busy failure.
+      if (!existing && !state.firstDialogShown) {
+        state.firstDialogShown = true;
+        const title = 'AutoPAC ChangeMachNr Busy';
+        const body =
+          `A previous ChangeMachNr request appears to still be in progress or stuck.\n\n` +
+          `Source file: ${path}\n` +
+          `Grundner folder: ${grundnerRoot}\n\n` +
+          `Problem: ${msg}\n\n` +
+          `What this means:\n` +
+          `- The app will not overwrite ChangeMachNr.csv while it already exists\n` +
+          `- This prevents corrupting an in flight request\n\n` +
+          `What to check:\n` +
+          `- Is the Grundner PC online and processing requests\n` +
+          `- Is ChangeMachNr.csv stale and safe to delete\n\n` +
+          `Retry schedule:\n` +
+          `${scheduleText}`;
+
+        postMessageToMain({ type: 'userAlert', title, message: body });
+        emitAppMessage('autopac.order_saw.busy', { message: body }, 'autopac');
+      }
+
+      // Show a second popup once when we enter long retry mode at the max delay.
+      if (shouldShowCapDialog(state, delayMs)) {
+        const title = 'AutoPAC ChangeMachNr Still Busy';
+        const body =
+          `ChangeMachNr is still busy after multiple retries.\n\n` +
+          `Source file: ${path}\n` +
+          `Grundner folder: ${grundnerRoot}\n\n` +
+          `Problem: ${msg}\n\n` +
+          `The watcher will now retry every ${Math.round(WATCHER_BACKOFF_MAX_MS / 1000)} seconds until it recovers.`;
+        postMessageToMain({ type: 'userAlert', title, message: body });
+        emitAppMessage('autopac.order_saw.busy_long', { message: body }, 'autopac');
+      }
+
+      scheduleRetry(backoffKey, delayMs, () => {
+        if (shuttingDown) return;
+        void handleAutoPacOrderSawCsv(path);
+      });
+
+      logger.warn({ err, file: path, grundnerRoot, delayMs }, 'watcher: order_saw ChangeMachNr busy; scheduled retry');
+      return;
+    }
+
     recordWatcherError(AUTOPAC_WATCHER_NAME, err, { path, label: AUTOPAC_WATCHER_LABEL });
     logger.error({ err, file: path }, 'watcher: order_saw ChangeMachNr processing failed');
   }
@@ -1550,22 +1858,68 @@ async function archiveAutoPacCsv(sourcePath: string, autoPacDir: string): Promis
   }
 }
 
-async function disposeAutoPacCsv(sourcePath: string): Promise<void> {
-  const cfg = loadConfig();
-  const enabled = !!cfg.paths.autoPacArchiveEnabled;
-  const autoPacDir = (cfg.paths.autoPacCsvDir ?? '').trim();
+async function quarantineAutoPacCsv(sourcePath: string, autoPacDir: string): Promise<string | null> {
+  try {
+    const incorrectDir = join(autoPacDir, INCORRECT_FILES_DIRNAME);
+    await ensureDir(incorrectDir);
 
-  if (enabled && autoPacDir) {
-    const archived = await archiveAutoPacCsv(sourcePath, autoPacDir);
-    if (archived) {
-      logger.info({ file: sourcePath, archived }, 'watcher: archived AutoPAC CSV');
-      return;
+    const stamp = formatArchiveTimestampDdMmHhMmSs();
+    const base = basename(sourcePath, extname(sourcePath));
+    const ext = extname(sourcePath) || '.csv';
+    let candidate = join(incorrectDir, `${base}_${stamp}${ext}`);
+
+    for (let i = 1; i <= 25 && (await fileExists(candidate)); i++) {
+      candidate = join(incorrectDir, `${base}_${stamp}_${i}${ext}`);
     }
-  }
 
-  // Fallback (default behavior): delete.
-  await unlinkWithRetry(sourcePath);
-  logger.info({ file: sourcePath }, 'watcher: deleted AutoPAC CSV');
+    try {
+      await rename(sourcePath, candidate);
+      return candidate;
+    } catch (err) {
+      await copyFile(sourcePath, candidate);
+      await unlink(sourcePath).catch(() => {});
+      logger.debug({ err }, 'watcher: AutoPAC quarantine rename fallback to copy');
+      return candidate;
+    }
+  } catch (err) {
+    logger.warn({ err, file: sourcePath }, 'watcher: failed to quarantine AutoPAC CSV');
+    return null;
+  }
+}
+
+async function disposeAutoPacCsv(sourcePath: string): Promise<boolean> {
+  const autoPacDir = dirname(sourcePath);
+  const archiveDir = join(autoPacDir, AUTOPAC_ARCHIVE_DIRNAME);
+
+  // Policy: never delete watcher-read input files.
+  // Success equals archive. If we cannot move right now due to share issues,
+  // enqueue a retryable move task instead.
+  try {
+    if (!(await fileExists(sourcePath))) {
+      return true;
+    }
+    const movedTo = await moveToTimestampedDir(sourcePath, archiveDir);
+    logger.info({ file: sourcePath, archived: movedTo }, 'watcher: archived AutoPAC CSV');
+    return true;
+  } catch (err) {
+    if (await fileExists(sourcePath)) {
+      enqueueFileMoveTask({
+        source: sourcePath,
+        targetDir: archiveDir,
+        purpose: 'archive',
+        watcherName: AUTOPAC_WATCHER_NAME,
+        watcherLabel: AUTOPAC_WATCHER_LABEL,
+        machineId: null,
+        // Once it is moved successfully, allow a new file with the same name
+        // to be processed later.
+        onMoved: () => {
+          autoPacHashes.delete(sourcePath);
+        }
+      });
+    }
+    logger.warn({ err, file: sourcePath }, 'watcher: failed to archive AutoPAC CSV immediately; queued move retry');
+    return false;
+  }
 }
 
 async function handleAutoPacCsv(path: string) {
@@ -1621,12 +1975,18 @@ async function handleAutoPacCsv(path: string) {
       "Expected a .csv file with comma or semicolon delimiters, at least 2 columns per row, the machine token from the filename present somewhere in the CSV, and the NC base in column 1 (with or without .nc). Spaces are allowed in the base name.";
 
     const reportFormatError = async (params: { reason: string; found: string }) => {
+      const autoPacDir = dirname(path);
+      const quarantinedAs = await quarantineAutoPacCsv(path, autoPacDir);
+      const movedLine = quarantinedAs ? `Moved to: ${quarantinedAs}\n\n` : '';
+
       const message =
+        `Folder: ${autoPacDir}\n` +
         `File: ${fileName}\n` +
         `Machine token: ${machineToken}\n\n` +
         `Reason: ${params.reason}\n\n` +
         `Expected: ${expected}\n\n` +
         `Found: ${params.found}\n\n` +
+        movedLine +
         `CSV Preview:\n${preview}`;
 
       // Modal dialog (immediate operator feedback)
@@ -1651,17 +2011,19 @@ async function handleAutoPacCsv(path: string) {
         label: AUTOPAC_WATCHER_LABEL,
         message: `Rejected ${fileName}: ${params.reason} (found: ${params.found})`,
         context: {
-          file: path,
+          originalFile: path,
           fileName,
           machineToken,
           reason: params.reason,
           expected,
           found: params.found,
-          preview
+          preview,
+          quarantinedAs
         }
       });
 
-      await disposeAutoPacCsv(path);
+      // Invalid CSV must not be deleted. Move it into incorrect_files so an operator
+      // can fix it and drop it back in.
       autoPacHashes.delete(path);
     };
 
@@ -1829,10 +2191,10 @@ async function handleAutoPacCsv(path: string) {
     });
     if (processedAny) {
       clearMachineHealthIssue(null, HEALTH_CODES.noParts);
-      // Archive/delete the source CSV after successful processing
-      try {
-        await disposeAutoPacCsv(path);
-      } finally {
+      // Archive the source CSV after successful processing.
+      // If the move is queued for retry, keep the hash entry until the move succeeds.
+      const disposed = await disposeAutoPacCsv(path);
+      if (disposed) {
         autoPacHashes.delete(path);
       }
     }
@@ -1843,83 +2205,107 @@ async function handleAutoPacCsv(path: string) {
   }
 }
 
-async function moveToArchive(source: string, archiveDir: string) {
-  await ensureDir(archiveDir);
-  const base = basename(source);
-  let target = join(archiveDir, base);
-  if (await fileExists(target)) {
-    target = join(archiveDir, `${Date.now()}-${base}`);
+async function moveToTimestampedDir(source: string, targetDir: string): Promise<string> {
+  await ensureDir(targetDir);
+  const stamp = formatArchiveTimestampDdMmHhMmSs();
+  const base = basename(source, extname(source));
+  const ext = extname(source) || '';
+  let target = join(targetDir, `${base}_${stamp}${ext}`);
+  for (let i = 1; i <= 25 && (await fileExists(target)); i++) {
+    target = join(targetDir, `${base}_${stamp}_${i}${ext}`);
   }
   try {
     await rename(source, target);
   } catch (err) {
     await copyFile(source, target);
-    await unlink(source).catch((err) => { void err; });
-    logger.debug({ err }, 'watcher: archive rename fallback to copy');
+    await unlink(source).catch(() => {});
+    logger.debug({ err }, 'watcher: move rename fallback to copy');
   }
   return target;
 }
 
-// Archive queue with backoff to avoid losing files when shares are unavailable
-const archiveQueue: Array<{
+type FileMovePurpose = 'archive' | 'incorrect_files';
+
+// File move queue with backoff to avoid losing files when shares are unavailable.
+const fileMoveQueue: Array<{
   source: string;
-  archiveDir: string;
+  targetDir: string;
+  purpose: FileMovePurpose;
   watcherName: string;
   watcherLabel: string;
   machineId: number | null;
   attempts: number;
+  onMoved?: (movedTo: string) => void;
 }> = [];
-let archiveQueueRunning = false;
+let fileMoveQueueRunning = false;
 
-function enqueueArchiveTask(task: {
+function enqueueFileMoveTask(task: {
   source: string;
-  archiveDir: string;
+  targetDir: string;
+  purpose: FileMovePurpose;
   watcherName: string;
   watcherLabel: string;
   machineId: number | null;
   attempts?: number;
+  onMoved?: (movedTo: string) => void;
 }) {
-  archiveQueue.push({ ...task, attempts: task.attempts ?? 0 });
-  void processArchiveQueue();
+  fileMoveQueue.push({ ...task, attempts: task.attempts ?? 0 });
+  void processFileMoveQueue();
 }
 
-async function processArchiveQueue() {
-  if (archiveQueueRunning || shuttingDown) return;
-  archiveQueueRunning = true;
+async function processFileMoveQueue() {
+  if (fileMoveQueueRunning || shuttingDown) return;
+  fileMoveQueueRunning = true;
   try {
-    while (archiveQueue.length && !shuttingDown) {
-      const task = archiveQueue.shift()!;
-      const backoffMs = Math.min(30_000, task.attempts === 0 ? 0 : Math.pow(2, task.attempts) * 1000);
+    while (fileMoveQueue.length && !shuttingDown) {
+      const task = fileMoveQueue.shift()!;
+      const backoffMs = Math.min(WATCHER_BACKOFF_MAX_MS, task.attempts === 0 ? 0 : Math.pow(2, task.attempts) * 1000);
       if (backoffMs > 0) {
         await delay(backoffMs);
       }
       try {
-        await moveToArchive(task.source, task.archiveDir);
+        if (!(await fileExists(task.source))) {
+          // If the file is already gone (manually deleted, moved by another process, etc.)
+          // treat this as success so we do not retry forever.
+          recordWatcherEvent(task.watcherName, {
+            label: task.watcherLabel,
+            message: `Move skipped because source file no longer exists: ${basename(task.source)}`
+          });
+          continue;
+        }
+        const movedTo = await moveToTimestampedDir(task.source, task.targetDir);
         clearMachineHealthIssue(task.machineId, HEALTH_CODES.copyFailure);
         recordWatcherEvent(task.watcherName, {
           label: task.watcherLabel,
-          message: `Archived ${basename(task.source)}${task.attempts ? ' after retry' : ''}`
+          message: `Moved ${basename(task.source)} to ${task.purpose}${task.attempts ? ' after retry' : ''}`,
+          context: { movedTo }
         });
+        try {
+          task.onMoved?.(movedTo);
+        } catch {
+          // ignore callback failures
+        }
       } catch (err) {
         const attempts = task.attempts + 1;
         setMachineHealthIssue({
           machineId: task.machineId,
           code: HEALTH_CODES.copyFailure,
-          message: `Archive failed for ${basename(task.source)} (attempt ${attempts})`,
+          message: `Move failed for ${basename(task.source)} (attempt ${attempts})`,
           severity: 'warning',
-          context: { file: task.source, archiveDir: task.archiveDir, attempts }
+          context: { file: task.source, targetDir: task.targetDir, purpose: task.purpose, attempts }
         });
         recordWatcherError(task.watcherName, err, {
           path: task.source,
-          archiveDir: task.archiveDir,
+          targetDir: task.targetDir,
+          purpose: task.purpose,
           label: task.watcherLabel,
           attempts
         });
-        archiveQueue.push({ ...task, attempts });
+        fileMoveQueue.push({ ...task, attempts });
       }
     }
   } finally {
-    archiveQueueRunning = false;
+    fileMoveQueueRunning = false;
   }
 }
 
@@ -1946,19 +2332,45 @@ async function handleNestpickAck(machine: Machine, path: string) {
     }
 
     if (!matchesOutbound) {
-      setMachineHealthIssue({
-        machineId: machine.machineId ?? null,
-        code: HEALTH_CODES.copyFailure,
-        message: `Nestpick.erl did not match last outbound payload (${machineLabel(machine)})`,
-        severity: 'warning',
-        context: { file: path, machineId: machine.machineId }
+      const incorrectDir = join(machine.nestpickFolder, INCORRECT_FILES_DIRNAME);
+      const reason = 'Nestpick.erl did not match the last outbound Nestpick.csv payload.';
+
+      recordWatcherEvent(nestpickAckWatcherName(machine), {
+        label: nestpickAckWatcherLabel(machine),
+        message: `Quarantining ${basename(path)}: ${reason}`,
+        context: { file: path, machineId: machine.machineId, incorrectDir }
       });
-      recordWatcherError(nestpickAckWatcherName(machine), new Error('Nestpick.erl mismatch'), {
-        path,
-        machineId: machine.machineId,
-        label: nestpickAckWatcherLabel(machine)
+
+      postMessageToMain({
+        type: 'userAlert',
+        title: 'Nestpick Ack Mismatch',
+        message:
+          `File: ${basename(path)}\n` +
+          `Folder: ${machine.nestpickFolder}\n\n` +
+          `Problem: ${reason}\n\n` +
+          `Action: The file will be moved to incorrect_files so it does not keep re-triggering.`
       });
-      logger.warn({ file: path, machineId: machine.machineId }, 'watcher: nestpick ack mismatch');
+
+      emitAppMessage(
+        'nestpick.file.quarantined',
+        {
+          fileName: basename(path),
+          folder: machine.nestpickFolder,
+          reason
+        },
+        'nestpick'
+      );
+
+      if (await fileExists(path)) {
+        enqueueFileMoveTask({
+          source: path,
+          targetDir: incorrectDir,
+          purpose: 'incorrect_files',
+          watcherName: nestpickAckWatcherName(machine),
+          watcherLabel: nestpickAckWatcherLabel(machine),
+          machineId: machine.machineId ?? null
+        });
+      }
       return;
     }
 
@@ -1991,9 +2403,10 @@ async function handleNestpickAck(machine: Machine, path: string) {
 
     // Archive the ack file (best-effort, with retry) so the share stays clean.
     if (await fileExists(path)) {
-      enqueueArchiveTask({
+      enqueueFileMoveTask({
         source: path,
-        archiveDir: join(machine.nestpickFolder, 'archive'),
+        targetDir: join(machine.nestpickFolder, 'archive'),
+        purpose: 'archive',
         watcherName: nestpickAckWatcherName(machine),
         watcherLabel: nestpickAckWatcherLabel(machine),
         machineId: machine.machineId ?? null
@@ -2022,6 +2435,18 @@ async function handleNestpickAck(machine: Machine, path: string) {
       label: nestpickAckWatcherLabel(machine)
     });
     logger.error({ err, file: path }, 'watcher: nestpick ack handling failed');
+
+    // If we cannot process Nestpick.erl, move it aside so it does not keep re-triggering.
+    if (await fileExists(path)) {
+      enqueueFileMoveTask({
+        source: path,
+        targetDir: join(machine.nestpickFolder, INCORRECT_FILES_DIRNAME),
+        purpose: 'incorrect_files',
+        watcherName: nestpickAckWatcherName(machine),
+        watcherLabel: nestpickAckWatcherLabel(machine),
+        machineId: machine.machineId ?? null
+      });
+    }
   }
 }
 
@@ -2033,9 +2458,29 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
     const rows = parseCsvContent(raw);
     if (!rows.length) {
       logger.warn({ file: path }, 'watcher: unstack csv empty');
-      enqueueArchiveTask({
+      const incorrectDir = join(machine.nestpickFolder, INCORRECT_FILES_DIRNAME);
+      postMessageToMain({
+        type: 'userAlert',
+        title: 'Nestpick Unstack Invalid File',
+        message:
+          `File: ${basename(path)}\n` +
+          `Folder: ${machine.nestpickFolder}\n\n` +
+          `Problem: Report_FullNestpickUnstack.csv is empty.\n\n` +
+          `Action: The file will be moved to incorrect_files.`
+      });
+      emitAppMessage(
+        'nestpick.file.quarantined',
+        {
+          fileName: basename(path),
+          folder: machine.nestpickFolder,
+          reason: 'Report_FullNestpickUnstack.csv is empty.'
+        },
+        'nestpick'
+      );
+      enqueueFileMoveTask({
         source: path,
-        archiveDir: join(machine.nestpickFolder, 'archive'),
+        targetDir: incorrectDir,
+        purpose: 'incorrect_files',
         watcherName: nestpickUnstackWatcherName(machine),
         watcherLabel: nestpickUnstackWatcherLabel(machine),
         machineId: machine.machineId ?? null
@@ -2047,11 +2492,13 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
     const jobIdx = 0;
     const sourcePlaceIdx = 1;
     let processedAny = false;
+    let hasStructuralIssues = false;
     const unmatched: string[] = [];
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       if (row.length <= jobIdx || row.length <= sourcePlaceIdx) {
         logger.warn({ file: path, row: i + 1 }, 'watcher: unstack row missing expected columns');
+        hasStructuralIssues = true;
         continue;
       }
 
@@ -2063,6 +2510,7 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
       if (!job) {
         logger.warn({ base }, 'watcher: unstack no matching job in FORWARDED_TO_NESTPICK');
         unmatched.push(base);
+        hasStructuralIssues = true;
         continue; // alert later; do not update any job
       }
 
@@ -2115,22 +2563,44 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
         logger.warn({ jobKey: job.key, base, sourcePlace: sourcePlaceValue, row: i + 1 }, 'watcher: unstack pallet update failed');
       }
     }
-    const archiveDir = join(machine.nestpickFolder, 'archive');
-    // Queue archive with retry to avoid losing files if share is down
+    const purpose: FileMovePurpose = hasStructuralIssues ? 'incorrect_files' : 'archive';
+    const targetDir = join(machine.nestpickFolder, purpose === 'archive' ? 'archive' : INCORRECT_FILES_DIRNAME);
+    // Move the file out of the root folder so it does not keep re-triggering.
     if (await fileExists(path)) {
-      enqueueArchiveTask({
+      enqueueFileMoveTask({
         source: path,
-        archiveDir,
+        targetDir,
+        purpose,
         watcherName: nestpickUnstackWatcherName(machine),
         watcherLabel: nestpickUnstackWatcherLabel(machine),
         machineId: machine.machineId ?? null
       });
-      logger.info({ file: path, archiveDir, processedAny }, 'watcher: unstack archived');
-    } else {
-      logger.warn({ file: path, archiveDir }, 'watcher: unstack file already moved/deleted, skipping archive');
+      logger.info({ file: path, targetDir, purpose, processedAny }, 'watcher: unstack moved');
+    }
+
+    if (hasStructuralIssues) {
+      postMessageToMain({
+        type: 'userAlert',
+        title: 'Nestpick Unstack Quarantined',
+        message:
+          `File: ${basename(path)}\n` +
+          `Folder: ${machine.nestpickFolder}\n\n` +
+          `Problem: The file contained unexpected rows or unmatched jobs.\n` +
+          `Action: The file was moved to incorrect_files.`
+      });
+      emitAppMessage(
+        'nestpick.file.quarantined',
+        {
+          fileName: basename(path),
+          folder: machine.nestpickFolder,
+          reason: 'Unstack file contained unexpected rows or unmatched jobs.'
+        },
+        'nestpick'
+      );
     }
 
 
+    // Keep the original unmatched message as extra operator detail.
     if (unmatched.length) {
       postMessageToMain({
         type: 'userAlert',
@@ -2153,9 +2623,10 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
       severity: 'warning',
       context: { file: path, machineId: machine.machineId }
     });
-    enqueueArchiveTask({
+    enqueueFileMoveTask({
       source: path,
-      archiveDir: join(machine.nestpickFolder, 'archive'),
+      targetDir: join(machine.nestpickFolder, INCORRECT_FILES_DIRNAME),
+      purpose: 'incorrect_files',
       watcherName: nestpickUnstackWatcherName(machine),
       watcherLabel: nestpickUnstackWatcherLabel(machine),
       machineId: machine.machineId ?? null
@@ -2249,6 +2720,8 @@ async function shutdown(reason?: string) {
       notificationClient = null;
     }
   }
+
+  clearAllRetries();
 
   // Stop any backoff retry timers before closing FS watchers.
   for (const ctrl of resilientWatchers) {
@@ -2577,6 +3050,7 @@ function setupTestDataWatcher(root: string) {
     name: TESTDATA_WATCHER_NAME,
     label: TESTDATA_WATCHER_LABEL,
     targetContext: { folder: normalizedRoot },
+    probePath: { path: normalizedRoot, intervalMs: 5_000, timeoutMs: 2_000, label: 'test data folder' },
     createWatcher: () => {
       const w = chokidar.watch(normalizedRoot, {
         ignoreInitial: true,
@@ -2596,7 +3070,9 @@ function setupTestDataWatcher(root: string) {
   logger.info({ folder: normalizedRoot }, 'Test data watcher started');
 }
 
-async function collectAutoPacCsvs(root: string, depth = 0, maxDepth = 3): Promise<string[]> {
+async function collectAutoPacCsvs(root: string): Promise<string[]> {
+  // Strict rule: do not traverse subfolders. AutoPAC writes CSV files into the
+  // configured AutoPAC CSV Directory root only.
   let entries: Dirent[];
   try {
     entries = await readdir(root, { withFileTypes: true });
@@ -2606,20 +3082,9 @@ async function collectAutoPacCsvs(root: string, depth = 0, maxDepth = 3): Promis
   }
   const results: string[] = [];
   for (const entry of entries) {
-    const entryPath = join(root, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name.toLowerCase() === AUTOPAC_ARCHIVE_DIRNAME.toLowerCase()) {
-        continue;
-      }
-      if (depth < maxDepth) {
-        const nested = await collectAutoPacCsvs(entryPath, depth + 1, maxDepth);
-        if (nested.length) results.push(...nested);
-      }
-      continue;
-    }
     if (!entry.isFile()) continue;
     if (!isAutoPacCsvFileName(entry.name)) continue;
-    results.push(entryPath);
+    results.push(join(root, entry.name));
   }
   return results;
 }
@@ -2635,10 +3100,11 @@ function setupAutoPacWatcher(dir: string) {
     name: AUTOPAC_WATCHER_NAME,
     label: AUTOPAC_WATCHER_LABEL,
     targetContext: { dir },
+    probePath: { path: dir, intervalMs: 5_000, timeoutMs: 2_000, label: 'AutoPAC CSV folder' },
     createWatcher: () => {
       const w = chokidar.watch(dir, {
         ignoreInitial: true,
-        depth: 3,
+        depth: 0,
         ignored: shouldIgnoreAutoPacPath,
         awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 }
       });
@@ -2701,6 +3167,7 @@ async function setupNestpickWatchers() {
         name: ackWatcherName,
         label: ackWatcherLabel,
         targetContext: { folder: ackPath, machineId: machine.machineId },
+        probePath: { path: folder, intervalMs: 5_000, timeoutMs: 2_000, label: 'Nestpick folder' },
         shouldIgnoreError: isBenignChokidarLstatTempError,
         createWatcher: () => {
           const w = chokidar.watch(ackPath, {
@@ -2748,6 +3215,7 @@ async function setupNestpickWatchers() {
         name: unstackWatcherName,
         label: unstackWatcherLabel,
         targetContext: { folder: reportPath, machineId: machine.machineId },
+        probePath: { path: folder, intervalMs: 5_000, timeoutMs: 2_000, label: 'Nestpick folder' },
         shouldIgnoreError: isBenignChokidarLstatTempError,
         createWatcher: () => {
           const w = chokidar.watch(reportPath, {
@@ -2840,12 +3308,6 @@ function isPendingGrundnerRelease(ncName: string | null | undefined, now = Date.
     return false;
   }
   return true;
-}
-
-function cleanupPendingGrundnerConflicts(now = Date.now()) {
-  for (const [material, expiry] of pendingGrundnerConflicts.entries()) {
-    if (expiry <= now) pendingGrundnerConflicts.delete(material);
-  }
 }
 
 function parseGrundnerCsv(raw: string): GrundnerCsvRow[] {
@@ -3200,20 +3662,9 @@ async function sourceSanityPollOnce() {
     const missing = pending.map((r) => r.key).filter((k) => !presentKeys.has(k));
     if (!missing.length) return;
 
-    // Delete missing PENDING jobs, including pre-reserved or locked ones (business rule)
+    // Delete missing PENDING jobs (business rule)
     let removed = 0;
     for (const k of missing) {
-      // Look up material and pre-reserved flag prior to deletion
-      const row = await withClient((c) =>
-        c
-          .query<{ material: string | null; pre_reserved: boolean }>(
-            `SELECT material, pre_reserved FROM public.jobs WHERE key = $1 AND status = 'PENDING' LIMIT 1`,
-            [k]
-          )
-          .then((r) => r.rows[0] ?? null)
-      );
-      if (!row) continue;
-
       const res = await withClient((c) => c.query(`DELETE FROM public.jobs WHERE key = $1 AND status = 'PENDING'`, [k]));
       if ((res.rowCount ?? 0) > 0) {
         removed += 1;
@@ -3221,11 +3672,6 @@ async function sourceSanityPollOnce() {
           await appendJobEvent(k, 'jobs:prune:missing-source', { reason: 'NC file missing in processed root' }, null, undefined);
         } catch {
           /* ignore appendJobEvent failure during prune */
-        }
-        try {
-          await resyncGrundnerPreReservedForMaterial(row.material ?? null);
-        } catch {
-          /* ignore grundner resync failure for this row */
         }
       }
     }
@@ -3332,62 +3778,122 @@ async function grundnerPollOnce(folder: string) {
       recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Reply vanished before read; will retry' });
       return;
     }
-    let raw = '';
-    try {
-      raw = await readFile(stockPath, 'utf8');
-      recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
-        label: GRUNDNER_WATCHER_LABEL,
-        message: 'Reply read',
-        context: { bytes: raw.length }
-      });
-    } finally {
-      await unlinkWithRetry(stockPath, 3, 2000);
-    }
+    const raw = await readFile(stockPath, 'utf8');
+    recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
+      label: GRUNDNER_WATCHER_LABEL,
+      message: 'Reply read',
+      context: { bytes: raw.length }
+    });
     const hash = createHash('sha1').update(raw).digest('hex');
-    if (grundnerLastHash === hash) return;
+    if (grundnerLastHash === hash) {
+      // Even if the content is identical to the last poll, keep the folder clean.
+      if (await fileExists(stockPath)) {
+        enqueueFileMoveTask({
+          source: stockPath,
+          targetDir: join(folder, 'archive'),
+          purpose: 'archive',
+          watcherName: GRUNDNER_WATCHER_NAME,
+          watcherLabel: GRUNDNER_WATCHER_LABEL,
+          machineId: null
+        });
+      }
+      return;
+    }
     grundnerLastHash = hash;
     // Parse Grundner stock.csv rows.
-    // Canonical identity is type_data; customer_id is optional display metadata.
-    const parsed = parseGrundnerCsv(raw).filter((r) => r.typeData != null);
-    if (!parsed.length) return;
-
-    // If multiple rows share a type_data, keep the one with a non-empty customer_id.
-    // This prevents "blank" customer IDs from shadowing a real one.
-    const itemsByType = new Map<number, GrundnerCsvRow>();
-    for (const item of parsed) {
-      const typeData = item.typeData as number;
-      const existing = itemsByType.get(typeData);
-      if (!existing) {
-        itemsByType.set(typeData, item);
-        continue;
-      }
-      const existingCustomer = (existing.customerId ?? '').trim();
-      const nextCustomer = (item.customerId ?? '').trim();
-      if (!existingCustomer && nextCustomer) {
-        itemsByType.set(typeData, item);
-      }
+    // Canonical identity is the pair: type_data + customer_id.
+    let parsed: GrundnerCsvRow[] = [];
+    let parseOk = false;
+    try {
+      parsed = parseGrundnerCsv(raw).filter((r) => r.typeData != null);
+      parseOk = parsed.length > 0;
+    } catch {
+      parseOk = false;
     }
 
-    const items = Array.from(itemsByType.values());
-    const typeDataValues = Array.from(itemsByType.keys());
+    // Move stock.csv out of the root folder so it does not keep re-triggering.
+    // Success equals archive, failure equals incorrect_files.
+    if (await fileExists(stockPath)) {
+      enqueueFileMoveTask({
+        source: stockPath,
+        targetDir: join(folder, parseOk ? 'archive' : INCORRECT_FILES_DIRNAME),
+        purpose: parseOk ? 'archive' : 'incorrect_files',
+        watcherName: GRUNDNER_WATCHER_NAME,
+        watcherLabel: GRUNDNER_WATCHER_LABEL,
+        machineId: null
+      });
+    }
+
+    if (!parseOk) {
+      postMessageToMain({
+        type: 'userAlert',
+        title: 'Grundner stock.csv Invalid',
+        message:
+          `File: stock.csv\n` +
+          `Folder: ${folder}\n\n` +
+          `Problem: stock.csv could not be parsed or contained no usable rows.\n\n` +
+          `Action: The file was moved to incorrect_files.`
+      });
+      emitAppMessage(
+        'grundner.file.quarantined',
+        { fileName: 'stock.csv', folder, reason: 'stock.csv could not be parsed or contained no usable rows.' },
+        'grundner'
+      );
+      return;
+    }
+
+    // Keep every row as-is; identity is (type_data, customer_id).
+    // Customer IDs are our primary label for operators.
+    const itemsByKey = new Map<string, GrundnerCsvRow>();
+    const typeDataValues: number[] = [];
+    const customerIdValues: string[] = [];
+
+    for (const item of parsed) {
+      const typeData = item.typeData as number;
+      const customerId = (item.customerId ?? '').trim();
+      const key = `${typeData}::${customerId}`;
+
+      // Only push into the "lookup arrays" once per key.
+      if (!itemsByKey.has(key)) {
+        typeDataValues.push(typeData);
+        customerIdValues.push(customerId);
+      }
+
+      // If the CSV repeats the same key, last one wins.
+      itemsByKey.set(key, item);
+    }
+
+    const items = Array.from(itemsByKey.values());
 
     // Snapshot previous reserved_stock so we can report meaningful changes.
-    const preReserved = new Map<number, number | null>();
+    const previousReservedByKey = new Map<string, number | null>();
     if (typeDataValues.length) {
       try {
         const previousRows = await withClient((c) =>
           c
-            .query<{ type_data: number; reserved_stock: number | null }>(
-              `SELECT type_data, reserved_stock FROM public.grundner WHERE type_data = ANY($1::int[])`,
-              [typeDataValues]
+            .query<{ type_data: number; customer_id: string | null; reserved_stock: number | null }>(
+              `
+                WITH incoming(type_data, customer_id) AS (
+                  SELECT UNNEST($1::int[]), UNNEST($2::text[])
+                )
+                SELECT g.type_data, g.customer_id, g.reserved_stock
+                  FROM public.grundner g
+                  JOIN incoming i
+                    ON g.type_data IS NOT DISTINCT FROM i.type_data
+                   AND g.customer_id IS NOT DISTINCT FROM i.customer_id
+              `,
+              [typeDataValues, customerIdValues]
             )
             .then((r) => r.rows)
         );
+
         for (const row of previousRows) {
-          preReserved.set(row.type_data, row.reserved_stock);
+          const customerId = (row.customer_id ?? '').trim();
+          const key = `${row.type_data}::${customerId}`;
+          previousReservedByKey.set(key, row.reserved_stock);
         }
       } catch (err) {
-        recordWorkerError('grundner:pre-reserved', err);
+        recordWorkerError('grundner:reserved-stock-snapshot', err);
       }
     }
 
@@ -3398,17 +3904,19 @@ async function grundnerPollOnce(folder: string) {
     }
 
     if (result.changed.length) {
-      const changedTypes = new Set(
-        result.changed
-          .map((row) => row.typeData)
-          .filter((value): value is number => typeof value === 'number')
-      );
+      for (const change of result.changed) {
+        if (change.typeData == null) continue;
 
-      for (const [typeData, item] of itemsByType.entries()) {
-        if (!changedTypes.has(typeData)) continue;
-        const oldReserved = preReserved.has(typeData) ? preReserved.get(typeData) : null;
+        const typeData = change.typeData;
+        const customerId = (change.customerId ?? '').trim();
+        const key = `${typeData}::${customerId}`;
+        const item = itemsByKey.get(key);
+        if (!item) continue;
+
+        const oldReserved = previousReservedByKey.has(key) ? previousReservedByKey.get(key) : null;
         const newReserved = item.reservedStock;
-        const materialLabel = item.customerId?.trim() || String(typeData);
+        const materialLabel = customerId || String(typeData);
+
         emitAppMessage(
           'grundner.stock.updated',
           {
@@ -3418,92 +3926,6 @@ async function grundnerPollOnce(folder: string) {
           },
           'grundner-poller'
         );
-      }
-    }
-
-    if (result.changed.length) {
-      const now = Date.now();
-      cleanupPendingGrundnerReleases(now);
-      cleanupPendingGrundnerConflicts(now);
-      try {
-        const conflicts = await findGrundnerAllocationConflicts(result.changed);
-        if (conflicts.length) {
-          const byMaterial = new Map<string, { count: number; reserved: number | null }>();
-          const materialSet = new Set<string>();
-          for (const row of conflicts) {
-            const normalizedNc = row.ncfile ? normalizeNcName(row.ncfile) : null;
-            if (normalizedNc && isPendingGrundnerRelease(normalizedNc, now)) {
-              continue;
-            }
-            const label = row.material?.trim() || (row.typeData != null ? String(row.typeData) : 'Unknown');
-            materialSet.add(label);
-            const reservedValue = row.typeData != null ? itemsByType.get(row.typeData)?.reservedStock ?? null : null;
-            const existing = byMaterial.get(label);
-            if (existing) {
-              existing.count += 1;
-              if (existing.reserved == null && reservedValue != null) {
-                existing.reserved = reservedValue;
-              }
-            } else {
-              byMaterial.set(label, { count: 1, reserved: reservedValue });
-            }
-          }
-          if (!byMaterial.size) {
-            for (const label of Array.from(pendingGrundnerConflicts.keys())) {
-              if (!materialSet.has(label)) pendingGrundnerConflicts.delete(label);
-            }
-          } else {
-            const effectiveConflicts: Array<{ material: string; detail: { count: number; reserved: number | null } }> = [];
-            for (const [materialLabel, detail] of byMaterial) {
-              const expiry = pendingGrundnerConflicts.get(materialLabel);
-              if (!expiry) {
-                pendingGrundnerConflicts.set(materialLabel, now + GRUNDNER_CONFLICT_GRACE_MS);
-                continue;
-              }
-              if (expiry > now) {
-                continue;
-              }
-              pendingGrundnerConflicts.delete(materialLabel);
-              effectiveConflicts.push({ material: materialLabel, detail });
-            }
-
-            for (const label of Array.from(pendingGrundnerConflicts.keys())) {
-              if (!materialSet.has(label)) pendingGrundnerConflicts.delete(label);
-            }
-
-            if (effectiveConflicts.length) {
-              for (const { material, detail } of effectiveConflicts) {
-                emitAppMessage(
-                  'grundner.conflict',
-                  {
-                    material,
-                    jobCount: detail.count,
-                    reserved: detail.reserved != null ? detail.reserved : 'N/A'
-                  },
-                  'grundner-poller'
-                );
-              }
-              const totalConflicts = effectiveConflicts.reduce((acc, entry) => acc + entry.detail.count, 0);
-              const summary = `Grundner stock updated for ${totalConflicts} allocated material(s)`;
-              const conflictDetails = effectiveConflicts.map(({ material, detail }) => ({ material, detail }));
-              postMessageToMain({
-                type: 'appAlert',
-                category: 'grundner',
-                summary,
-                details: { conflicts: conflictDetails }
-              });
-              recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
-                label: GRUNDNER_WATCHER_LABEL,
-                message: summary,
-                context: { conflicts: conflictDetails }
-              });
-            }
-          }
-        } else {
-          pendingGrundnerConflicts.clear();
-        }
-      } catch (err) {
-        recordWorkerError('grundner:conflict-check', err);
       }
     }
 
@@ -4458,6 +4880,7 @@ function setupNcCatJobsWatcher(dir: string) {
     name: NCCAT_WATCHER_NAME,
     label: NCCAT_WATCHER_LABEL,
     targetContext: { dir },
+    probePath: { path: dir, intervalMs: 5_000, timeoutMs: 2_000, label: 'NC Cat jobs root folder' },
     createWatcher: () => {
       const w = chokidar.watch(dir, {
         ignoreInitial: false, // Process existing files on startup

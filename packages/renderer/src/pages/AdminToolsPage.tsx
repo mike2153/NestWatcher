@@ -2,6 +2,13 @@ import React, { type ReactNode, useCallback, useEffect, useRef, useState } from 
 import type { Machine, Settings } from '../../../shared/src';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/utils/cn';
 import { useAuth } from '@/contexts/AuthContext';
 import { AlertTriangle, FileText, Folder, Server, Settings as SettingsIcon, Wrench } from 'lucide-react';
@@ -94,7 +101,8 @@ type AdminToolsCacheV1 = {
 
 function readAdminToolsCache(): AdminToolsCacheV1 | null {
   try {
-    const raw = localStorage.getItem(ADMIN_TOOLS_CACHE_KEY);
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    const raw = window.localStorage.getItem(ADMIN_TOOLS_CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<AdminToolsCacheV1>;
     if (!parsed || parsed.version !== 1) return null;
@@ -203,20 +211,45 @@ function FormInput({
 function FormSelect({
   className,
   children,
-  ...props
+  value,
+  onChange,
+  disabled,
 }: React.SelectHTMLAttributes<HTMLSelectElement> & { children: ReactNode }) {
+  // Extract options from children (expecting <option> elements)
+  const options: { value: string; label: string }[] = [];
+  React.Children.forEach(children, (child) => {
+    if (React.isValidElement(child) && child.type === 'option') {
+      options.push({
+        value: String(child.props.value ?? ''),
+        label: String(child.props.children ?? ''),
+      });
+    }
+  });
+
   return (
-    <select
-      className={cn(
-        'w-full h-9 rounded-md bg-card px-3 py-2 text-sm font-medium',
-        'focus:outline-none focus:ring-2 focus:ring-ring/40',
-        'transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
-        className
-      )}
-      {...props}
+    <Select
+      value={String(value ?? '')}
+      onValueChange={(v) => {
+        if (onChange) {
+          const syntheticEvent = {
+            target: { value: v },
+          } as React.ChangeEvent<HTMLSelectElement>;
+          onChange(syntheticEvent);
+        }
+      }}
+      disabled={disabled}
     >
-      {children}
-    </select>
+      <SelectTrigger className={cn('w-full', className)}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((opt) => (
+          <SelectItem key={opt.value} value={opt.value}>
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -403,6 +436,8 @@ export function AdminToolsPage() {
 
   const cacheHydratedRef = useRef(false);
   const cacheLatestRef = useRef<AdminToolsCacheV1 | null>(null);
+  const lastCacheRawRef = useRef<string | null>(null);
+  const [cacheStatus, setCacheStatus] = useState<string | null>(null);
 
   const allowed = Boolean(
     session?.role === 'admin' && typeof session?.username === 'string' && session.username.toLowerCase() === 'admin'
@@ -512,14 +547,7 @@ export function AdminToolsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Restore Admin Tools inputs from localStorage
-  useEffect(() => {
-    const cached = readAdminToolsCache();
-    if (!cached) {
-      cacheHydratedRef.current = true;
-      return;
-    }
-
+  const applyCachedInputs = useCallback((cached: AdminToolsCacheV1) => {
     setAutoPacType(cached.autoPac?.type ?? 'cnc_finish');
     setAutoPacMachineToken(cached.autoPac?.machineToken ?? 'WT1');
     setAutoPacBases(cached.autoPac?.bases ?? '');
@@ -566,10 +594,50 @@ export function AdminToolsPage() {
     setJobIncludeNpt(cached.processedJobs?.includeNpt ?? true);
     setJobIncludePts(cached.processedJobs?.includePts ?? false);
     setJobPreset(cached.processedJobs?.preset ?? 'valid');
+  }, []);
+
+  // Restore Admin Tools inputs from localStorage
+  useEffect(() => {
+    try {
+      lastCacheRawRef.current = window.localStorage.getItem(ADMIN_TOOLS_CACHE_KEY);
+    } catch {
+      lastCacheRawRef.current = null;
+    }
+
+    const cached = readAdminToolsCache();
+    if (cached) {
+      applyCachedInputs(cached);
+    }
 
     cacheHydratedRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [applyCachedInputs]);
+
+  // Sync Admin Tools inputs across windows.
+  // Why: the Admin Tools page persists to localStorage, but React state doesn't automatically
+  // refresh unless we listen for the browser-level `storage` event.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== ADMIN_TOOLS_CACHE_KEY) return;
+      if (!e.newValue) return;
+
+      lastCacheRawRef.current = e.newValue;
+
+      try {
+        const parsed = JSON.parse(e.newValue) as Partial<AdminToolsCacheV1>;
+        if (!parsed || parsed.version !== 1) return;
+        applyCachedInputs(parsed as AdminToolsCacheV1);
+        setCacheStatus(`Synced ${new Date().toLocaleTimeString()}`);
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [applyCachedInputs]);
 
   // Persist all panel inputs immediately.
   // Why: you may navigate away quickly, so debounced writes can be lost.
@@ -678,10 +746,24 @@ export function AdminToolsPage() {
   cacheLatestRef.current = buildCacheSnapshot();
 
   const flushCacheNow = useCallback(() => {
-    if (!cacheHydratedRef.current) return;
     if (!cacheLatestRef.current) return;
     try {
-      localStorage.setItem(ADMIN_TOOLS_CACHE_KEY, JSON.stringify(cacheLatestRef.current));
+      if (typeof window === 'undefined' || !window.localStorage) return;
+      const nextRaw = JSON.stringify(cacheLatestRef.current);
+
+      // Avoid redundant writes (and avoid storage-event loops between windows).
+      const existing = window.localStorage.getItem(ADMIN_TOOLS_CACHE_KEY);
+      if (existing === nextRaw) {
+        lastCacheRawRef.current = nextRaw;
+        return;
+      }
+
+      if (lastCacheRawRef.current === nextRaw) {
+        return;
+      }
+
+      lastCacheRawRef.current = nextRaw;
+      window.localStorage.setItem(ADMIN_TOOLS_CACHE_KEY, nextRaw);
     } catch {
       // ignore
     }
@@ -689,6 +771,7 @@ export function AdminToolsPage() {
 
   useEffect(() => {
     flushCacheNow();
+    setCacheStatus(`Saved ${new Date().toLocaleTimeString()}`);
   }, [flushCacheNow, buildCacheSnapshot]);
 
   useEffect(() => {
@@ -855,6 +938,7 @@ export function AdminToolsPage() {
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Admin Tools</h1>
+          {cacheStatus ? <div className="text-xs text-muted-foreground mt-1">{cacheStatus}</div> : null}
         </div>
 
         {/* Test Mode Toggle */}
@@ -1012,7 +1096,27 @@ export function AdminToolsPage() {
                       lineEnding: grundnerLineEnding,
                       overwrite: true
                     });
-                    setGrundnerResult(`Wrote: ${fullPath}`);
+
+                    const wroteErl = grundnerFileName.trim().toLowerCase().endsWith('.erl');
+                    const shouldCleanup = wroteErl && Boolean(settings?.test?.disableErlTimeouts);
+                    if (!shouldCleanup) {
+                      setGrundnerResult(`Wrote: ${fullPath}`);
+                      return;
+                    }
+
+                    const cleanupRes = await window.api.adminTools.cleanupTestCsv({
+                      target: { kind: 'grundnerFolderPath' }
+                    });
+                    if (!cleanupRes.ok) {
+                      setGrundnerResult(`Wrote: ${fullPath} | Cleanup ERROR: ${cleanupRes.error.message}`);
+                      return;
+                    }
+
+                    const { deleted, missing, failed } = cleanupRes.value;
+                    const detail = failed.length ? ` (failed: ${failed[0].file})` : '';
+                    setGrundnerResult(
+                      `Wrote: ${fullPath} | Cleaned CSV: deleted ${deleted.length}, missing ${missing.length}, failed ${failed.length}${detail}`
+                    );
                   } catch (e) {
                     setGrundnerResult(`ERROR: ${e instanceof Error ? e.message : String(e)}`);
                   }
@@ -1598,7 +1702,27 @@ export function AdminToolsPage() {
                     lineEnding: nestpickLineEnding,
                     overwrite: true
                   });
-                  setNestpickResult(`Wrote: ${fullPath}`);
+
+                  const wroteErl = nestpickFileName.trim().toLowerCase().endsWith('.erl');
+                  const shouldCleanup = wroteErl && Boolean(settings?.test?.disableErlTimeouts);
+                  if (!shouldCleanup) {
+                    setNestpickResult(`Wrote: ${fullPath}`);
+                    return;
+                  }
+
+                  const cleanupRes = await window.api.adminTools.cleanupTestCsv({
+                    target: { kind: 'machineNestpickFolder', machineId }
+                  });
+                  if (!cleanupRes.ok) {
+                    setNestpickResult(`Wrote: ${fullPath} | Cleanup ERROR: ${cleanupRes.error.message}`);
+                    return;
+                  }
+
+                  const { deleted, missing, failed } = cleanupRes.value;
+                  const detail = failed.length ? ` (failed: ${failed[0].file})` : '';
+                  setNestpickResult(
+                    `Wrote: ${fullPath} | Cleaned CSV: deleted ${deleted.length}, missing ${missing.length}, failed ${failed.length}${detail}`
+                  );
                 } catch (e) {
                   setNestpickResult(`ERROR: ${e instanceof Error ? e.message : String(e)}`);
                 }

@@ -313,16 +313,19 @@ export function registerFilesIpc() {
     }
     readySubscriptions.set(webId, { machineId, scheduleUpdate, pollTimer });
 
+    // IMPORTANT: ap_jobfolder can contain nested job folders.
+    // We allow traversal here so the Router/Ready-To-Run view stays accurate.
     const watcher = chokidar.watch(root, {
       ignoreInitial: false,
       depth: 10,
       awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
       ignored: (p: string) => {
-        const lower = p.toLowerCase();
-        return lower.includes('\\$recycle.bin') ||
-          lower.includes('/$recycle.bin') ||
-          lower.includes('\\system volume information') ||
-          lower.includes('/system volume information');
+        const lower = p.toLowerCase().replace(/\\/g, '/');
+        // System folders
+        if (lower.includes('/$recycle.bin') || lower.includes('/system volume information')) {
+          return true;
+        }
+        return false;
       }
     });
     watcher.on('add', (p) => { if (/\.nc$/i.test(p)) scheduleUpdate(); });

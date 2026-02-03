@@ -42,6 +42,17 @@ export function AppSidebar() {
   const [dbOfflineTooLong, setDbOfflineTooLong] = useState(false);
   const dbOfflineTimerRef = useRef<number | null>(null);
 
+  // When the Admin Tools page is opened in its own BrowserWindow we tag the URL
+  // with ?window=admin-tools. In that window we want the sidebar item to behave
+  // like a normal NavLink (so it highlights), not spawn another copy.
+  const isAdminToolsWindow = useCallback(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('window') === 'admin-tools';
+    } catch {
+      return false;
+    }
+  }, []);
+
   const openNcCatSignIn = useCallback(async () => {
     const res = await window.api.ncCatalyst.open();
     if (!res.ok) {
@@ -159,16 +170,34 @@ export function AppSidebar() {
 
             {session?.role === 'admin' && session?.username?.toLowerCase() === 'admin' ? (
               <SidebarMenuItem key="/admin-tools">
-                <NavLink
-                  to="/admin-tools"
-                  className={({ isActive }) =>
-                    cn(sidebarItemBase, sidebarItemCollapsible, isActive ? sidebarItemActive : sidebarItemInactive)
-                  }
-                  title="Admin Tools"
-                >
-                  <FlaskConical className={cn('transition-colors')} />
-                  <span className="truncate group-data-[collapsible=icon]/sidebar-wrapper:hidden">Admin Tools</span>
-                </NavLink>
+                {isAdminToolsWindow() ? (
+                  <NavLink
+                    to="/admin-tools"
+                    className={({ isActive }) =>
+                      cn(sidebarItemBase, sidebarItemCollapsible, isActive ? sidebarItemActive : sidebarItemInactive)
+                    }
+                    title="Admin Tools"
+                  >
+                    <FlaskConical className={cn('transition-colors')} />
+                    <span className="truncate group-data-[collapsible=icon]/sidebar-wrapper:hidden">Admin Tools</span>
+                  </NavLink>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const res = await window.api.adminTools.openWindow();
+                      if (!res.ok) {
+                        // eslint-disable-next-line no-console
+                        console.error('Failed to open Admin Tools window:', res.error.message);
+                      }
+                    }}
+                    className={cn(sidebarItemBase, sidebarItemCollapsible, sidebarItemInactive)}
+                    title="Admin Tools"
+                  >
+                    <FlaskConical className={cn('transition-colors')} />
+                    <span className="truncate group-data-[collapsible=icon]/sidebar-wrapper:hidden">Admin Tools</span>
+                  </button>
+                )}
               </SidebarMenuItem>
             ) : null}
 

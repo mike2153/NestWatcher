@@ -64,7 +64,7 @@ function DropdownMenuContentBase({ children, className, align = 'end' }: { child
     <div
       ref={contentRef}
       className={cn(
-        'absolute mt-1 z-50 min-w-[8rem] overflow-hidden rounded-md border p-1 shadow-lg',
+        'absolute mt-1 z-50 min-w-[8rem] overflow-hidden rounded-sm border p-1 shadow-lg',
         'bg-[var(--popover)] text-[var(--popover-foreground)] border-[var(--border)]',
         align === 'end' ? 'right-0' : 'left-0',
         className
@@ -97,7 +97,7 @@ function DropdownMenuItemBase({
     <button
       type="button"
       className={cn(
-        'relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-all duration-150',
+        'relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-base outline-none transition-all duration-150',
         'text-[var(--popover-foreground)] hover:bg-[var(--accent-blue-subtle)] hover:text-[var(--accent-foreground)]',
         'hover:pl-3 hover:border-l-2 hover:border-l-[var(--accent-blue)]',
         'disabled:opacity-50 disabled:pointer-events-none',

@@ -186,6 +186,18 @@ const definitions: Record<string, MessageDefinition> = {
     body: 'Watcher {{watcherName}} cannot access {{path}}; monitoring paused.',
     tone: 'error'
   },
+  'watcher.offline_long': {
+    key: 'watcher.offline_long',
+    title: 'Watcher Still Offline',
+    body: 'Watcher {{watcherName}} still cannot access {{path}}; retrying every {{intervalSeconds}} seconds.',
+    tone: 'error'
+  },
+  'watcher.recovered': {
+    key: 'watcher.recovered',
+    title: 'Watcher Recovered',
+    body: 'Watcher {{watcherName}} can access {{path}} again; monitoring resumed.',
+    tone: 'success'
+  },
   'jobsFolder.unreadable': {
     key: 'jobsFolder.unreadable',
     title: 'Jobs Folder Unreadable',
@@ -203,12 +215,6 @@ const definitions: Record<string, MessageDefinition> = {
     title: 'Database Lost',
     body: 'Database unavailable; allocation updates paused.',
     tone: 'error'
-  },
-  'grundner.resync': {
-    key: 'grundner.resync',
-    title: 'Grundner Resync',
-    body: 'Grundner resync started by {{user}} (mode {{mode}}).',
-    tone: 'success'
   },
   'rerun.queued': {
     key: 'rerun.queued',
@@ -294,6 +300,24 @@ const definitions: Record<string, MessageDefinition> = {
     body: '{{message}}',
     tone: 'error'
   },
+  'autopac.order_saw.busy': {
+    key: 'autopac.order_saw.busy',
+    title: 'AutoPAC ChangeMachNr Busy',
+    body: '{{message}}',
+    tone: 'warning'
+  },
+  'autopac.order_saw.busy_long': {
+    key: 'autopac.order_saw.busy_long',
+    title: 'AutoPAC ChangeMachNr Still Busy',
+    body: '{{message}}',
+    tone: 'warning'
+  },
+  'autopac.order_saw.recovered': {
+    key: 'autopac.order_saw.recovered',
+    title: 'AutoPAC ChangeMachNr Recovered',
+    body: '{{message}}',
+    tone: 'info'
+  },
   'grundner.erl.archived': {
     key: 'grundner.erl.archived',
     title: 'Grundner Reply Archived',
@@ -304,6 +328,18 @@ const definitions: Record<string, MessageDefinition> = {
     key: 'grundner.erl.mismatch',
     title: 'Grundner Reply Mismatch',
     body: 'Reply {{fileName}} did not match request. Archived to {{archivedAs}}. {{note}}',
+    tone: 'warning'
+  },
+  'nestpick.file.quarantined': {
+    key: 'nestpick.file.quarantined',
+    title: 'Nestpick File Quarantined',
+    body: 'Moved {{fileName}} from {{folder}} to incorrect_files. {{reason}}',
+    tone: 'warning'
+  },
+  'grundner.file.quarantined': {
+    key: 'grundner.file.quarantined',
+    title: 'Grundner File Quarantined',
+    body: 'Moved {{fileName}} from {{folder}} to incorrect_files. {{reason}}',
     tone: 'warning'
   }
 };

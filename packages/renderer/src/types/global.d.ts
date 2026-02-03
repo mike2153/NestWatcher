@@ -8,7 +8,6 @@ import type {
   DiagnosticsSnapshot,
   GrundnerListReq,
   GrundnerListRes,
-  GrundnerResyncReq,
   GrundnerUpdateReq,
   GrundnerJobsReq,
   GrundnerJobsRes,
@@ -36,6 +35,8 @@ import type {
   ReadyDeleteRes,
   RouterListReq,
   RouterListRes,
+  ManualLifecycleReq,
+  LifecycleRes,
   SaveMachineReq,
   Settings,
   WorklistAddResult,
@@ -112,6 +113,8 @@ declare global {
       };
       adminTools: {
         writeFile: (req: AdminToolsWriteFileReq) => Promise<Result<AdminToolsWriteFileRes, AppError>>;
+        openWindow: () => Promise<Result<null, AppError>>;
+        cleanupTestCsv: (req: { target: AdminToolsWriteFileReq['target'] }) => Promise<Result<{ deleted: string[]; missing: string[]; failed: { file: string; error: string }[] }, AppError>>;
       };
       db: {
         testConnection: (db: DbSettings) => Promise<Result<{ ok: true } | { ok: false; error: string }, AppError>>;
@@ -122,8 +125,6 @@ declare global {
         list: (req: JobsListReq) => Promise<Result<JobsListRes, AppError>>;
         filters: () => Promise<Result<JobsFiltersRes, AppError>>;
         events: (req: JobEventsReq) => Promise<Result<JobEventsRes, AppError>>;
-        reserve: (key: string) => Promise<Result<null, AppError>>;
-        unreserve: (key: string) => Promise<Result<null, AppError>>;
         lock: (key: string) => Promise<Result<null, AppError>>;
         unlock: (key: string) => Promise<Result<null, AppError>>;
         lockBatch: (keys: string[]) => Promise<Result<null, AppError>>;
@@ -131,7 +132,7 @@ declare global {
         rerun: (key: string) => Promise<Result<null, AppError>>;
         rerunAndStage: (key: string, machineId: number) => Promise<Result<WorklistAddResult, AppError>>;
         addToWorklist: (key: string, machineId: number) => Promise<Result<WorklistAddResult, AppError>>;
-        resync: () => Promise<Result<{ inserted: number; updated: number; pruned: number; addedJobs: { ncFile: string; folder: string }[]; updatedJobs: { ncFile: string; folder: string }[]; prunedJobs: { key: string; folder: string; ncFile: string; material: string | null; preReserved: boolean }[] }, AppError>>;
+        resync: () => Promise<Result<{ inserted: number; updated: number; pruned: number; addedJobs: { ncFile: string; folder: string }[]; updatedJobs: { ncFile: string; folder: string }[]; prunedJobs: { key: string; folder: string; ncFile: string; material: string | null; isLocked: boolean }[] }, AppError>>;
       };
       machines: {
         list: () => Promise<Result<MachinesListRes, AppError>>;
@@ -152,11 +153,11 @@ declare global {
       };
       router: {
         list: (req?: RouterListReq) => Promise<Result<RouterListRes, AppError>>;
+        changeStatus: (req: ManualLifecycleReq) => Promise<Result<LifecycleRes, AppError>>;
       };
       grundner: {
         list: (req?: GrundnerListReq) => Promise<Result<GrundnerListRes, AppError>>;
         update: (input: GrundnerUpdateReq) => Promise<Result<{ ok: boolean; updated: number }, AppError>>;
-        resync: (input?: GrundnerResyncReq) => Promise<Result<{ updated: number }, AppError>>;
         jobs: (req: GrundnerJobsReq) => Promise<Result<GrundnerJobsRes, AppError>>;
         exportCsv: () => Promise<Result<GrundnerExportRes, AppError>>;
         exportCustomCsv: () => Promise<Result<GrundnerExportRes, AppError>>;

@@ -1,7 +1,8 @@
 import { promises as fsp } from 'fs';
 import { basename, extname, join } from 'path';
 
-const GRUNDNER_ARCHIVE_DIRNAME = 'archieve';
+const GRUNDNER_ARCHIVE_DIRNAME = 'archive';
+const GRUNDNER_INCORRECT_DIRNAME = 'incorrect_files';
 
 async function fileExists(path: string): Promise<boolean> {
   try {
@@ -26,18 +27,41 @@ export async function archiveGrundnerReplyFile(params: {
   grundnerFolder: string;
   sourcePath: string;
 }): Promise<{ ok: true; archivedPath: string } | { ok: false; error: string }> {
-  const { grundnerFolder, sourcePath } = params;
+  return moveGrundnerFile({
+    grundnerFolder: params.grundnerFolder,
+    sourcePath: params.sourcePath,
+    targetDirName: GRUNDNER_ARCHIVE_DIRNAME
+  });
+}
+
+export async function quarantineGrundnerReplyFile(params: {
+  grundnerFolder: string;
+  sourcePath: string;
+}): Promise<{ ok: true; archivedPath: string } | { ok: false; error: string }> {
+  return moveGrundnerFile({
+    grundnerFolder: params.grundnerFolder,
+    sourcePath: params.sourcePath,
+    targetDirName: GRUNDNER_INCORRECT_DIRNAME
+  });
+}
+
+async function moveGrundnerFile(params: {
+  grundnerFolder: string;
+  sourcePath: string;
+  targetDirName: string;
+}): Promise<{ ok: true; archivedPath: string } | { ok: false; error: string }> {
+  const { grundnerFolder, sourcePath, targetDirName } = params;
   try {
-    const archiveDir = join(grundnerFolder, GRUNDNER_ARCHIVE_DIRNAME);
-    await fsp.mkdir(archiveDir, { recursive: true });
+    const targetDir = join(grundnerFolder, targetDirName);
+    await fsp.mkdir(targetDir, { recursive: true });
 
     const stamp = formatArchiveTimestampDdMmHhMmSs();
     const base = basename(sourcePath, extname(sourcePath));
     const ext = extname(sourcePath) || '';
-    let candidate = join(archiveDir, `${base}_${stamp}${ext}`);
+    let candidate = join(targetDir, `${base}_${stamp}${ext}`);
 
     for (let i = 1; i <= 25 && (await fileExists(candidate)); i++) {
-      candidate = join(archiveDir, `${base}_${stamp}_${i}${ext}`);
+      candidate = join(targetDir, `${base}_${stamp}_${i}${ext}`);
     }
 
     try {

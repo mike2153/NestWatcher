@@ -75,7 +75,10 @@ export const jobs = pgTable('jobs', {
   qty: integer('qty').default(0).notNull(),
   status: jobStatusEnum('status').default('PENDING').notNull(),
   lockedBy: text('locked_by'),
-  stagedBy: text('staged_by')
+  stagedBy: text('staged_by'),
+  // Stores operator initiated lifecycle pushes from the Router page.
+  // This is separate from job_events so it can be surfaced quickly in the UI.
+  manualLifecycle: jsonb('manual_lifecycle').$type<unknown | null>()
 });
 
 export const jobEvents = pgTable('job_events', {

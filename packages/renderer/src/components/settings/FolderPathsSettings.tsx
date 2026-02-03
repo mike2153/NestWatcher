@@ -267,7 +267,7 @@ export function FolderPathsSettings() {
                   Archive AutoPAC status CSVs
                 </label>
                 <p className="text-xs text-muted-foreground">
-                  When enabled, processed AutoPAC CSVs are moved into an "archieve" subfolder with a timestamp suffix.
+                  When enabled, processed AutoPAC CSVs are moved into an "archive" subfolder with a timestamp suffix.
                 </p>
               </div>
             </div>

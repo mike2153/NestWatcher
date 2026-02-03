@@ -26,6 +26,12 @@ export function attachSession(contents: WebContents, session: InternalSession): 
   });
 }
 
+export function copySession(source: WebContents, target: WebContents): void {
+  const existing = sessionsByContents.get(source.id);
+  if (!existing) return;
+  attachSession(target, existing);
+}
+
 export async function detachSession(contents: WebContents, options?: { clearDb?: boolean }): Promise<void> {
   const id = contents.id;
   const existing = sessionsByContents.get(id);

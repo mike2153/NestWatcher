@@ -1,8 +1,8 @@
 import { ok, err } from 'neverthrow';
 import type { AppError, WorklistAddResult } from '../../../shared/src';
-import { JobEventsReq, JobsListReq, ReserveReq, UnreserveReq, LockReq, UnlockReq, LockBatchReq, UnlockBatchReq } from '../../../shared/src';
+import { JobEventsReq, JobsListReq, LockReq, UnlockReq, LockBatchReq, UnlockBatchReq } from '../../../shared/src';
 import { getJobEvents } from '../repo/jobEventsRepo';
-import { listJobFilters, listJobs, reserveJob, unreserveJob, lockJob, unlockJob, lockJobAfterGrundnerConfirmation } from '../repo/jobsRepo';
+import { listJobFilters, listJobs, lockJob, unlockJob, lockJobAfterGrundnerConfirmation } from '../repo/jobsRepo';
 import { rerunAndStage } from '../services/worklist';
 import { withDb } from '../services/db';
 import { inArray, eq, and, not, sql } from 'drizzle-orm';
@@ -49,24 +49,6 @@ export function registerJobsIpc() {
     const req = JobsListReq.parse(raw);
     const res = await listJobs(req);
     return ok(res);
-  });
-
-  registerResultHandler('jobs:reserve', async (_e, raw) => {
-    const req = ReserveReq.parse(raw);
-    const success = await reserveJob(req.key);
-    if (!success) {
-      return err(createAppError('jobs.alreadyReserved', 'Job is already reserved.'));
-    }
-    return ok<null, AppError>(null);
-  });
-
-  registerResultHandler('jobs:unreserve', async (_e, raw) => {
-    const req = UnreserveReq.parse(raw);
-    const success = await unreserveJob(req.key);
-    if (!success) {
-      return err(createAppError('jobs.notReserved', 'Job is not currently reserved.'));
-    }
-    return ok<null, AppError>(null);
   });
 
   registerResultHandler('jobs:lock', async (event, raw) => {

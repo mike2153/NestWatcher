@@ -3,7 +3,7 @@ import { join, normalize } from 'path';
 import { loadConfig } from './config';
 import { logger } from '../logger';
 import { pushAppMessage } from './messages';
-import { archiveGrundnerReplyFile } from './grundnerArchive';
+import { archiveGrundnerReplyFile, quarantineGrundnerReplyFile } from './grundnerArchive';
 
 type OrderItem = { key: string; ncfile: string | null; material: string | null };
 
@@ -56,9 +56,13 @@ export async function placeOrderSawCsv(
   const tmpPath = join(folder, 'order_saw.tmp');
   const erlPath = join(folder, 'order_saw.erl');
 
-  // Make sure previous reply is cleared to avoid stale confirmations
-  try { await fsp.unlink(erlPath); } catch {
-    /* ignore if previous erl does not exist */
+  // If a stale reply exists, quarantine it so we don't lose traceability.
+  // We need a clean slot so we don't accidentally accept an old confirmation.
+  if (existsSync(erlPath)) {
+    const res = await quarantineGrundnerReplyFile({ grundnerFolder: folder, sourcePath: erlPath });
+    if (!res.ok) {
+      logger.warn({ folder, error: res.error }, 'orderSaw: failed to quarantine stale order_saw.erl');
+    }
   }
 
   // Avoid overwriting an in-flight order: if present, wait 5s once then fail if still present
@@ -100,37 +104,40 @@ export async function placeOrderSawCsv(
     logger.warn({ folder }, 'orderSaw: erl content does not match CSV');
   }
 
-  // Delete erl after processing to avoid stale confirmations
-  let cleaned = false;
-  let archivedAs: string | null = null;
-  const archiveRes = await archiveGrundnerReplyFile({ grundnerFolder: folder, sourcePath: erlPath });
-  if (archiveRes.ok) {
-    archivedAs = archiveRes.archivedPath;
-    cleaned = true;
-    logger.info({ folder, archivedAs }, 'orderSaw: archived order_saw.erl');
-  } else {
-    try {
-      await fsp.unlink(erlPath);
-      cleaned = true;
-      logger.info({ folder }, 'orderSaw: deleted order_saw.erl after processing');
-    } catch (err) {
-      logger.warn({ folder, err }, 'orderSaw: failed to delete order_saw.erl');
+  // File disposition policy:
+  // - success equals archive
+  // - failure equals incorrect_files
+  const moveRes = confirmed
+    ? await archiveGrundnerReplyFile({ grundnerFolder: folder, sourcePath: erlPath })
+    : await quarantineGrundnerReplyFile({ grundnerFolder: folder, sourcePath: erlPath });
+
+  if (moveRes.ok) {
+    const archivedAs = moveRes.archivedPath;
+    if (confirmed) {
+      pushAppMessage(
+        'grundner.erl.archived',
+        {
+          fileName: 'order_saw.erl',
+          archivedAs,
+          note: 'Reply matched request.'
+        },
+        { source: 'grundner' }
+      );
+    } else {
+      pushAppMessage(
+        'grundner.file.quarantined',
+        {
+          fileName: 'order_saw.erl',
+          folder,
+          reason: 'Reply did not match request.'
+        },
+        { source: 'grundner' }
+      );
     }
+    return { confirmed, erl, csv: lines, folder, checked: true, deleted: true };
   }
 
-  // Only show these archive notifications in test mode to avoid spamming operators.
-  if (cfg.test?.disableErlTimeouts && archivedAs) {
-    const key = confirmed ? 'grundner.erl.archived' : 'grundner.erl.mismatch';
-    pushAppMessage(
-      key,
-      {
-        fileName: 'order_saw.erl',
-        archivedAs,
-        note: confirmed ? 'Reply matched request.' : 'Reply did not match request.'
-      },
-      { source: 'grundner' }
-    );
-  }
-
-  return { confirmed, erl, csv: lines, folder, checked: true, deleted: cleaned };
+  // If we could not move the file, do not crash the flow.
+  logger.warn({ folder, error: moveRes.error }, 'orderSaw: failed to move order_saw.erl');
+  return { confirmed, erl, csv: lines, folder, checked: true, deleted: false };
 }

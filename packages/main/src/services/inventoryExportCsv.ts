@@ -119,8 +119,6 @@ function formatGrundnerField(
       return row.widthMm != null ? String(row.widthMm) : '';
     case 'thicknessMm':
       return row.thicknessMm != null ? String(row.thicknessMm) : '';
-    case 'preReserved':
-      return row.preReserved != null ? String(row.preReserved) : '';
     case 'stock':
       return row.stock != null ? String(row.stock) : '';
     case 'reservedStock':
@@ -149,7 +147,6 @@ export function buildGrundnerStandardCsv(rows: GrundnerRow[]): string {
     'Length',
     'Width',
     'Thickness',
-    'Pre-Reserved',
     'Stock',
     'Reserved',
     'Available',
@@ -166,7 +163,6 @@ export function buildGrundnerStandardCsv(rows: GrundnerRow[]): string {
       formatGrundnerField(row, 'lengthMm', 'standard', null),
       formatGrundnerField(row, 'widthMm', 'standard', null),
       formatGrundnerField(row, 'thicknessMm', 'standard', null),
-      formatGrundnerField(row, 'preReserved', 'standard', null),
       formatGrundnerField(row, 'stock', 'standard', null),
       formatGrundnerField(row, 'reservedStock', 'standard', null),
       formatGrundnerField(row, 'stockAvailable', 'standard', null),

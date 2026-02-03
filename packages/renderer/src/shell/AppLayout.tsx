@@ -16,6 +16,13 @@ import { selectCurrentAlarms } from './alarmUtils';
 import { NcCatValidationResultsModal } from '@/components/NcCatValidationResultsModal';
 import { AppDialogHost } from '@/components/AppDialogHost';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { PanelLeft } from 'lucide-react';
 import { formatAuDateTime, formatAuTime } from '@/utils/datetime';
 
@@ -32,6 +39,24 @@ const PAGE_TITLES: Record<string, string> = {
   '/cnc-alarms': 'CNC Alarms',
   '/ordering': 'Ordering'
 };
+
+function isAdminToolsPopoutWindow(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).get('window') === 'admin-tools';
+  } catch {
+    return false;
+  }
+}
+
+function AdminToolsPopoutLayout() {
+  // The popout window should ONLY show the Admin Tools page content.
+  // No sidebar, no top header, and no diagnostics/alarm overlays.
+  return (
+    <div className="min-h-screen bg-[var(--background)]">
+      <Outlet />
+    </div>
+  );
+}
 
 function SidebarToggleButton() {
   const { toggleSidebar, open, isMobile } = useSidebar();
@@ -50,7 +75,7 @@ function SidebarToggleButton() {
   );
 }
 
-export function AppLayout() {
+function FullAppLayout() {
   const { pathname } = useLocation();
   const pageTitle = PAGE_TITLES[pathname] || pathname;
   const isSettingsPage = false;
@@ -868,40 +893,45 @@ export function AppLayout() {
               <div className="text-sm  text-[var(--muted-foreground)]">Logs</div>
               <div className="mt-2 space-y-2 flex flex-col flex-1 min-h-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    className="border border-[var(--border)] rounded px-2 py-1 text-xs bg-[var(--input-bg)] text-[var(--foreground)]"
+                  <Select
                     value={logSelectedFile ?? ""}
-                    onChange={(e) => {
-                      const nextFile = e.target.value ? e.target.value : null;
+                    onValueChange={(v) => {
+                      const nextFile = v ? v : null;
                       setLogSelectedFile(nextFile);
-                      // Ensure the view reflects the newly selected file.
                       setLogLinesLive(null);
                     }}
                     disabled={logListLoading || logList.length === 0}
                   >
-                    {logList.map((item) => (
-                      <option key={item.file} value={item.file}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="border border-[var(--border)] rounded px-2 py-1 text-xs bg-[var(--input-bg)] text-[var(--foreground)]"
-                    value={logLimit}
-                    onChange={(e) => {
-                      setLogLimit(Number(e.target.value));
-                      // Reset the live buffer so the next render is a clean tail.
-                      // This avoids confusing mixes of "old tail" + "buffer from a different limit".
+                    <SelectTrigger className="h-7 text-xs min-w-[120px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {logList.map((item) => (
+                        <SelectItem key={item.file} value={item.file}>
+                          {item.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={String(logLimit)}
+                    onValueChange={(v) => {
+                      setLogLimit(Number(v));
                       setLogLinesLive(null);
                     }}
                     disabled={logLoading || !logSelectedFile}
                   >
-                    {[200, 500, 1000, 2000].map((value) => (
-                      <option key={value} value={value}>
-                        {value} lines
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="h-7 text-xs w-24">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[200, 500, 1000, 2000].map((value) => (
+                        <SelectItem key={value} value={String(value)}>
+                          {value} lines
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <button
                     className="border border-[var(--border)] rounded px-2 py-1 text-xs text-[var(--foreground)] hover:bg-[var(--accent-blue-subtle)] hover:border-[var(--accent-blue-border)] transition-all duration-150"
                     onClick={fetchLogList}
@@ -964,4 +994,8 @@ export function AppLayout() {
       </SidebarInset>
     </SidebarProvider>
   );
+}
+
+export function AppLayout() {
+  return isAdminToolsPopoutWindow() ? <AdminToolsPopoutLayout /> : <FullAppLayout />;
 }

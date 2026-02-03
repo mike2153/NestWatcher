@@ -25,6 +25,7 @@ import { registerAppIpc, requestShowMainWindow, setShowMainWindow } from './ipc/
 import { initWatchers, shutdownWatchers } from './services/watchers';
 import { initMesValidationScanner, stopMesValidationScanner } from './services/mesValidation';
 import { startDbWatchdog, stopDbWatchdog } from './services/dbWatchdog';
+import { applyDbPatches } from './services/dbPatches';
 import { syncInventoryExportScheduler, stopInventoryExportScheduler } from './services/inventoryExportScheduler';
 import { logger } from './logger';
 import { initializeDiagnostics } from './services/diagnostics';
@@ -247,6 +248,12 @@ app.whenReady().then(async () => {
     startDbWatchdog();
   } catch (error) {
     logger.error({ error }, 'Failed to start database watchdog');
+  }
+
+  try {
+    await applyDbPatches();
+  } catch (error) {
+    logger.warn({ error }, 'Failed to apply database patches');
   }
 
   initWatchers();

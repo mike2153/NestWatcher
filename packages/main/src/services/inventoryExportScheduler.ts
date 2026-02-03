@@ -50,7 +50,6 @@ function hashInventory(rows: GrundnerRow[], settings: InventoryExportSettings): 
     h.update(String(row.stock ?? ''), 'utf8'); h.update('\0', 'utf8');
     h.update(String(row.stockAvailable ?? ''), 'utf8'); h.update('\0', 'utf8');
     h.update(String(row.reservedStock ?? ''), 'utf8'); h.update('\0', 'utf8');
-    h.update(String(row.preReserved ?? ''), 'utf8'); h.update('\0', 'utf8');
     h.update(String(row.lastUpdated ?? ''), 'utf8'); h.update('\n', 'utf8');
   }
 

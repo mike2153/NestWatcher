@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 type GrundnerState = Settings['grundner'];
 
 const DEFAULT_GRUNDNER: GrundnerState = {
+  archiveErlReplies: false,
   tableColumns: {
     typeData: { visible: true, order: 1 },
     materialName: { visible: false, order: 2 },
@@ -136,6 +137,7 @@ function buildPreviewTemplate(visibleKeys: ColumnKey[], tableColumns: GrundnerSt
 
 export function GrundnerSettings() {
   const [tableColumns, setTableColumns] = useState<GrundnerState['tableColumns']>(DEFAULT_GRUNDNER.tableColumns);
+  const [archiveErlReplies, setArchiveErlReplies] = useState<boolean>(DEFAULT_GRUNDNER.archiveErlReplies);
   const [saving, setSaving] = useState(false);
   const [draggingKey, setDraggingKey] = useState<ColumnKey | null>(null);
   const [columnOrderError, setColumnOrderError] = useState<string | null>(null);
@@ -169,6 +171,7 @@ export function GrundnerSettings() {
         if (res.value.grundner?.tableColumns) {
           setTableColumns(normalizeTableColumns(res.value.grundner.tableColumns));
         }
+        setArchiveErlReplies(Boolean(res.value.grundner?.archiveErlReplies));
       }
     })();
   }, []);
@@ -337,6 +340,7 @@ export function GrundnerSettings() {
       ...currentSettings.value,
       grundner: {
         ...(currentSettings.value.grundner ?? DEFAULT_GRUNDNER),
+        archiveErlReplies,
         tableColumns
       }
     };
@@ -360,6 +364,23 @@ export function GrundnerSettings() {
         <div className="text-sm text-muted-foreground">
           Sheet identity is based on Type Data.
         </div>
+
+        <label className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={archiveErlReplies}
+            onChange={(e) => setArchiveErlReplies(e.target.checked)}
+            className="w-4 h-4 mt-1 rounded border-border text-primary focus:ring-primary/50"
+          />
+          <div>
+            <div className="text-sm font-medium">Archive Grundner .erl reply files</div>
+            <div className="text-xs text-muted-foreground">
+              When enabled, every Grundner acknowledgement file like <span className="font-semibold">order_saw.erl</span> and
+              <span className="font-semibold"> get_production.erl</span> is moved into an <span className="font-semibold">archive</span>
+              folder inside the Grundner folder with a timestamp suffix.
+            </div>
+          </div>
+        </label>
       </div>
 
       {/* Grundner Table Columns */}

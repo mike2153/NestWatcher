@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
 import type {
   DiagnosticsSnapshot,
   Machine,
@@ -10,6 +11,22 @@ import { JOB_STATUS_VALUES } from '../../../shared/src';
 import { cn } from '../utils/cn';
 import { GlobalTable } from '@/components/table/GlobalTable';
 import { Button } from '@/components/ui/button';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger
+} from '@/components/ui/context-menu';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 import type { ColumnDef, RowSelectionState } from '@tanstack/react-table';
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table';
@@ -97,12 +114,12 @@ export function RouterPage() {
   const [validationModalOpen, setValidationModalOpen] = useState(false);
   const [validationJobKey, setValidationJobKey] = useState<string | null>(null);
 
-  // Auto-clear banner after 5 seconds
-  useEffect(() => {
-    if (!banner) return;
-    const id = window.setTimeout(() => setBanner(null), 5000);
-    return () => window.clearTimeout(id);
-  }, [banner]);
+  // Router context menu: manual status change
+  const [contextRow, setContextRow] = useState<RouterReadyFile | null>(null);
+  const [changeStatusOpen, setChangeStatusOpen] = useState(false);
+  const [changeStatusTo, setChangeStatusTo] = useState<JobStatus | null>(null);
+  const [changeStatusReason, setChangeStatusReason] = useState('');
+  const [changeStatusSubmitting, setChangeStatusSubmitting] = useState(false);
 
   const applyClearedFilter = useCallback(
     (items: ReadyFile[], machineId: number): ReadyFile[] => {
@@ -116,6 +133,132 @@ export function RouterPage() {
     },
     [clearedByMachine]
   );
+
+  const allowedForwardStatuses = useMemo(() => {
+    const current = contextRow?.status ?? null;
+    if (!current) return [] as JobStatus[];
+    const idx = JOB_STATUS_VALUES.indexOf(current);
+    if (idx < 0) return [] as JobStatus[];
+    return JOB_STATUS_VALUES.slice(idx + 1);
+  }, [contextRow]);
+
+  const resetChangeStatusDialogState = useCallback(() => {
+    setChangeStatusTo(null);
+    setChangeStatusReason('');
+    setChangeStatusSubmitting(false);
+  }, []);
+
+  const refreshReadyForMachine = useCallback(
+    async (machineId: number) => {
+      const res = await window.api.files.listReady(machineId);
+      if (!res.ok) {
+        setBanner({ type: 'error', message: res.error.message ?? 'Failed to refresh router files' });
+        return;
+      }
+
+      let items = res.value.files as ReadyFile[];
+      if (statusFilter !== 'all') {
+        items = items.filter((f) => f.status === statusFilter);
+      }
+      items = applyClearedFilter(items, machineId);
+      const enriched = items.map((item) => ({ ...item, machineId }));
+
+      setFiles((prev) => {
+        if (machineFilter !== 'all') {
+          return enriched;
+        }
+        const others = prev.filter((f) => f.machineId !== machineId);
+        return [...others, ...enriched];
+      });
+    },
+    [applyClearedFilter, machineFilter, statusFilter]
+  );
+
+  const handleRowContextMenu = useCallback(
+    (row: RouterReadyFile) => {
+      // Safety: if a user right-clicks a row that isn't selected, make it the active selection.
+      // This matches JobsPage behavior and avoids "actions apply to the wrong row" mistakes.
+      if (!rowSelection[row.relativePath]) {
+        flushSync(() => {
+          setRowSelection({ [row.relativePath]: true });
+        });
+      }
+
+      // Also record which row the context menu is acting on.
+      flushSync(() => {
+        setContextRow(row);
+      });
+    },
+    [rowSelection]
+  );
+
+  const openChangeStatusDialog = useCallback(() => {
+    resetChangeStatusDialogState();
+    setChangeStatusOpen(true);
+  }, [resetChangeStatusDialogState]);
+
+  const submitManualStatusChange = useCallback(async () => {
+    const row = contextRow;
+    const to = changeStatusTo;
+    const reason = changeStatusReason.trim();
+
+    if (!row?.jobKey) {
+      setBanner({ type: 'error', message: 'This file is not linked to a job in the database yet.' });
+      return;
+    }
+    if (!row.status) {
+      setBanner({ type: 'error', message: 'This job does not have a current status. Cannot apply a manual change.' });
+      return;
+    }
+    if (!to) {
+      setBanner({ type: 'error', message: 'Pick a target status.' });
+      return;
+    }
+    if (!allowedForwardStatuses.includes(to)) {
+      setBanner({ type: 'error', message: `Invalid target status: ${to}` });
+      return;
+    }
+    if (!reason) {
+      setBanner({ type: 'error', message: 'Reason is required.' });
+      return;
+    }
+
+    setChangeStatusSubmitting(true);
+    setBanner(null);
+
+    try {
+      const res = await window.api.router.changeStatus({ key: row.jobKey, to, reason });
+      if (!res.ok) {
+        setBanner({ type: 'error', message: res.error.message ?? 'Failed to change status.' });
+        return;
+      }
+      if (!res.value.ok) {
+        const detail = res.value.reason ? ` (${res.value.reason})` : '';
+        setBanner({ type: 'error', message: `Status change rejected${detail}.` });
+        return;
+      }
+
+      setBanner({
+        type: 'success',
+        message: `Status changed: ${formatStatusLabel(row.status)} -> ${formatStatusLabel(to)}`
+      });
+
+      setChangeStatusOpen(false);
+      resetChangeStatusDialogState();
+      await refreshReadyForMachine(row.machineId);
+    } catch (err) {
+      setBanner({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setChangeStatusSubmitting(false);
+    }
+  }, [allowedForwardStatuses, changeStatusReason, changeStatusTo, contextRow, refreshReadyForMachine, resetChangeStatusDialogState]);
+
+  // Auto-clear banner after 5 seconds
+  useEffect(() => {
+    if (!banner) return;
+    const id = window.setTimeout(() => setBanner(null), 5000);
+    return () => window.clearTimeout(id);
+  }, [banner]);
 
   const hasClearable = useMemo(() => {
     if (!files.length) return false;
@@ -519,16 +662,20 @@ export function RouterPage() {
                 />
                 Auto
               </label>
-              <select
-                className="border rounded px-1 py-0.5"
-                value={autoRefreshInterval}
-                onChange={(e) => setAutoRefreshInterval(Number(e.target.value))}
+              <Select
+                value={String(autoRefreshInterval)}
+                onValueChange={(v) => setAutoRefreshInterval(Number(v))}
                 disabled={!autoRefreshEnabled}
               >
-                {[15, 30, 60, 120].map((seconds) => (
-                  <option key={seconds} value={seconds}>{seconds}s</option>
-                ))}
-              </select>
+                <SelectTrigger className="h-6 text-xs w-16">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[15, 30, 60, 120].map((seconds) => (
+                    <SelectItem key={seconds} value={String(seconds)}>{seconds}s</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex gap-2">
               {machineFilter !== 'all' && (
@@ -587,44 +734,172 @@ export function RouterPage() {
       </div>
 
       <div className="flex items-center gap-3 border rounded p-3 bg-[var(--card)]">
-        <label className="text-sm flex items-center gap-2">
+        <div className="text-sm flex items-center gap-2">
           <span>Machine</span>
-          <select className="border rounded px-2 py-1" value={machineFilter === 'all' ? '' : machineFilter}
-            onChange={(e) => setMachineFilter(e.target.value ? Number(e.target.value) : 'all')}>
-            <option value="">All</option>
-            {machines.map(m => (
-              <option key={m.machineId} value={m.machineId}>{m.name}</option>
-            ))}
-          </select>
-        </label>
-        <label className="text-sm flex items-center gap-2">
+          <Select
+            value={machineFilter === 'all' ? '_all_' : String(machineFilter)}
+            onValueChange={(v) => setMachineFilter(v === '_all_' ? 'all' : Number(v))}
+          >
+            <SelectTrigger className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all_">All</SelectItem>
+              {machines.map(m => (
+                <SelectItem key={m.machineId} value={String(m.machineId)}>{m.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="text-sm flex items-center gap-2">
           <span>Status</span>
-          <select className="border rounded px-2 py-1" value={statusFilter === 'all' ? '' : statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value ? (e.target.value as JobStatus) : 'all')}>
-            <option value="">All</option>
-            {JOB_STATUS_VALUES.map(status => (
-              <option key={status} value={status}>{status}</option>
-            ))}
-          </select>
-        </label>
+          <Select
+            value={statusFilter === 'all' ? '_all_' : statusFilter}
+            onValueChange={(v) => setStatusFilter(v === '_all_' ? 'all' : (v as JobStatus))}
+          >
+            <SelectTrigger className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all_">All</SelectItem>
+              {JOB_STATUS_VALUES.map(status => (
+                <SelectItem key={status} value={status}>{status}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      <GlobalTable
-        table={table}
-        maxHeight="calc(100vh - 200px)"
-        rowHeight={41}
-        headerHeight={40}
-        viewportPadding={200}
-        density="normal"
-        headerHoverAlways
-        onRowDoubleClick={(row) => {
-          const original = row.original as RouterReadyFile;
-          if (original.jobKey) {
-            setValidationJobKey(original.jobKey);
-            setValidationModalOpen(true);
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div>
+            <GlobalTable
+              table={table}
+              maxHeight="calc(100vh - 200px)"
+              rowHeight={41}
+              headerHeight={40}
+              viewportPadding={200}
+              density="normal"
+              headerHoverAlways
+              preventContextMenuDefault={false}
+              onRowContextMenu={(row) => {
+                handleRowContextMenu(row.original as RouterReadyFile);
+              }}
+              onRowDoubleClick={(row) => {
+                const original = row.original as RouterReadyFile;
+                if (original.jobKey) {
+                  setValidationJobKey(original.jobKey);
+                  setValidationModalOpen(true);
+                }
+              }}
+            />
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-56">
+          <ContextMenuLabel>
+            {contextRow ? (
+              <div className="space-y-1">
+                <div className="truncate font-medium">{contextRow.name}</div>
+                <div className="text-xs text-muted-foreground truncate">
+                  {contextRow.status ? formatStatusLabel(contextRow.status) : 'No status'}
+                </div>
+              </div>
+            ) : (
+              'No row'
+            )}
+          </ContextMenuLabel>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            onSelect={openChangeStatusDialog}
+            disabled={
+              !contextRow?.jobKey ||
+              !contextRow.status ||
+              allowedForwardStatuses.length === 0 ||
+              changeStatusSubmitting
+            }
+          >
+            Change Status
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+
+      <Dialog
+        open={changeStatusOpen}
+        onOpenChange={(open) => {
+          setChangeStatusOpen(open);
+          if (!open) {
+            resetChangeStatusDialogState();
           }
         }}
-      />
+      >
+        <DialogContent className="sm:max-w-[720px]">
+          <div className="p-6 sm:p-7">
+            <DialogHeader className="pb-2">
+              <DialogTitle>Change Status</DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-5">
+              <div className="text-sm">
+                <div className="font-medium truncate">
+                  {contextRow?.name ?? 'No selection'}
+                </div>
+                <div className="text-muted-foreground">
+                  Current status: {contextRow?.status ? formatStatusLabel(contextRow.status) : 'Unknown'}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium">New status</div>
+                <Select
+                  value={changeStatusTo ?? ''}
+                  onValueChange={(v) => setChangeStatusTo(v as JobStatus)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allowedForwardStatuses.map((status) => (
+                      <SelectItem key={status} value={status}>
+                        {formatStatusLabel(status)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium">Reason</div>
+                  <div className="text-xs text-muted-foreground">{changeStatusReason.length}/500</div>
+                </div>
+                <textarea
+                  value={changeStatusReason}
+                  onChange={(e) => setChangeStatusReason(e.target.value)}
+                  maxLength={500}
+                  className="w-full min-h-[110px] border rounded-md px-3 py-2 text-sm bg-transparent"
+                  placeholder="Why are you forcing this status forward?"
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="pt-6">
+              <Button
+                variant="outline"
+                onClick={() => setChangeStatusOpen(false)}
+                disabled={changeStatusSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={submitManualStatusChange}
+                disabled={changeStatusSubmitting || !contextRow?.jobKey}
+              >
+                {changeStatusSubmitting ? 'Saving...' : 'Save'}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <ValidationDataModal
         open={validationModalOpen}

@@ -300,23 +300,30 @@ Rules:
 * Default direction is top down using `flowchart TD`.
 * Node ids should be short and stable (example: `FS`, `WK`, `DB`).
 * Node labels (inside `[]`) must describe what the step does in plain English.
-  * Include key numbers and limits in the label when relevant (example: `7.5 seconds`, `double each time`, `max delay 240 seconds`).
+  * Include key numbers and limits in the label when relevant (example: `7.5 seconds`, `double each time`, `max delay 60 seconds`).
 * Use simple arrows `A --> B` unless edge labels add real clarity.
 * Strictly no parentheses characters in Mermaid text. Mermaid syntax errors on this repo when `()` appear.
+* Use `<br/>` inside node labels to force line breaks.
+  * This prevents labels getting cut off in the UI.
+  * Prefer 2 to 3 lines per node when possible.
+* Use Settings UI names, not internal variable names.
+  * Example: write `AutoPAC CSV Directory` instead of `autoPacCsvDir`.
+* When referring to files, always use the literal file name.
+  * Example: write `order_saw.csv` not "order saw".
 * Avoid jargon and acronyms in labels unless the term is already defined nearby.
 
 Example watcher self heal backoff flow:
 
 ```mermaid
 flowchart TD
-  FS[Network folder or share goes offline or denies access]
-  WK[Watchers worker receives filesystem error from chokidar]
-  ONCE[Record one offline error and one health issue then stop repeating logs]
-  CLOSE[Close the file watcher immediately to stop error spam]
-  BACKOFF[Back off and try again 7.5 seconds then double each time max delay 240 seconds]
-  RETRY[Restart the watcher and wait for ready signal]
-  READY[On ready reset backoff to zero clear health issue emit recovered event]
-  AGAIN[If restart fails go back to close and keep backing off]
+  FS[Network folder or share goes offline<br/>or denies access]
+  WK[Watchers worker receives filesystem error<br/>from chokidar or stat probe]
+  ONCE[Record one offline error and one health issue<br/>then stop repeating logs]
+  CLOSE[Close the file watcher immediately<br/>to stop error spam]
+  BACKOFF[Back off and try again<br/>7.5 seconds then double each time<br/>max delay 60 seconds]
+  RETRY[Restart the watcher<br/>and wait for ready signal]
+  READY[On ready reset backoff to zero<br/>clear health issue<br/>emit recovered event]
+  AGAIN[If restart fails go back to close<br/>and keep backing off]
 
   FS --> WK
   WK --> ONCE

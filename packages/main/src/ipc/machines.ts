@@ -2,7 +2,9 @@
 import { ok, err } from 'neverthrow';
 import type { AppError, MachinesListRes } from '../../../shared/src';
 import { SaveMachineReq } from '../../../shared/src';
-import { listMachines, saveMachine, deleteMachine } from '../repo/machinesRepo';
+import { deleteMachine, getMachine, listMachines, saveMachine } from '../repo/machinesRepo';
+import { restartWatchers } from '../services/watchers';
+import { logger } from '../logger';
 import { createAppError } from './errors';
 import { registerResultHandler } from './result';
 
@@ -15,7 +17,23 @@ export function registerMachinesIpc() {
 
   registerResultHandler('machines:save', async (_e, raw) => {
     const req = SaveMachineReq.parse(raw);
+    const prev = req.machineId != null ? await getMachine(req.machineId) : null;
     const saved = await saveMachine(req);
+
+    // Nestpick watchers are configured on worker startup.
+    // If a machine's nestpick settings change, restart watchers so they watch the new paths.
+    const shouldRestart =
+      prev == null ||
+      (prev.nestpickFolder ?? '') !== (saved.nestpickFolder ?? '') ||
+      Boolean(prev.nestpickEnabled) !== Boolean(saved.nestpickEnabled);
+
+    if (shouldRestart) {
+      const res = await restartWatchers();
+      if (!res.ok) {
+        logger.warn({ error: res.error }, 'machines: saved but failed to restart watchers');
+      }
+    }
+
     return ok(saved);
   });
 
@@ -25,6 +43,14 @@ export function registerMachinesIpc() {
       return err(createAppError('machines.invalidId', 'Machine id must be a number'));
     }
     await deleteMachine(machineId);
+
+    // A deleted machine could have had nestpick watchers.
+    // Restart watchers so the worker no longer watches stale files.
+    const res = await restartWatchers();
+    if (!res.ok) {
+      logger.warn({ error: res.error }, 'machines: deleted but failed to restart watchers');
+    }
+
     return ok<null, AppError>(null);
   });
 

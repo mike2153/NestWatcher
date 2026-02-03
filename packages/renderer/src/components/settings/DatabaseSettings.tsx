@@ -1,6 +1,13 @@
 import { useEffect, useState, useMemo } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import type { DbSettings, DbStatus } from '../../../../shared/src';
@@ -18,7 +25,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 export function DatabaseSettings() {
-  const { register, handleSubmit, reset, formState: { isSubmitting } } = useForm<FormValues>({
+  const { register, handleSubmit, reset, control, formState: { isSubmitting } } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       host: '',
@@ -163,15 +170,23 @@ export function DatabaseSettings() {
 
         <div>
           <label className="block text-sm font-medium mb-1">SSL Mode</label>
-          <select
-            className="w-full px-3 py-2 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary/50"
-            {...register('sslMode')}
-          >
-            <option value="disable">Disable</option>
-            <option value="require">Require</option>
-            <option value="verify-ca">Verify CA</option>
-            <option value="verify-full">Verify Full</option>
-          </select>
+          <Controller
+            name="sslMode"
+            control={control}
+            render={({ field }) => (
+              <Select value={field.value} onValueChange={field.onChange}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="disable">Disable</SelectItem>
+                  <SelectItem value="require">Require</SelectItem>
+                  <SelectItem value="verify-ca">Verify CA</SelectItem>
+                  <SelectItem value="verify-full">Verify Full</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+          />
         </div>
 
         <div>

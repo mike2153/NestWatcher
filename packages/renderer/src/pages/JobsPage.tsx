@@ -39,6 +39,13 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/context-menu';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -422,7 +429,8 @@ export function JobsPage() {
         sortBy: primarySort.id as JobsListReq['sortBy'],
         sortDir: (primarySort.desc ? 'desc' : 'asc') as JobsListReq['sortDir'],
         limit: DEFAULT_LIMIT,
-        filter
+        filter,
+        hideCompletedFolders: true
       });
       if (!res.ok) {
         console.error('Failed to load jobs', res.error);
@@ -1087,74 +1095,87 @@ export function JobsPage() {
             className="border rounded px-2 py-1 min-w-[12rem]"
           />
         </label>
-        <label className="flex flex-col gap-1 text-sm">
+        <div className="flex flex-col gap-1 text-sm">
           <span className="text-xs font-medium">Status</span>
-          <select
+          <Select
             value={
               filters.statusGroups.length === 3 ? 'all' :
                 filters.statusGroups.length === 1 ? filters.statusGroups[0] :
-                  // If a mixed selection somehow exists, treat as 'all' for display
                   'all'
             }
-            onChange={(e) => {
-              const v = e.target.value as 'all' | StatusGroup;
+            onValueChange={(v: 'all' | StatusGroup) => {
               if (v === 'all') {
                 updateStatusFilter(['pending', 'processing', 'complete']);
               } else {
                 updateStatusFilter([v]);
               }
             }}
-            className="border rounded px-2 py-1 w-48"
           >
-            <option value="all">All</option>
-            <option value="pending">Pending</option>
-            <option value="processing">Processing</option>
-            <option value="complete">Complete</option>
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="processing">Processing</SelectItem>
+              <SelectItem value="complete">Complete</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1 text-sm">
           <span className="text-xs font-medium">Material</span>
-          <select
-            value={filters.materials[0] ?? ''}
-            onChange={(e) => {
-              const v = e.target.value;
-              setFilters((prev) => ({ ...prev, materials: v ? [v] : [] }));
+          <Select
+            value={filters.materials[0] ?? '_any_'}
+            onValueChange={(v) => {
+              setFilters((prev) => ({ ...prev, materials: v === '_any_' ? [] : [v] }));
             }}
-            className="border rounded px-2 py-1 w-48"
           >
-            <option value="">Any</option>
-            {materialOptions.map((material) => (
-              <option key={material} value={material}>{material}</option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_any_">Any</SelectItem>
+              {materialOptions.map((material) => (
+                <SelectItem key={material} value={material}>{material}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1 text-sm">
           <span className="text-xs font-medium">Machine</span>
-          <select
-            value={filters.machineId != null ? String(filters.machineId) : ''}
-            onChange={(e) => setFilters((prev) => ({ ...prev, machineId: e.target.value ? Number(e.target.value) : undefined }))}
-            className="border rounded px-2 py-1 w-48"
+          <Select
+            value={filters.machineId != null ? String(filters.machineId) : '_any_'}
+            onValueChange={(v) => setFilters((prev) => ({ ...prev, machineId: v === '_any_' ? undefined : Number(v) }))}
           >
-            <option value="">Any</option>
-            {machines.map((machine) => (
-              <option key={machine.machineId} value={machine.machineId}>{machine.name}</option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_any_">Any</SelectItem>
+              {machines.map((machine) => (
+                <SelectItem key={machine.machineId} value={String(machine.machineId)}>{machine.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1 text-sm">
           <span className="text-xs font-medium">Completed Jobs</span>
-          <select
+          <Select
             value={filters.completedTimeframe}
-            onChange={(e) => setFilters((prev) => ({ ...prev, completedTimeframe: e.target.value as FiltersState['completedTimeframe'] }))}
-            className="border rounded px-2 py-1 w-48"
+            onValueChange={(v: FiltersState['completedTimeframe']) => setFilters((prev) => ({ ...prev, completedTimeframe: v }))}
           >
-            <option value="1day">Last 24 Hours</option>
-            <option value="3days">Last 3 Days</option>
-            <option value="7days">Last 7 Days</option>
-            <option value="1month">Last Month</option>
-            <option value="all">All Time</option>
-          </select>
-        </label>
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1day">Last 24 Hours</SelectItem>
+              <SelectItem value="3days">Last 3 Days</SelectItem>
+              <SelectItem value="7days">Last 7 Days</SelectItem>
+              <SelectItem value="1month">Last Month</SelectItem>
+              <SelectItem value="all">All Time</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <div className="flex gap-2">
           <Button
             variant="default"

@@ -7,6 +7,13 @@ import {
   type InventoryExportSettings
 } from '../../../../shared/src';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { FolderBrowseIconButton, InfoTipIcon } from '@/components/ui/icon-buttons';
 
 type LoadState =
@@ -22,7 +29,6 @@ const FIELD_OPTIONS: Array<{ value: InventoryExportFieldKey; label: string }> = 
   { value: 'lengthMm', label: 'Length' },
   { value: 'widthMm', label: 'Width' },
   { value: 'thicknessMm', label: 'Thickness' },
-  { value: 'preReserved', label: 'Pre-Reserved' },
   { value: 'stock', label: 'Stock' },
   { value: 'reservedStock', label: 'Reserved' },
   { value: 'stockAvailable', label: 'Available' },
@@ -47,8 +53,6 @@ function defaultHeaderForField(field: InventoryExportFieldKey): string {
       return 'width';
     case 'thicknessMm':
       return 'thickness';
-    case 'preReserved':
-      return 'pre reserved';
     case 'stock':
       return 'stock';
     case 'reservedStock':
@@ -342,11 +346,9 @@ export function InventoryExportSettings() {
       <div className="space-y-3">
         <label className="block text-sm font-medium">Delimiter</label>
         <div className="flex items-center gap-2">
-          <select
-            className="w-20 h-8 px-2 border border-border text-center rounded-md bg-background focus:outline-none focus:ring-3 focus:ring-primary/50 text-sm"
+          <Select
             value={draft.template.delimiter}
-            onChange={(e) => {
-              const delimiter = e.target.value;
+            onValueChange={(delimiter) => {
               setDraft((prev) => ({
                 ...prev,
                 template: {
@@ -356,12 +358,17 @@ export function InventoryExportSettings() {
               }));
             }}
           >
-            <option value=",">,</option>
-            <option value=";">;</option>
-            <option value="|">|</option>
-            <option value="/">/</option>
-            <option value="\">\</option>
-          </select>
+            <SelectTrigger className="w-20 h-8 text-center">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value=",">,</SelectItem>
+              <SelectItem value=";">;</SelectItem>
+              <SelectItem value="|">|</SelectItem>
+              <SelectItem value="/">/</SelectItem>
+              <SelectItem value="\">\</SelectItem>
+            </SelectContent>
+          </Select>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>Used by &quot;Export Custom CSV&quot; and scheduled export.</span>
           </div>
@@ -420,11 +427,9 @@ export function InventoryExportSettings() {
                       />
                     </td>
                     <td className="p-2">
-                      <select
-                        className="w-full min-w-20 px-2 py-1 border border-border rounded-md bg-background"
+                      <Select
                         value={col.kind === 'custom' ? CUSTOM_FIELD_VALUE : col.field}
-                        onChange={(e) => {
-                          const value = e.target.value;
+                        onValueChange={(value) => {
                           setDraft((prev) => {
                             const nextCols = [...prev.template.columns];
                             if (value === CUSTOM_FIELD_VALUE) {
@@ -447,13 +452,18 @@ export function InventoryExportSettings() {
                           });
                         }}
                       >
-                        <option value={CUSTOM_FIELD_VALUE}>Custom</option>
-                        {FIELD_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
+                        <SelectTrigger className="w-full min-w-20">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={CUSTOM_FIELD_VALUE}>Custom</SelectItem>
+                          {FIELD_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
                         ))}
-                      </select>
+                        </SelectContent>
+                      </Select>
                     </td>
                     <td className="p-2">
                       {col.kind === 'custom' ? (

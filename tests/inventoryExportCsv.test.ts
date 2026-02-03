@@ -11,13 +11,14 @@ describe('inventory export CSV', () => {
         id: 1,
         typeData: 123,
         customerId: 'CUST',
+        materialName: null,
+        materialNumber: null,
         lengthMm: 1000,
         widthMm: 500,
         thicknessMm: 18,
         stock: 10,
         stockAvailable: 8,
         reservedStock: 2,
-        preReserved: 0,
         lastUpdated: 'not-a-date'
       }
     ];
@@ -59,13 +60,14 @@ describe('inventory export CSV', () => {
         id: 1,
         typeData: 123,
         customerId: 'ACME;"Inc"',
+        materialName: null,
+        materialNumber: null,
         lengthMm: null,
         widthMm: null,
         thicknessMm: null,
         stock: 10,
         stockAvailable: null,
         reservedStock: null,
-        preReserved: null,
         lastUpdated: null
       }
     ];

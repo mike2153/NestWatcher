@@ -1,6 +1,5 @@
 import type { QueryResult } from "pg";
 import { withClient } from '../services/db';
-import { getGrundnerLookupColumn, resolveMaterialKey } from '../services/grundner';
 import type { GrundnerJobRow, GrundnerJobsRes, GrundnerListReq, GrundnerUpdateReq, GrundnerRow } from '../../../shared/src';
 
 type SqlParam = string | number | boolean | null | Date;
@@ -17,14 +16,7 @@ type GrundnerRowDb = {
   stock: number | null;
   stock_available: number | null;
   reserved_stock: number | null;
-  pre_reserved: number | null;
   last_updated: string | null;
-};
-
-type GrundnerKeyRow = {
-  id: number;
-  type_data: number | null;
-  customer_id: string | null;
 };
 
 function mapRow(row: GrundnerRowDb): GrundnerRow {
@@ -40,7 +32,6 @@ function mapRow(row: GrundnerRowDb): GrundnerRow {
     stock: row.stock,
     stockAvailable: row.stock_available,
     reservedStock: row.reserved_stock,
-    preReserved: row.pre_reserved ?? 0,
     lastUpdated: row.last_updated
   };
 }
@@ -76,7 +67,7 @@ export async function listGrundner(req: GrundnerListReq) {
 
   const sql = `
     SELECT id, type_data, customer_id, material_name, material_number, length_mm, width_mm, thickness_mm,
-           stock, stock_available, reserved_stock, pre_reserved, last_updated
+           stock, stock_available, reserved_stock, last_updated
     FROM public.grundner
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY type_data ASC, customer_id ASC NULLS LAST
@@ -84,7 +75,7 @@ export async function listGrundner(req: GrundnerListReq) {
   `;
 
   const rows = await withClient<GrundnerRowDb[]>((c) =>
-    c.query<GrundnerRowDb>(sql, params).then((r: QueryResult<GrundnerRowDb>) => r.rows)
+    c.query<GrundnerRowDb>(sql, params).then((r) => r.rows)
   );
   return rows.map(mapRow);
 }
@@ -92,13 +83,13 @@ export async function listGrundner(req: GrundnerListReq) {
 export async function listGrundnerAll(): Promise<GrundnerRow[]> {
   const sql = `
     SELECT id, type_data, customer_id, material_name, material_number, length_mm, width_mm, thickness_mm,
-           stock, stock_available, reserved_stock, pre_reserved, last_updated
+           stock, stock_available, reserved_stock, last_updated
     FROM public.grundner
     ORDER BY type_data ASC, customer_id ASC NULLS LAST
   `;
 
   const rows = await withClient<GrundnerRowDb[]>((c) =>
-    c.query<GrundnerRowDb>(sql).then((r: QueryResult<GrundnerRowDb>) => r.rows)
+    c.query<GrundnerRowDb>(sql).then((r) => r.rows)
   );
 
   return rows.map(mapRow);
@@ -109,14 +100,14 @@ export async function listGrundnerPreview(limit: number): Promise<GrundnerRow[]>
 
   const sql = `
     SELECT id, type_data, customer_id, material_name, material_number, length_mm, width_mm, thickness_mm,
-           stock, stock_available, reserved_stock, pre_reserved, last_updated
+           stock, stock_available, reserved_stock, last_updated
     FROM public.grundner
     ORDER BY type_data ASC, customer_id ASC NULLS LAST
     LIMIT $1
   `;
 
   const rows = await withClient<GrundnerRowDb[]>((c) =>
-    c.query<GrundnerRowDb>(sql, [boundedLimit]).then((r: QueryResult<GrundnerRowDb>) => r.rows)
+    c.query<GrundnerRowDb>(sql, [boundedLimit]).then((r) => r.rows)
   );
 
   return rows.map(mapRow);
@@ -186,36 +177,6 @@ export async function listGrundnerPendingJobs(typeData: number, limit: number): 
   }));
 
   return { items, total };
-}
-
-export async function resyncGrundnerReserved(id?: number) {
-  return withClient(async (c) => {
-    const column = getGrundnerLookupColumn();
-    let rows: GrundnerKeyRow[];
-    if (id != null) {
-      const single = await c.query<GrundnerKeyRow>('SELECT id, type_data, customer_id FROM public.grundner WHERE id = $1', [id]);
-      rows = single.rows;
-    } else {
-      const all = await c.query<GrundnerKeyRow>('SELECT id, type_data, customer_id FROM public.grundner');
-      rows = all.rows;
-    }
-
-    let updated = 0;
-    for (const row of rows) {
-      const material = resolveMaterialKey(column, { typeData: row.type_data, customerId: row.customer_id });
-      if (!material) continue;
-      const res = await c.query(
-        `UPDATE public.grundner
-           SET pre_reserved = (
-             SELECT COUNT(*) FROM public.jobs WHERE material = $1 AND pre_reserved = TRUE
-           ), last_updated = now()
-         WHERE id = $2`,
-        [material, row.id]
-      );
-      updated += res.rowCount ?? 0;
-    }
-    return updated;
-  });
 }
 
 // Rows parsed from Grundner stock.csv
@@ -355,71 +316,4 @@ export async function upsertGrundnerInventory(
   });
 
   return { inserted, updated, deleted, changed: Array.from(changed.values()) };
-}
-
-export type GrundnerAllocationConflict = {
-  jobKey: string;
-  ncfile: string | null;
-  material: string | null;
-  preReserved: boolean;
-  locked: boolean;
-  updatedAt: string | null;
-  typeData: number | null;
-  customerId: string | null;
-};
-
-export async function findGrundnerAllocationConflicts(
-  changed: GrundnerChangedRow[]
-): Promise<GrundnerAllocationConflict[]> {
-  if (!changed.length) return [];
-  const lookupColumn = getGrundnerLookupColumn();
-  const keys = new Map<string, GrundnerChangedRow>();
-  for (const row of changed) {
-    const key = resolveMaterialKey(lookupColumn, { typeData: row.typeData, customerId: row.customerId });
-    if (!key) continue;
-    const trimmed = key.trim();
-    if (!trimmed) continue;
-    if (!keys.has(trimmed)) {
-      keys.set(trimmed, row);
-    }
-  }
-  if (!keys.size) return [];
-
-  const materials = Array.from(keys.keys());
-  const sql = `
-    SELECT key AS job_key,
-           ncfile,
-           material,
-           pre_reserved,
-           is_locked,
-           updated_at
-      FROM public.jobs
-     WHERE material = ANY($1::text[])
-       AND (pre_reserved = TRUE OR is_locked = TRUE)
-  `;
-
-  const rows = await withClient(async (c) =>
-    c.query<{
-      job_key: string;
-      ncfile: string | null;
-      material: string | null;
-      pre_reserved: boolean;
-      is_locked: boolean;
-      updated_at: Date | null;
-    }>(sql, [materials]).then((r) => r.rows)
-  );
-
-  return rows.map((row) => {
-    const changedRow = keys.get(row.material?.trim() ?? '') ?? null;
-    return {
-      jobKey: row.job_key,
-      ncfile: row.ncfile,
-      material: row.material,
-      preReserved: row.pre_reserved,
-      locked: row.is_locked,
-      updatedAt: row.updated_at ? row.updated_at.toISOString() : null,
-      typeData: changedRow?.typeData ?? null,
-      customerId: changedRow?.customerId ?? null
-    };
-  });
 }

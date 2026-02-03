@@ -138,7 +138,7 @@ processedJobsRoot/
 - `parts` count is derived from `.lpt` or `.pts` line count.
 
 **Important behavior**
-- Ingestion sets `pre_reserved = true` on newly ingested jobs. This drives the planning and shortage views.
+- Ingestion creates/updates jobs in the database, but does not pre-reserve stock.
 
 ### 2. Staging to a machine
 
@@ -152,7 +152,8 @@ processedJobsRoot/
 - Files are copied to the machine Ready To Run folder.
 - Job lifecycle is updated to `STAGED`.
 - NestWatcher drops `order_saw.csv` into the Grundner folder and waits for an `.erl` confirmation.
-  - If confirmed, it locks the job and clears `pre_reserved`.
+  - If confirmed, it locks the job.
+  - The number of reserved sheets is sourced from Grundner's `stock.csv` (`reserved_stock`).
 
 ### 3. AutoPAC status CSVs
 
