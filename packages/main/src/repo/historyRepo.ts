@@ -5,7 +5,21 @@ import type { HistoryListReq, HistoryRow, JobTimelineEvent, JobTimelineRes } fro
 
 type SqlExpression = NonNullable<SQL>;
 
-const FINISH_EXPR = sql<Date | null>`CASE WHEN COALESCE(${machines.nestpickEnabled}, FALSE) THEN ${jobs.nestpickCompletedAt} ELSE ${jobs.cutAt} END`;
+// A job is considered "Nestpick-finished" only if we actually sent a Nestpick payload for that job.
+// We use the existence of the job event `nestpick:sent` as the per-job marker.
+// This avoids incorrect finish times when a machine is Nestpick-capable but Nestpick mode is OFF for a run.
+const FINISH_EXPR = sql<Date | null>`
+  CASE
+    WHEN EXISTS (
+      SELECT 1
+      FROM ${jobEvents}
+      WHERE ${jobEvents.key} = ${jobs.key}
+        AND ${jobEvents.eventType} = 'nestpick:sent'
+    )
+    THEN ${jobs.nestpickCompletedAt}
+    ELSE ${jobs.cutAt}
+  END
+`;
 
 type HistoryRowDb = {
   key: string;
@@ -132,7 +146,7 @@ export async function listHistory(req: HistoryListReq): Promise<HistoryRow[]> {
       throw new Error(`History row missing finish timestamp for job ${row.key}`);
     }
     const machineNestpickEnabled = row.machineNestpickEnabled ?? null;
-    const finishSource: HistoryRow['finishSource'] = machineNestpickEnabled ? 'nestpick' : 'cut';
+    const finishSource: HistoryRow['finishSource'] = row.nestpickCompletedAt ? 'nestpick' : 'cut';
     return {
       key: row.key,
       folder: row.folder,
@@ -200,7 +214,7 @@ export async function getJobTimeline(key: string): Promise<JobTimelineRes | null
 
   const machineNestpickEnabled = detail.machineNestpickEnabled ?? null;
   const finishAtIso = toIso(detail.finishAtRaw);
-  const usedNestpick = Boolean(machineNestpickEnabled && detail.nestpickCompletedAt);
+  const usedNestpick = Boolean(detail.nestpickCompletedAt);
   const finishSource: JobTimelineRes['job']['finishSource'] = finishAtIso
     ? usedNestpick ? 'nestpick' : 'cut'
     : 'pending';

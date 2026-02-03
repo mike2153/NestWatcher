@@ -9,6 +9,7 @@ import type {
   DiagnosticsSnapshot,
   DbStatus,
   MachineHealthEntry,
+  NestpickModeMachine,
   NcCatValidationReport
 } from '../../../shared/src';
 import { cn } from '../utils/cn';
@@ -106,6 +107,32 @@ function FullAppLayout() {
   const [validationResultsOpen, setValidationResultsOpen] = useState(false);
   const [validationReportsLoading, setValidationReportsLoading] = useState(false);
   const [validationReportsError, setValidationReportsError] = useState<string | null>(null);
+
+  const [nestpickModes, setNestpickModes] = useState<NestpickModeMachine[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const POLL_MS = 5000;
+
+    const load = async () => {
+      try {
+        const res = await window.api.telemetry.nestpickModes();
+        if (cancelled) return;
+        if (res.ok) {
+          setNestpickModes(res.value.items);
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    void load();
+    const timer = setInterval(() => void load(), POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -629,6 +656,33 @@ function FullAppLayout() {
             <div className="page-title-gradient">{pageTitle}</div>
           </div>
           <div className="flex items-center gap-2">
+            {nestpickModes.length > 0 && (
+              <div
+                className={cn(
+                  'flex items-center gap-2 rounded border border-[var(--border)]',
+                  'bg-[var(--muted)]/30 px-2 py-1'
+                )}
+                title="Nestpick mode status from CNC telemetry"
+              >
+                <span className="text-xs text-[var(--muted-foreground)]">Nestpick Enabled:</span>
+                <div className="flex items-center gap-2">
+                  {nestpickModes.map((m) => (
+                    <div key={m.machineId} className="flex items-center gap-1 text-xs">
+                      <span
+                        className={cn(
+                          'inline-block size-2 rounded-full',
+                          m.enabled ? 'bg-emerald-500' : 'bg-red-500'
+                        )}
+                        aria-label={m.enabled ? 'Nestpick mode on' : 'Nestpick mode off'}
+                      />
+                      <span className="max-w-[9rem] truncate" title={m.machineName}>
+                        {m.machineName}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <Button
               size="sm"
               onClick={() => {

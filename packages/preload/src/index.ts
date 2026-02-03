@@ -52,6 +52,7 @@ import type {
   WorklistAddResult,
   TelemetrySummaryReq,
   TelemetrySummaryRes,
+  NestpickModesRes,
   AlarmsHistoryReq,
   MessagesListRes,
   OrderingListRes,
@@ -405,6 +406,7 @@ const api = {
   },
   telemetry: {
     summary: (req: TelemetrySummaryReq) => invokeResult<TelemetrySummaryRes>('telemetry:summary', req),
+    nestpickModes: () => invokeResult<NestpickModesRes>('telemetry:nestpickModes'),
     subscribe: (req: TelemetrySummaryReq, listener: (payload: TelemetrySummaryRes) => void) => {
       const channel = 'telemetry:update';
       const handler = (_e: Electron.IpcRendererEvent, payload: TelemetrySummaryRes) => listener(payload);
