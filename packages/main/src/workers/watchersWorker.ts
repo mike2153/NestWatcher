@@ -23,6 +23,7 @@ import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLi
 import { bulkUpsertCncStats } from '../repo/cncStatsRepo';
 import type { CncStatsUpsert } from '../repo/cncStatsRepo';
 import { upsertNcStats } from '../repo/ncStatsRepo';
+import { getLatestNestpickEnabledForPcIp } from '../repo/nestpickModeRepo';
 import type {
   WatcherWorkerToMainMessage,
   MainToWatcherMessage,
@@ -1787,22 +1788,61 @@ async function handleAutoPacCsv(path: string) {
       }
 
       if (lifecycle.ok && to === 'CNC_FINISH') {
-        await forwardToNestpick(base, job, machineForJob, machines);
-        // Only emit CNC completion message if machine doesn't have Nestpick capability
-        if (!machineForJob.nestpickEnabled) {
-          const fallbackNc = base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
-          emitAppMessage(
-            'cnc.completion',
-            {
-              ncFile: displayNcName(job.ncfile, fallbackNc),
-              folder: job.folder ?? '',
-              machineName: machineForJob.name ?? (machineId != null ? `Machine ${machineId}` : 'Unknown machine')
-            },
-            'autopac'
-          );
+        let shouldUseNestpick = false;
 
-          // Archive completed job files for non-Nestpick machines
-          logger.info({ jobKey: job.key, status: 'CNC_FINISH', folder: job.folder }, 'watcher: archiving completed job');
+        if (machineForJob.nestpickEnabled) {
+          const pcIp = (machineForJob.pcIp ?? '').trim();
+          if (!pcIp) {
+            // If we can't map telemetry rows to this machine, treat Nestpick mode as OFF.
+            // This avoids jobs getting stuck waiting for Nestpick when we have no live signal.
+            logger.warn({ machineId: machineForJob.machineId }, 'watcher: nestpick mode check skipped (machine pcIp missing)');
+          } else {
+            const latest = await getLatestNestpickEnabledForPcIp(pcIp);
+            shouldUseNestpick = latest.enabled === true;
+            logger.debug(
+              {
+                machineId: machineForJob.machineId,
+                pcIp,
+                nestpickEnabledTelemetry: latest.enabled,
+                lastSeenAt: latest.lastSeenAt
+              },
+              'watcher: resolved nestpick mode from telemetry'
+            );
+          }
+        }
+
+        if (machineForJob.nestpickEnabled && shouldUseNestpick) {
+          // Nestpick-capable machine + operator has Nestpick mode ON for this run.
+          await forwardToNestpick(base, job, machineForJob, machines);
+        } else {
+          // Either not Nestpick-capable, or Nestpick mode is OFF for this run.
+          // Treat CNC_FINISH as completion and archive now.
+          // Keep existing UX behavior:
+          // - Non-Nestpick machines use the "cnc.completion" message.
+          // - Nestpick-capable machines already emit the "status.cnc_finish" message above.
+          if (!machineForJob.nestpickEnabled) {
+            const fallbackNc = base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
+            emitAppMessage(
+              'cnc.completion',
+              {
+                ncFile: displayNcName(job.ncfile, fallbackNc),
+                folder: job.folder ?? '',
+                machineName: machineForJob.name ?? (machineId != null ? `Machine ${machineId}` : 'Unknown machine')
+              },
+              'autopac'
+            );
+          }
+
+          logger.info(
+            {
+              jobKey: job.key,
+              status: 'CNC_FINISH',
+              folder: job.folder,
+              nestpickCapable: machineForJob.nestpickEnabled,
+              nestpickMode: shouldUseNestpick
+            },
+            'watcher: archiving completed job'
+          );
           const arch = await archiveCompletedJob({
             jobKey: job.key,
             jobFolder: job.folder,

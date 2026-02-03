@@ -69,7 +69,7 @@ import type {
   LogWriteReq,
   AppDialogRequest
 } from '../../../shared/src';
-import type { TelemetrySummaryReq, TelemetrySummaryRes, AlarmsHistoryReq, AlarmsHistoryRes } from '../../../shared/src';
+import type { TelemetrySummaryReq, TelemetrySummaryRes, NestpickModesRes, AlarmsHistoryReq, AlarmsHistoryRes } from '../../../shared/src';
 
 declare global {
   interface Window {
@@ -190,6 +190,7 @@ declare global {
       };
       telemetry: {
         summary: (req: TelemetrySummaryReq) => Promise<Result<TelemetrySummaryRes, AppError>>;
+        nestpickModes: () => Promise<Result<NestpickModesRes, AppError>>;
         subscribe: (
           req: TelemetrySummaryReq,
           listener: (payload: TelemetrySummaryRes) => void

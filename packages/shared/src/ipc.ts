@@ -919,6 +919,17 @@ export type TelemetryMachineSummary = z.infer<typeof TelemetryMachineSummary>;
 export const TelemetrySummaryRes = z.object({ items: z.array(TelemetryMachineSummary) });
 export type TelemetrySummaryRes = z.infer<typeof TelemetrySummaryRes>;
 
+export const NestpickModeMachine = z.object({
+  machineId: z.number().int(),
+  machineName: z.string(),
+  enabled: z.boolean(),
+  lastSeenAt: z.string().nullable().optional()
+});
+export type NestpickModeMachine = z.infer<typeof NestpickModeMachine>;
+
+export const NestpickModesRes = z.object({ items: z.array(NestpickModeMachine) });
+export type NestpickModesRes = z.infer<typeof NestpickModesRes>;
+
 export const AlarmsHistoryReq = z.object({
   from: z.string().optional(),
   to: z.string().optional(),

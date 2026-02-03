@@ -1,8 +1,11 @@
 import { ok } from 'neverthrow';
-import type { AppError, TelemetrySummaryReq, TelemetrySummaryRes } from '../../../shared/src';
+import { ok } from 'neverthrow';
+import type { AppError, NestpickModesRes, TelemetrySummaryReq, TelemetrySummaryRes } from '../../../shared/src';
 import { TelemetrySummaryReq as TelemetrySummaryReqSchema } from '../../../shared/src';
 import { registerResultHandler } from './result';
 import { summarizeTelemetry } from '../repo/telemetryRepo';
+import { listMachines } from '../repo/machinesRepo';
+import { getLatestNestpickEnabledForPcIp } from '../repo/nestpickModeRepo';
 import type { WebContents } from 'electron';
 import { onContentsDestroyed } from './onDestroyed';
 import { logger } from '../logger';
@@ -13,6 +16,24 @@ export function registerTelemetryIpc() {
     const items = await summarizeTelemetry(req);
     const res: TelemetrySummaryRes = { items };
     return ok<TelemetrySummaryRes, AppError>(res);
+  });
+
+  registerResultHandler('telemetry:nestpickModes', async () => {
+    const machines = (await listMachines()).filter((m) => m.nestpickEnabled);
+    const items = await Promise.all(
+      machines.map(async (m) => {
+        const pcIp = (m.pcIp ?? '').trim();
+        const latest = pcIp ? await getLatestNestpickEnabledForPcIp(pcIp) : { enabled: null, lastSeenAt: null };
+        return {
+          machineId: m.machineId,
+          machineName: m.name,
+          enabled: latest.enabled === true,
+          lastSeenAt: latest.lastSeenAt
+        };
+      })
+    );
+    const res: NestpickModesRes = { items };
+    return ok<NestpickModesRes, AppError>(res);
   });
 
   type Sub = { timer: NodeJS.Timeout; req: TelemetrySummaryReq; lastHash: string | null };
