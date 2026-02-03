@@ -3827,15 +3827,15 @@ async function grundnerPollOnce(folder: string) {
     const hash = createHash('sha1').update(raw).digest('hex');
     if (grundnerLastHash === hash) {
       // Even if the content is identical to the last poll, keep the folder clean.
+      // Grundner can send stock.csv frequently, so we delete it instead of archiving.
       if (await fileExists(stockPath)) {
-        enqueueFileMoveTask({
-          source: stockPath,
-          targetDir: join(folder, 'archive'),
-          purpose: 'archive',
-          watcherName: GRUNDNER_WATCHER_NAME,
-          watcherLabel: GRUNDNER_WATCHER_LABEL,
-          machineId: null
-        });
+        const deleted = await unlinkWithRetry(stockPath, 6, 150);
+        if (!deleted) {
+          recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
+            label: GRUNDNER_WATCHER_LABEL,
+            message: 'Reply delete failed; will retry'
+          });
+        }
       }
       return;
     }
@@ -3851,20 +3851,19 @@ async function grundnerPollOnce(folder: string) {
       parseOk = false;
     }
 
-    // Move stock.csv out of the root folder so it does not keep re-triggering.
-    // Success equals archive, failure equals incorrect_files.
-    if (await fileExists(stockPath)) {
-      enqueueFileMoveTask({
-        source: stockPath,
-        targetDir: join(folder, parseOk ? 'archive' : INCORRECT_FILES_DIRNAME),
-        purpose: parseOk ? 'archive' : 'incorrect_files',
-        watcherName: GRUNDNER_WATCHER_NAME,
-        watcherLabel: GRUNDNER_WATCHER_LABEL,
-        machineId: null
-      });
-    }
-
     if (!parseOk) {
+      // Keep a copy for debugging when parsing fails.
+      // We still move it out of the root folder so it does not keep re-triggering.
+      if (await fileExists(stockPath)) {
+        enqueueFileMoveTask({
+          source: stockPath,
+          targetDir: join(folder, INCORRECT_FILES_DIRNAME),
+          purpose: 'incorrect_files',
+          watcherName: GRUNDNER_WATCHER_NAME,
+          watcherLabel: GRUNDNER_WATCHER_LABEL,
+          machineId: null
+        });
+      }
       postMessageToMain({
         type: 'userAlert',
         title: 'Grundner stock.csv Invalid',
@@ -3941,6 +3940,18 @@ async function grundnerPollOnce(folder: string) {
     if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {
       scheduleRendererRefresh('grundner');
       // Grundner changes are the only live inventory refresh channel.
+    }
+
+    // Grundner can send stock.csv every few seconds.
+    // We delete it after successful processing to avoid creating endless archives.
+    if (await fileExists(stockPath)) {
+      const deleted = await unlinkWithRetry(stockPath, 6, 150);
+      if (!deleted) {
+        recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
+          label: GRUNDNER_WATCHER_LABEL,
+          message: 'Reply delete failed; will retry'
+        });
+      }
     }
 
     if (result.changed.length) {
