@@ -1,14 +1,47 @@
 import { ok } from 'neverthrow';
-import { ok } from 'neverthrow';
 import type { AppError, NestpickModesRes, TelemetrySummaryReq, TelemetrySummaryRes } from '../../../shared/src';
 import { TelemetrySummaryReq as TelemetrySummaryReqSchema } from '../../../shared/src';
 import { registerResultHandler } from './result';
 import { summarizeTelemetry } from '../repo/telemetryRepo';
 import { listMachines } from '../repo/machinesRepo';
-import { getLatestNestpickEnabledForPcIp } from '../repo/nestpickModeRepo';
+import { getLatestNestpickEnabledDebugForPcIp } from '../repo/nestpickModeRepo';
 import type { WebContents } from 'electron';
 import { onContentsDestroyed } from './onDestroyed';
 import { logger } from '../logger';
+
+type NestpickModeLogState = {
+  // We only log on init and when custom_values changes.
+  lastCustomValuesHash: string | null;
+};
+
+// Nestpick mode is polled by the renderer header every 5 seconds.
+// We only log:
+// - the first time we see a machine (init)
+// - when the latest cncstats.custom_values JSON changes
+const nestpickModeLogStateByMachineId = new Map<number, NestpickModeLogState>();
+
+function safeJsonStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '[unstringifiable json]';
+  }
+}
+
+function buildNestpickModeDecisionMessage(args: {
+  machineId: number;
+  machineName: string;
+  cncstatsRowKey: string | null;
+  customValues: unknown;
+  npEnabled: 'yes' | 'no';
+}): string {
+  const lastKey = args.cncstatsRowKey ?? '(none)';
+  const customValuesText = safeJsonStringify(args.customValues);
+
+  // Requested format (after normal logger prefix):
+  // | Machine (machine name) | (last key) | NP Enabled (yes/no) | custom values
+  return `| Machine ${args.machineName} | ${lastKey} | NP Enabled ${args.npEnabled} | ${customValuesText}`;
+}
 
 export function registerTelemetryIpc() {
   registerResultHandler('telemetry:summary', async (_e, raw) => {
@@ -20,14 +53,37 @@ export function registerTelemetryIpc() {
 
   registerResultHandler('telemetry:nestpickModes', async () => {
     const machines = (await listMachines()).filter((m) => m.nestpickEnabled);
+
     const items = await Promise.all(
       machines.map(async (m) => {
         const pcIp = (m.pcIp ?? '').trim();
-        const latest = pcIp ? await getLatestNestpickEnabledForPcIp(pcIp) : { enabled: null, lastSeenAt: null };
+
+        const latest = await getLatestNestpickEnabledDebugForPcIp(pcIp);
+        const shouldBeGreen = latest.enabled === true;
+
+        // Logging policy: log once on init, then only when the latest cncstats.custom_values changes.
+        // This avoids log spam while still capturing exactly when the input that drives
+        // the dot changes.
+        const customValuesHash = safeJsonStringify(latest.row.customValues);
+        const state = nestpickModeLogStateByMachineId.get(m.machineId);
+        const isInit = !state;
+        const changed = state?.lastCustomValuesHash !== customValuesHash;
+        if (isInit || changed) {
+          const msg = buildNestpickModeDecisionMessage({
+            machineId: m.machineId,
+            machineName: m.name,
+            cncstatsRowKey: latest.row.key,
+            customValues: latest.row.customValues,
+            npEnabled: shouldBeGreen ? 'yes' : 'no'
+          });
+          logger.info(msg);
+          nestpickModeLogStateByMachineId.set(m.machineId, { lastCustomValuesHash: customValuesHash });
+        }
+
         return {
           machineId: m.machineId,
           machineName: m.name,
-          enabled: latest.enabled === true,
+          enabled: shouldBeGreen,
           lastSeenAt: latest.lastSeenAt
         };
       })

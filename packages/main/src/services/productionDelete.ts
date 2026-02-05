@@ -3,7 +3,7 @@ import { join, normalize } from 'path';
 import { loadConfig } from './config';
 import { logger } from '../logger';
 import { pushAppMessage } from './messages';
-import { archiveGrundnerReplyFile, quarantineGrundnerReplyFile } from './grundnerArchive';
+import { archiveGrundnerReplyFile, copyGrundnerIoFileToArchive, quarantineGrundnerReplyFile } from './grundnerArchive';
 
 type DeleteItem = { ncfile: string | null; machineId: number | null };
 
@@ -53,6 +53,7 @@ export async function placeProductionDeleteCsv(
 ): Promise<{ confirmed: boolean; folder: string; checked?: boolean; deleted?: boolean; message?: string }>{
   if (!items.length) return { confirmed: false, folder: '', checked: false, deleted: false, message: 'No items to delete' };
   const cfg = loadConfig();
+  const archiveIoFiles = Boolean(cfg.integrations?.archiveIoFiles);
   const effectiveTimeoutMs = cfg.test?.disableErlTimeouts ? Number.POSITIVE_INFINITY : timeoutMs;
   const folderRaw = cfg.paths.grundnerFolderPath?.trim() ?? '';
   if (!folderRaw) return { confirmed: false, folder: '', checked: false, deleted: false, message: 'Grundner folder not configured' };
@@ -97,6 +98,14 @@ export async function placeProductionDeleteCsv(
   await fsp.writeFile(tmpPath, lines, 'utf8');
   await fsp.rename(tmpPath, reqPath).catch(async () => { await fsp.writeFile(reqPath, lines, 'utf8'); });
 
+  // Optional: archive a copy of the outbound request without breaking the handshake.
+  if (archiveIoFiles && existsSync(reqPath)) {
+    const copied = await copyGrundnerIoFileToArchive({ grundnerFolder: folder, sourcePath: reqPath, suffix: 'sent' });
+    if (!copied.ok) {
+      logger.warn({ folder, error: copied.error }, 'productionDelete: failed to copy get_production.csv into archive');
+    }
+  }
+
   // Wait for the answer file
   const ok = await waitFor(async () => existsSync(ansPath), effectiveTimeoutMs);
   if (!ok) {
@@ -108,26 +117,12 @@ export async function placeProductionDeleteCsv(
   const raw = await fsp.readFile(ansPath, 'utf8');
   const confirmed = normalizeGrundnerReply(raw) === normalizeGrundnerReply(lines);
 
-  // File disposition policy:
-  // - success equals archive
-  // - failure equals incorrect_files
-  const moveRes = confirmed
-    ? await archiveGrundnerReplyFile({ grundnerFolder: folder, sourcePath: ansPath })
-    : await quarantineGrundnerReplyFile({ grundnerFolder: folder, sourcePath: ansPath });
-
-  if (moveRes.ok) {
-    const archivedAs = moveRes.archivedPath;
-    if (confirmed) {
-      pushAppMessage(
-        'grundner.erl.archived',
-        {
-          fileName: 'get_production.erl',
-          archivedAs,
-          note: 'Reply matched request.'
-        },
-        { source: 'grundner' }
-      );
-    } else {
+  // Reply disposition policy:
+  // - incorrect replies always go to incorrect_files
+  // - correct replies are archived only when Archive IO is enabled
+  if (!confirmed) {
+    const moveRes = await quarantineGrundnerReplyFile({ grundnerFolder: folder, sourcePath: ansPath });
+    if (moveRes.ok) {
       pushAppMessage(
         'grundner.file.quarantined',
         {
@@ -137,22 +132,50 @@ export async function placeProductionDeleteCsv(
         },
         { source: 'grundner' }
       );
+      return {
+        confirmed,
+        folder,
+        checked: true,
+        deleted: true,
+        message: 'Delete confirmation did not match request'
+      };
     }
+
+    logger.warn({ folder, error: moveRes.error }, 'productionDelete: failed to quarantine get_production.erl');
     return {
       confirmed,
       folder,
       checked: true,
-      deleted: true,
-      message: confirmed ? undefined : 'Delete confirmation did not match request'
+      deleted: false,
+      message: 'Delete confirmation did not match request'
     };
   }
 
-  logger.warn({ folder, error: moveRes.error }, 'productionDelete: failed to move get_production.erl');
-  return {
-    confirmed,
-    folder,
-    checked: true,
-    deleted: false,
-    message: confirmed ? undefined : 'Delete confirmation did not match request'
-  };
+  if (archiveIoFiles) {
+    const moveRes = await archiveGrundnerReplyFile({ grundnerFolder: folder, sourcePath: ansPath });
+    if (moveRes.ok) {
+      pushAppMessage(
+        'grundner.erl.archived',
+        {
+          fileName: 'get_production.erl',
+          archivedAs: moveRes.archivedPath,
+          note: 'Reply matched request.'
+        },
+        { source: 'grundner' }
+      );
+      return { confirmed, folder, checked: true, deleted: true };
+    }
+    logger.warn({ folder, error: moveRes.error }, 'productionDelete: failed to archive get_production.erl');
+    return { confirmed, folder, checked: true, deleted: false };
+  }
+
+  // Archive IO is disabled: delete successful reply.
+  try {
+    await fsp.unlink(ansPath);
+    logger.info({ folder }, 'productionDelete: deleted get_production.erl after successful processing');
+    return { confirmed, folder, checked: true, deleted: true };
+  } catch (err) {
+    logger.warn({ folder, err }, 'productionDelete: failed to delete get_production.erl');
+    return { confirmed, folder, checked: true, deleted: false };
+  }
 }

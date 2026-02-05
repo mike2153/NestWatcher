@@ -40,10 +40,9 @@ type TestState = Settings['test'];
 type GrundnerState = Settings['grundner'];
 type InventoryExportState = Settings['inventoryExport'];
 
-const DEFAULT_PATHS: PathsState = { processedJobsRoot: '', autoPacCsvDir: '', autoPacArchiveEnabled: false, grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' };
+const DEFAULT_PATHS: PathsState = { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' };
 const DEFAULT_TEST: TestState = { testDataFolderPath: '', useTestDataMode: false, disableErlTimeouts: false };
 const DEFAULT_GRUNDNER: GrundnerState = {
-  archiveErlReplies: false,
   tableColumns: {
     typeData: { visible: true, order: 1 },
     materialName: { visible: false, order: 2 },
@@ -452,6 +451,7 @@ export function SettingsPage() {
       paths,
       test: testState,
       grundner: grundnerState,
+      integrations: { archiveIoFiles: false },
       inventoryExport: inventoryExportState,
       jobs: { completedJobsTimeframe: '7days', statusFilter: ['pending', 'processing', 'complete'] },
       validationWarnings: { showValidationWarnings: false }
@@ -754,23 +754,7 @@ export function SettingsPage() {
               {pathStatus.autoPacCsvDir.message}
             </span>
 
-            <div className="mt-2 flex items-start gap-2">
-              <input
-                id="autoPacArchiveEnabled"
-                type="checkbox"
-                className="mt-1"
-                checked={!!paths.autoPacArchiveEnabled}
-                onChange={(e) => setPaths({ ...paths, autoPacArchiveEnabled: e.target.checked })}
-              />
-              <div>
-                <label htmlFor="autoPacArchiveEnabled" className="text-sm font-medium">
-                  Archive AutoPAC status CSVs
-                </label>
-                <div className="text-xs text-muted-foreground">
-                  Moves processed AutoPAC status CSVs into a "archive" subfolder with a dd.mm_hh.mm.ss suffix.
-                </div>
-              </div>
-            </div>
+
           </label>
           <label className="form-label">
             <span>Grundner Folder</span>

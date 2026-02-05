@@ -45,6 +45,33 @@ export async function quarantineGrundnerReplyFile(params: {
   });
 }
 
+export async function copyGrundnerIoFileToArchive(params: {
+  grundnerFolder: string;
+  sourcePath: string;
+  suffix?: string;
+}): Promise<{ ok: true; archivedPath: string } | { ok: false; error: string }> {
+  const { grundnerFolder, sourcePath, suffix } = params;
+  try {
+    const targetDir = join(grundnerFolder, GRUNDNER_ARCHIVE_DIRNAME);
+    await fsp.mkdir(targetDir, { recursive: true });
+
+    const stamp = formatArchiveTimestampDdMmHhMmSs();
+    const base = basename(sourcePath, extname(sourcePath));
+    const ext = extname(sourcePath) || '';
+    const extra = suffix ? `_${suffix}` : '';
+    let candidate = join(targetDir, `${base}_${stamp}${extra}${ext}`);
+
+    for (let i = 1; i <= 25 && (await fileExists(candidate)); i++) {
+      candidate = join(targetDir, `${base}_${stamp}${extra}_${i}${ext}`);
+    }
+
+    await fsp.copyFile(sourcePath, candidate);
+    return { ok: true, archivedPath: candidate };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 async function moveGrundnerFile(params: {
   grundnerFolder: string;
   sourcePath: string;

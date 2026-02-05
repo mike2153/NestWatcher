@@ -10,16 +10,159 @@
     "statementTimeoutMs": 30000
   },
   "paths": {
-    "processedJobsRoot": "C:\\Users\\mike2\\Documents\\GitHub\\Test NC Files",
-    "autoPacCsvDir": "D:\\SoftwareTesting\\LabelStatus",
-    "grundnerFolderPath": "D:\\SoftwareTesting\\Nestpick"
+    "processedJobsRoot": "D:\\GitHub\\Test NC Files\\nestwatch_jobs_root",
+    "autoPacCsvDir": "D:\\GitHub\\Test NC Files\\label_status",
+    "autoPacArchiveEnabled": true,
+    "grundnerFolderPath": "D:\\GitHub\\Test NC Files\\nestpick",
+    "archiveRoot": "D:\\GitHub\\Test NC Files\\archive",
+    "jobsRoot": "D:\\GitHub\\Test NC Files\\nc_cat_jobs_root",
+    "quarantineRoot": "D:\\GitHub\\Test NC Files\\quarantine"
   },
   "test": {
-    "testDataFolderPath": "D:\\SoftwareTesting\\Nestpick",
+    "testDataFolderPath": "C:\\Users\\mike2\\Documents\\GitHub\\CNCTestData\\cnc_data",
     "useTestDataMode": false,
+    "disableErlTimeouts": true,
     "sheetIdMode": "type_data"
   },
   "grundner": {
-    "reservedAdjustmentMode": "delta"
+    "archiveErlReplies": false,
+    "tableColumns": {
+      "typeData": {
+        "visible": true,
+        "order": 1
+      },
+      "materialName": {
+        "visible": true,
+        "order": 2
+      },
+      "materialNumber": {
+        "visible": false,
+        "order": 1
+      },
+      "customerId": {
+        "visible": true,
+        "order": 9
+      },
+      "lengthMm": {
+        "visible": true,
+        "order": 3
+      },
+      "widthMm": {
+        "visible": true,
+        "order": 4
+      },
+      "thicknessMm": {
+        "visible": true,
+        "order": 5
+      },
+      "stock": {
+        "visible": true,
+        "order": 6
+      },
+      "reservedStock": {
+        "visible": true,
+        "order": 7
+      },
+      "stockAvailable": {
+        "visible": true,
+        "order": 8
+      },
+      "lastUpdated": {
+        "visible": false,
+        "order": 12
+      }
+    }
+  },
+  "inventoryExport": {
+    "template": {
+      "delimiter": ",",
+      "lastUpdatedFormat": "hh:mm dd.mm.yyyy",
+      "columns": [
+        {
+          "kind": "field",
+          "enabled": true,
+          "header": "Type",
+          "field": "typeData"
+        },
+        {
+          "kind": "field",
+          "enabled": true,
+          "header": "Substrate",
+          "field": "materialName"
+        },
+        {
+          "kind": "field",
+          "enabled": true,
+          "header": "Thickness",
+          "field": "thicknessMm"
+        },
+        {
+          "kind": "custom",
+          "enabled": true,
+          "header": "Units",
+          "defaultValue": "mm"
+        },
+        {
+          "kind": "custom",
+          "enabled": true,
+          "header": "Offcut",
+          "defaultValue": "0"
+        },
+        {
+          "kind": "field",
+          "enabled": true,
+          "header": "Customer ID",
+          "field": "customerId"
+        },
+        {
+          "kind": "field",
+          "enabled": true,
+          "header": "Width",
+          "field": "lengthMm"
+        },
+        {
+          "kind": "field",
+          "enabled": true,
+          "header": "Height",
+          "field": "lengthMm"
+        },
+        {
+          "kind": "custom",
+          "enabled": true,
+          "header": "Grain Direction",
+          "defaultValue": "x"
+        },
+        {
+          "kind": "field",
+          "enabled": true,
+          "header": "Quantity",
+          "field": "stockAvailable"
+        },
+        {
+          "kind": "field",
+          "enabled": true,
+          "header": "Last Updated",
+          "field": "lastUpdated"
+        }
+      ]
+    },
+    "scheduled": {
+      "enabled": true,
+      "intervalSeconds": 60,
+      "onlyOnChange": true,
+      "folderPath": "C:\\Users\\mike2\\Downloads",
+      "fileName": "sheetDBExport.csv"
+    }
+  },
+  "jobs": {
+    "completedJobsTimeframe": "7days",
+    "statusFilter": [
+      "pending",
+      "processing",
+      "complete"
+    ]
+  },
+  "validationWarnings": {
+    "showValidationWarnings": true
   }
 }

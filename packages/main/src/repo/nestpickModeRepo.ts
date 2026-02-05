@@ -5,6 +5,26 @@ type NestpickModeResult = {
   lastSeenAt: string | null;
 };
 
+type NestpickModeDebug = {
+  enabled: boolean | null;
+  reason: string;
+  matchedKey: string | null;
+  rawValue: unknown;
+};
+
+export type NestpickModeDebugResult = {
+  enabled: boolean | null;
+  lastSeenAt: string | null;
+  // These are for logging only. Do not pass to renderer.
+  row: {
+    key: string | null;
+    pcIp: string | null;
+    ts: string | null;
+    customValues: unknown;
+  };
+  debug: NestpickModeDebug;
+};
+
 function toRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -54,6 +74,73 @@ export function extractNestpickEnabledFromCustomValues(customValues: unknown): b
   return toBooleanish(value);
 }
 
+function extractNestpickEnabledDebugFromCustomValues(customValues: unknown): NestpickModeDebug {
+  const obj = toRecord(customValues);
+  if (!obj) {
+    return { enabled: null, reason: 'custom_values is not an object', matchedKey: null, rawValue: null };
+  }
+
+  const candidates = ['nestpick_enable', 'nestpick_enabled'];
+
+  // Support both spellings because the collector might change.
+  const matched = (() => {
+    for (const candidate of candidates) {
+      const wanted = candidate.toLowerCase();
+      for (const [k, v] of Object.entries(obj)) {
+        if (k.toLowerCase() === wanted) return { key: k, value: v };
+      }
+    }
+    return null;
+  })();
+
+  if (!matched) {
+    return {
+      enabled: null,
+      reason: `custom_values missing nestpick key; expected one of: ${candidates.join(', ')}`,
+      matchedKey: null,
+      rawValue: null
+    };
+  }
+
+  // Shape A: { nestpick_enable: { value: 1, ... } }
+  const keyObj = toRecord(matched.value);
+  if (keyObj) {
+    const rawValue = pickCaseInsensitive(keyObj, ['value']);
+    const enabled = toBooleanish(rawValue);
+    if (enabled == null) {
+      return {
+        enabled: null,
+        reason: `custom_values.${matched.key}.value is not boolean-ish; expected 0 or 1 or true or false`,
+        matchedKey: matched.key,
+        rawValue
+      };
+    }
+    return {
+      enabled,
+      reason: `custom_values.${matched.key}.value parsed successfully`,
+      matchedKey: matched.key,
+      rawValue
+    };
+  }
+
+  // Shape B: { nestpick_enable: 1 }
+  const enabled = toBooleanish(matched.value);
+  if (enabled == null) {
+    return {
+      enabled: null,
+      reason: `custom_values.${matched.key} is not boolean-ish; expected 0 or 1 or true or false`,
+      matchedKey: matched.key,
+      rawValue: matched.value
+    };
+  }
+  return {
+    enabled,
+    reason: `custom_values.${matched.key} parsed successfully`,
+    matchedKey: matched.key,
+    rawValue: matched.value
+  };
+}
+
 const STATS_HOST_EXPR = `split_part(split_part(regexp_replace(lower(btrim(cs.pc_ip)), '^https?://', ''), '/', 1), ':', 1)`;
 const STATS_HOST_NORM_EXPR = `regexp_replace(${STATS_HOST_EXPR}, '\\s+', '', 'g')`;
 
@@ -95,5 +182,92 @@ export async function getLatestNestpickEnabledForPcIp(pcIp: string): Promise<Nes
   } catch {
     // If the column does not exist or the query fails, treat as unknown.
     return { enabled: null, lastSeenAt: null };
+  }
+}
+
+export async function getLatestNestpickEnabledDebugForPcIp(pcIp: string): Promise<NestpickModeDebugResult> {
+  const trimmed = (pcIp ?? '').trim();
+  if (!trimmed) {
+    return {
+      enabled: null,
+      lastSeenAt: null,
+      row: { key: null, pcIp: null, ts: null, customValues: null },
+      debug: {
+        enabled: null,
+        reason: 'machine pcIp is blank; cannot query cncstats',
+        matchedKey: null,
+        rawValue: null
+      }
+    };
+  }
+
+  try {
+    const row = await withClient(async (client) => {
+      const sql = `
+        SELECT
+          cs.key AS key,
+          cs.pc_ip AS pc_ip,
+          cs.custom_values AS custom_values,
+          cs.ts AS ts
+        FROM public.cncstats cs
+        WHERE cs.pc_ip IS NOT NULL
+          AND btrim(cs.pc_ip) <> ''
+          AND ${STATS_HOST_NORM_EXPR} = ${PARAM_HOST_NORM_EXPR}
+        ORDER BY cs.ts DESC
+        LIMIT 1
+      `;
+      const res = await client.query<{ key: string; pc_ip: string | null; custom_values: unknown; ts: Date | string | null }>(
+        sql,
+        [trimmed]
+      );
+      return res.rows[0] ?? null;
+    });
+
+    if (!row) {
+      return {
+        enabled: null,
+        lastSeenAt: null,
+        row: { key: null, pcIp: trimmed, ts: null, customValues: null },
+        debug: {
+          enabled: null,
+          reason: 'no cncstats rows found for this pcIp',
+          matchedKey: null,
+          rawValue: null
+        }
+      };
+    }
+
+    const lastSeenAt =
+      row.ts instanceof Date
+        ? row.ts.toISOString()
+        : typeof row.ts === 'string'
+          ? row.ts
+          : null;
+
+    const debug = extractNestpickEnabledDebugFromCustomValues((row as { custom_values?: unknown }).custom_values);
+
+    return {
+      enabled: debug.enabled,
+      lastSeenAt,
+      row: {
+        key: row.key ?? null,
+        pcIp: row.pc_ip ?? null,
+        ts: lastSeenAt,
+        customValues: (row as { custom_values?: unknown }).custom_values
+      },
+      debug
+    };
+  } catch {
+    return {
+      enabled: null,
+      lastSeenAt: null,
+      row: { key: null, pcIp: trimmed, ts: null, customValues: null },
+      debug: {
+        enabled: null,
+        reason: 'query failed; treating nestpick mode as unknown',
+        matchedKey: null,
+        rawValue: null
+      }
+    };
   }
 }

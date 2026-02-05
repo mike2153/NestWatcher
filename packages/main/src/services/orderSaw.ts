@@ -3,7 +3,7 @@ import { join, normalize } from 'path';
 import { loadConfig } from './config';
 import { logger } from '../logger';
 import { pushAppMessage } from './messages';
-import { archiveGrundnerReplyFile, quarantineGrundnerReplyFile } from './grundnerArchive';
+import { archiveGrundnerReplyFile, copyGrundnerIoFileToArchive, quarantineGrundnerReplyFile } from './grundnerArchive';
 
 type OrderItem = { key: string; ncfile: string | null; material: string | null };
 
@@ -46,6 +46,7 @@ export async function placeOrderSawCsv(
 ): Promise<{ confirmed: boolean; erl?: string; csv?: string; folder: string; checked?: boolean; deleted?: boolean }>{
   if (!items.length) throw new Error('No items to order');
   const cfg = loadConfig();
+  const archiveIoFiles = Boolean(cfg.integrations?.archiveIoFiles);
   const effectiveTimeoutMs = cfg.test?.disableErlTimeouts ? Number.POSITIVE_INFINITY : timeoutMs;
   const folderRaw = cfg.paths.grundnerFolderPath?.trim() ?? '';
   if (!folderRaw) throw new Error('Grundner folder path is not configured');
@@ -83,6 +84,14 @@ export async function placeOrderSawCsv(
   await fsp.writeFile(tmpPath, lines, 'utf8');
   await fsp.rename(tmpPath, csvPath).catch(async () => { await fsp.writeFile(csvPath, lines, 'utf8'); });
 
+  // Optional: archive a copy of the outbound request without breaking the handshake.
+  if (archiveIoFiles && existsSync(csvPath)) {
+    const copied = await copyGrundnerIoFileToArchive({ grundnerFolder: folder, sourcePath: csvPath, suffix: 'sent' });
+    if (!copied.ok) {
+      logger.warn({ folder, error: copied.error }, 'orderSaw: failed to copy order_saw.csv into archive');
+    }
+  }
+
   // Wait for reply
   const ok = await waitFor(async () => existsSync(erlPath), effectiveTimeoutMs);
   if (!ok) {
@@ -104,26 +113,12 @@ export async function placeOrderSawCsv(
     logger.warn({ folder }, 'orderSaw: erl content does not match CSV');
   }
 
-  // File disposition policy:
-  // - success equals archive
-  // - failure equals incorrect_files
-  const moveRes = confirmed
-    ? await archiveGrundnerReplyFile({ grundnerFolder: folder, sourcePath: erlPath })
-    : await quarantineGrundnerReplyFile({ grundnerFolder: folder, sourcePath: erlPath });
-
-  if (moveRes.ok) {
-    const archivedAs = moveRes.archivedPath;
-    if (confirmed) {
-      pushAppMessage(
-        'grundner.erl.archived',
-        {
-          fileName: 'order_saw.erl',
-          archivedAs,
-          note: 'Reply matched request.'
-        },
-        { source: 'grundner' }
-      );
-    } else {
+  // Reply disposition policy:
+  // - incorrect replies always go to incorrect_files
+  // - correct replies are archived only when Archive IO is enabled
+  if (!confirmed) {
+    const moveRes = await quarantineGrundnerReplyFile({ grundnerFolder: folder, sourcePath: erlPath });
+    if (moveRes.ok) {
       pushAppMessage(
         'grundner.file.quarantined',
         {
@@ -133,11 +128,38 @@ export async function placeOrderSawCsv(
         },
         { source: 'grundner' }
       );
+      return { confirmed, erl, csv: lines, folder, checked: true, deleted: true };
     }
-    return { confirmed, erl, csv: lines, folder, checked: true, deleted: true };
+
+    logger.warn({ folder, error: moveRes.error }, 'orderSaw: failed to quarantine order_saw.erl');
+    return { confirmed, erl, csv: lines, folder, checked: true, deleted: false };
   }
 
-  // If we could not move the file, do not crash the flow.
-  logger.warn({ folder, error: moveRes.error }, 'orderSaw: failed to move order_saw.erl');
-  return { confirmed, erl, csv: lines, folder, checked: true, deleted: false };
+  if (archiveIoFiles) {
+    const moveRes = await archiveGrundnerReplyFile({ grundnerFolder: folder, sourcePath: erlPath });
+    if (moveRes.ok) {
+      pushAppMessage(
+        'grundner.erl.archived',
+        {
+          fileName: 'order_saw.erl',
+          archivedAs: moveRes.archivedPath,
+          note: 'Reply matched request.'
+        },
+        { source: 'grundner' }
+      );
+      return { confirmed, erl, csv: lines, folder, checked: true, deleted: true };
+    }
+    logger.warn({ folder, error: moveRes.error }, 'orderSaw: failed to archive order_saw.erl');
+    return { confirmed, erl, csv: lines, folder, checked: true, deleted: false };
+  }
+
+  // Archive IO is disabled: delete successful reply.
+  try {
+    await fsp.unlink(erlPath);
+    logger.info({ folder }, 'orderSaw: deleted order_saw.erl after successful processing');
+    return { confirmed, erl, csv: lines, folder, checked: true, deleted: true };
+  } catch (err) {
+    logger.warn({ folder, err }, 'orderSaw: failed to delete order_saw.erl');
+    return { confirmed, erl, csv: lines, folder, checked: true, deleted: false };
+  }
 }
