@@ -94,8 +94,11 @@ function ensureIpcHooked(): void {
   });
 }
 
+// Important: hook IPC immediately so we don't miss the renderer's
+// early "ui:dialog:ready" signal during startup.
+ensureIpcHooked();
+
 export function enqueueDialog(dialogRequest: QueuedDialog): void {
-  ensureIpcHooked();
   queue.push(dialogRequest);
   scheduleFlush();
 }

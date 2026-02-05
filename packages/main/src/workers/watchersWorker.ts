@@ -223,6 +223,7 @@ let stageSanityTimer: NodeJS.Timeout | null = null;
 let sourceSanityTimer: NodeJS.Timeout | null = null;
 
 const autoPacHashes = new Map<string, string>();
+const autoPacOrderSawInFlight = new Set<string>();
 const pendingGrundnerReleases = new Map<string, number>();
 const PENDING_GRUNDNER_RELEASE_TTL_MS = 60_000;
 
@@ -264,6 +265,11 @@ const GRUNDNER_WATCHER_NAME = 'watcher:grundner';
 const GRUNDNER_WATCHER_LABEL = 'Grundner Stock Poller';
 let grundnerTimer: NodeJS.Timeout | null = null;
 let grundnerLastHash: string | null = null;
+
+// AutoPAC folder scan fallback.
+// This exists because Windows/network shares can miss chokidar events.
+let autoPacScanTimer: NodeJS.Timeout | null = null;
+let autoPacScanRunning = false;
 
 type NestpickOutboundRecord = {
   jobKey: string;
@@ -340,10 +346,15 @@ function shouldIgnoreAutoPacPath(path: string): boolean {
 
   if (shouldIgnoreShareTempFile(path)) return true;
 
-  // Strict file matching: only react to known AutoPAC CSV file name patterns.
-  // Anything else in the folder is ignored.
+  // Important: do NOT ignore directories.
+  // When chokidar is using polling, it must be able to traverse the watched
+  // directory to notice newly created files.
+  // We only ignore specific subfolders we manage (archive/incorrect_files) above.
+
+  // Strict file matching: ignore unknown CSV filenames to reduce noise,
+  // but allow non-CSV paths so directory traversal still works.
   const name = basename(path).toLowerCase();
-  if (!name.endsWith('.csv')) return true;
+  if (!name.endsWith('.csv')) return false;
   if (name.startsWith('load_finish')) return false;
   if (name.startsWith('label_finish')) return false;
   if (name.startsWith('cnc_finish')) return false;
@@ -631,6 +642,12 @@ function createResilientWatcher(options: ResilientWatcherOptions): ResilientWatc
     });
 
     w.on('error', (err) => {
+      // Chokidar on Windows/network shares can emit transient lstat errors for
+      // temp files that appear/disappear quickly (example: *.tmp-123).
+      // These should NOT take the whole watcher offline.
+      if (isBenignChokidarLstatTempError(err)) {
+        return;
+      }
       if (options.shouldIgnoreError?.(err)) {
         return;
       }
@@ -1436,7 +1453,7 @@ async function waitForExists(path: string, timeoutMs = 30_000) {
   return true;
 }
 
-async function handleAutoPacOrderSawCsv(path: string) {
+async function handleAutoPacOrderSawCsv(path: string, machineTokenFromFile: string) {
   const cfg = loadConfig();
   const grundnerRoot = cfg.paths.grundnerFolderPath?.trim() ?? '';
   if (!grundnerRoot) {
@@ -1450,6 +1467,7 @@ async function handleAutoPacOrderSawCsv(path: string) {
 
   const fileName = basename(path);
   const sourceFolder = dirname(path);
+  const machineToken = machineTokenFromFile.trim();
   const expectedExample =
     'Example file contents:\n' +
     'PART_123;1;\n' +
@@ -1510,6 +1528,31 @@ async function handleAutoPacOrderSawCsv(path: string) {
     });
   };
 
+  // Strict naming requirement: order_saw<machineToken>.csv
+  // Example: order_sawWT1.csv
+  if (!machineToken) {
+    await reportOrderSawFormatError({
+      reason: 'Missing machine token in filename',
+      found: `Filename was '${fileName}'. Expected something like 'order_sawWT1.csv'`,
+      raw: ''
+    });
+    return;
+  }
+
+  // Validate machine token maps to a configured machine.
+  // This prevents random files from triggering Grundner traffic.
+  const machines = await listMachines();
+  const wanted = sanitizeToken(machineToken);
+  const resolvedMachine = machines.find((m) => sanitizeToken(m.name) === wanted || sanitizeToken(String(m.machineId)) === wanted);
+  if (!resolvedMachine) {
+    await reportOrderSawFormatError({
+      reason: 'Unknown machine token in filename',
+      found: `No configured machine matched token '${machineToken}' (from filename ${fileName})`,
+      raw: ''
+    });
+    return;
+  }
+
   try {
     await waitForStableFile(path);
 
@@ -1529,6 +1572,19 @@ async function handleAutoPacOrderSawCsv(path: string) {
             : hasDelimiters
               ? `Non-empty lines=${nonEmptyLines.length} but none had a valid nc base and machine id pair`
               : `Non-empty lines=${nonEmptyLines.length} but no ',' or ';' delimiters were found`,
+        raw
+      });
+      return;
+    }
+
+    // Safety: this request should only describe one machine.
+    // If the filename says WT1, every row must target WT1's machineId.
+    const expectedMachineId = resolvedMachine.machineId;
+    if (expectedMachineId != null && items.some((it) => it.machineId !== expectedMachineId)) {
+      const ids = Array.from(new Set(items.map((it) => it.machineId))).sort((a, b) => a - b);
+      await reportOrderSawFormatError({
+        reason: 'Machine id mismatch',
+        found: `Filename token resolved machineId=${expectedMachineId}, but file contained machineId(s): ${ids.join(', ')}`,
         raw
       });
       return;
@@ -1723,7 +1779,7 @@ async function handleAutoPacOrderSawCsv(path: string) {
 
       scheduleRetry(backoffKey, delayMs, () => {
         if (shuttingDown) return;
-        void handleAutoPacOrderSawCsv(path);
+        void handleAutoPacOrderSawCsv(path, machineToken);
       });
 
       logger.warn({ err, file: path, grundnerRoot, delayMs }, 'watcher: order_saw ChangeMachNr busy; scheduled retry');
@@ -1892,9 +1948,9 @@ async function disposeAutoPacCsv(sourcePath: string): Promise<boolean> {
   const autoPacDir = dirname(sourcePath);
   const archiveDir = join(autoPacDir, AUTOPAC_ARCHIVE_DIRNAME);
 
-  // Policy: never delete watcher-read input files.
-  // Success equals archive. If we cannot move right now due to share issues,
-  // enqueue a retryable move task instead.
+  // Policy: never permanently delete watcher-read input files.
+  // Success equals archiving them (moving into archive/, removing from the root folder).
+  // If we cannot move right now due to share issues, enqueue a retryable move task instead.
   try {
     if (!(await fileExists(sourcePath))) {
       return true;
@@ -1937,7 +1993,15 @@ async function handleAutoPacCsv(path: string) {
   }
 
   if (lower.startsWith('order_saw')) {
-    await handleAutoPacOrderSawCsv(path);
+    let machineToken = fileName.slice('order_saw'.length);
+    machineToken = machineToken.replace(/^[-_\s]+/, '');
+    const csvSuffix = machineToken.toLowerCase().indexOf('.csv');
+    if (csvSuffix !== -1) {
+      machineToken = machineToken.slice(0, csvSuffix);
+    }
+    machineToken = machineToken.trim();
+
+    await handleAutoPacOrderSawCsv(path, machineToken);
     return;
   }
   let to: 'LOAD_FINISH' | 'LABEL_FINISH' | 'CNC_FINISH' | null = null;
@@ -1973,7 +2037,7 @@ async function handleAutoPacCsv(path: string) {
       .join('\n');
 
     const expected =
-      "Expected a .csv file with comma or semicolon delimiters, at least 2 columns per row, the machine token from the filename present somewhere in the CSV, and the NC base in column 1 (with or without .nc). Spaces are allowed in the base name.";
+      "Expected a .csv file with comma or semicolon delimiters, exactly 1 data row, at least 2 columns, the NC base in column 1 (with or without .nc), and the numeric machine id in column 2. Spaces are allowed in the base name.";
 
     const reportFormatError = async (params: { reason: string; found: string }) => {
       const autoPacDir = dirname(path);
@@ -2023,9 +2087,13 @@ async function handleAutoPacCsv(path: string) {
         }
       });
 
-      // Invalid CSV must not be deleted. Move it into incorrect_files so an operator
-      // can fix it and drop it back in.
-      autoPacHashes.delete(path);
+      // Invalid CSV must not be permanently deleted.
+      // We move it into incorrect_files so an operator can fix it and drop it back in.
+      // If the move failed and the file is still sitting in the root folder, keep the
+      // hash entry so we don't spam popups every scan tick.
+      if (quarantinedAs || !(await fileExists(path))) {
+        autoPacHashes.delete(path);
+      }
     };
 
     // Validate CSV format before parsing
@@ -2052,71 +2120,28 @@ async function handleAutoPacCsv(path: string) {
 
     const rows = parseCsvContent(raw);
 
-    // Validate parsed rows have multiple columns
-    const validRows = rows.filter(row => row.length > 1);
-    if (validRows.length === 0) {
-      logger.warn({ file: path, machineToken, totalRows: rows.length, sampleRow: rows[0] }, 'watcher: autopac CSV has no multi-column rows');
+    // Status CSVs represent one sheet/job at a time.
+    // Enforce exactly one row so we never accidentally progress multiple jobs.
+    if (rows.length !== 1) {
+      logger.warn({ file: path, machineToken, rowCount: rows.length }, 'watcher: autopac CSV had unexpected row count');
       await reportFormatError({
-        reason: 'No multi-column rows',
-        found: `Parsed ${rows.length} row(s), but all rows had 0 or 1 column`
+        reason: 'Unexpected row count',
+        found: `Expected 1 data row but parsed ${rows.length} row(s)`
       });
       return;
     }
-    // Enforce machine token appears in CSV and matches filename
-    const wantedToken = sanitizeToken(machineToken);
-    const csvHasMachine = rows.some((row) =>
-      row.some((cell) => {
-        const token = sanitizeToken(cell);
-        return token === wantedToken;
-      })
-    );
-    if (!csvHasMachine) {
-      logger.warn({ file: path, machineToken, wantedToken, fileName }, 'watcher: autopac CSV machine token not found in file content');
+    const row = rows[0] ?? [];
+    if (row.length < 2) {
+      logger.warn({ file: path, machineToken, row }, 'watcher: autopac CSV row missing expected columns');
       await reportFormatError({
-        reason: 'Machine token mismatch',
-        found: `Filename expects '${machineToken}', but CSV does not contain a matching token`
-      });
-      setMachineHealthIssue({
-        machineId: null,
-        code: HEALTH_CODES.copyFailure,
-        message: `AutoPAC machine mismatch: file=${fileName} expects '${machineToken}', CSV does not contain matching machine`,
-        severity: 'warning',
-        context: { file: path, expected: machineToken }
-      });
-      return;
-    }
-    // Strict: first column is NC, only accept base or base.nc
-    const bases = (() => {
-      const set = new Set<string>();
-      for (const row of rows) {
-        if (!row.length) continue;
-        const cell = row[0]?.trim() ?? '';
-        if (!cell) continue;
-        // Allow spaces in the base name. AutoPAC sometimes outputs names like "JOB 123".
-        // We still keep it conservative: only letters/numbers/underscore/dot/hyphen/space.
-        const m = cell.match(/^([A-Za-z0-9_. -]+?)(?:\.nc)?$/i);
-        if (m && m[1]) set.add(m[1].trim());
-      }
-      return Array.from(set);
-    })();
-    if (!bases.length) {
-      logger.warn({ file: path, machineToken, rowCount: rows.length, sampleFirstColumn: rows.slice(0, 3).map(r => r[0]) }, 'watcher: autopac file had no identifiable bases');
-      await reportFormatError({
-        reason: 'No identifiable bases found in column 1',
-        found: `First column values did not match base or base.nc (allowed chars: A-Z a-z 0-9 _ . -)`
-      });
-      setMachineHealthIssue({
-        machineId: null,
-        code: HEALTH_CODES.noParts,
-        message: `No parts found in AutoPAC CSV ${basename(path)}`,
-        severity: 'warning',
-        context: { file: path }
+        reason: 'Missing required columns',
+        found: `Row had ${row.length} column(s); expected at least 2 columns (base, machineId)`
       });
       return;
     }
 
-    const machines = await listMachines();
     // Resolve machine strictly from filename token (matches by name or numeric id)
+    const machines = await listMachines();
     const wanted = sanitizeToken(machineToken);
     const machine = machines.find((m) => sanitizeToken(m.name) === wanted || sanitizeToken(String(m.machineId)) === wanted);
     if (!machine) {
@@ -2127,13 +2152,85 @@ async function handleAutoPacCsv(path: string) {
       });
       return;
     }
+
+    // Column 2 must be numeric machine id and should match the machine resolved
+    // from the filename token.
+    const machineIdCell = (row[1] ?? '').trim().replace(/^"|"$/g, '');
+    const machineIdFromCsv = Number(machineIdCell);
+    if (!Number.isFinite(machineIdFromCsv)) {
+      logger.warn({ file: path, machineToken, machineIdCell }, 'watcher: autopac CSV machine id was not numeric');
+      await reportFormatError({
+        reason: 'Machine id is not numeric',
+        found: `Column 2 value was '${machineIdCell}' but expected a number like 1`
+      });
+      return;
+    }
+    const machineIdFromCsvInt = Math.trunc(machineIdFromCsv);
+    if (machine.machineId != null && machineIdFromCsvInt !== machine.machineId) {
+      logger.warn(
+        { file: path, machineToken, machineIdFromCsv: machineIdFromCsvInt, resolvedMachineId: machine.machineId },
+        'watcher: autopac CSV machine id did not match filename token'
+      );
+      await reportFormatError({
+        reason: 'Machine id mismatch',
+        found: `Filename token resolved machineId=${machine.machineId}, but CSV column 2 contained ${machineIdFromCsvInt}`
+      });
+      return;
+    }
+
+    // Column 1 must be NC base, with or without .nc
+    const baseCell = (row[0] ?? '').trim();
+    const baseMatch = baseCell.match(/^([A-Za-z0-9_. -]+?)(?:\.nc)?$/i);
+    const base = baseMatch?.[1]?.trim() ?? '';
+    if (!base) {
+      logger.warn({ file: path, machineToken, baseCell }, 'watcher: autopac file had no identifiable base in column 1');
+      await reportFormatError({
+        reason: 'No identifiable base found in column 1',
+        found: `Column 1 was '${baseCell}' but expected base or base.nc (allowed chars: A-Z a-z 0-9 _ . - space)`
+      });
+      setMachineHealthIssue({
+        machineId: null,
+        code: HEALTH_CODES.noParts,
+        message: `No parts found in AutoPAC CSV ${basename(path)}`,
+        severity: 'warning',
+        context: { file: path }
+      });
+      return;
+    }
     let processedAny = false;
 
-    for (const base of bases) {
+    {
       const job = await findJobByNcBase(base);
       if (!job) {
         logger.warn({ base, file: path }, 'watcher: job not found for AutoPAC CSV');
-        continue;
+        // This is not a file format issue, but it is still an operator-actionable problem.
+        // Move the file into incorrect_files so it does not sit in the root folder forever.
+        const autoPacDir = dirname(path);
+        const quarantinedAs = await quarantineAutoPacCsv(path, autoPacDir);
+        const movedLine = quarantinedAs ? `Moved to: ${quarantinedAs}\n\n` : '';
+        const message =
+          `Folder: ${autoPacDir}\n` +
+          `File: ${fileName}\n` +
+          `Machine token: ${machineToken}\n\n` +
+          `Problem: No job in the database matched base '${base}'.\n\n` +
+          movedLine +
+          `CSV Preview:\n${preview}`;
+
+        postMessageToMain({
+          type: 'userAlert',
+          title: 'AutoPAC CSV Could Not Match Job',
+          message
+        });
+        emitAppMessage('autopac.csv.job_not_found', { message }, 'autopac');
+        recordWatcherEvent(AUTOPAC_WATCHER_NAME, {
+          label: AUTOPAC_WATCHER_LABEL,
+          message: `Rejected ${fileName}: job not found for base '${base}'`,
+          context: { originalFile: path, quarantinedAs, base, machineToken }
+        });
+        if (quarantinedAs || !(await fileExists(path))) {
+          autoPacHashes.delete(path);
+        }
+        return;
       }
       const machineForJob = machine;
       const machineId = machineForJob.machineId;
@@ -2143,6 +2240,64 @@ async function handleAutoPacCsv(path: string) {
         source: 'autopac',
         payload: { file: path, base }
       });
+
+      if (!lifecycle.ok) {
+        // If AutoPAC skips a step (lost/missing file), updateLifecycle will reject the transition.
+        // We must not leave the CSV sitting in the root folder forever.
+        const autoPacDir = dirname(path);
+
+        if (lifecycle.reason === 'NO_CHANGE') {
+          // Duplicate/rehash of an already applied state. Archive the file so it does not re-trigger.
+          const disposed = await disposeAutoPacCsv(path);
+          if (disposed) {
+            autoPacHashes.delete(path);
+          }
+          recordWatcherEvent(AUTOPAC_WATCHER_NAME, {
+            label: AUTOPAC_WATCHER_LABEL,
+            message: `Ignored duplicate ${fileName} (no DB change)`,
+            context: { originalFile: path, jobKey: job.key, base, machineToken }
+          });
+          return;
+        }
+
+        const previous = (lifecycle as any).previousStatus ?? 'UNKNOWN';
+        const reason =
+          lifecycle.reason === 'INVALID_TRANSITION'
+            ? `Out of order status file. Job is currently '${previous}' but file tried to set '${to}'.`
+            : `Lifecycle update failed: ${lifecycle.reason}`;
+
+        const quarantinedAs = await quarantineAutoPacCsv(path, autoPacDir);
+        const movedLine = quarantinedAs ? `Moved to: ${quarantinedAs}\n\n` : '';
+        const message =
+          `Folder: ${autoPacDir}\n` +
+          `File: ${fileName}\n` +
+          `Machine token: ${machineToken}\n` +
+          `Job: ${job.key}\n` +
+          `Base: ${base}\n\n` +
+          `Problem: ${reason}\n\n` +
+          `What to do:\n` +
+          `- If AutoPAC skipped a step, either drop the missing CSV (example: label_finish...)\n` +
+          `- Or use Router page manual status change to advance the job\n\n` +
+          movedLine +
+          `CSV Preview:\n${preview}`;
+
+        postMessageToMain({
+          type: 'userAlert',
+          title: 'AutoPAC CSV Out Of Order',
+          message
+        });
+        emitAppMessage('autopac.csv.invalid_transition', { message }, 'autopac');
+        recordWatcherEvent(AUTOPAC_WATCHER_NAME, {
+          label: AUTOPAC_WATCHER_LABEL,
+          message: `Rejected ${fileName}: ${reason}`,
+          context: { originalFile: path, quarantinedAs, jobKey: job.key, base, machineToken, previousStatus: previous }
+        });
+        if (quarantinedAs || !(await fileExists(path))) {
+          autoPacHashes.delete(path);
+        }
+        return;
+      }
+
       await appendJobEvent(job.key, `autopac:${to.toLowerCase()}`, { file: path, base }, machineId);
 
       if (lifecycle.ok && machineForJob.nestpickEnabled && to) {
@@ -2741,6 +2896,10 @@ async function shutdown(reason?: string) {
     clearTimeout(grundnerTimer);
     grundnerTimer = null;
   }
+  if (autoPacScanTimer) {
+    clearInterval(autoPacScanTimer);
+    autoPacScanTimer = null;
+  }
   if (notificationRestartTimer) {
     clearTimeout(notificationRestartTimer);
     notificationRestartTimer = null;
@@ -3136,23 +3295,39 @@ function setupAutoPacWatcher(dir: string) {
     watcherLabel: AUTOPAC_WATCHER_LABEL
   });
 
+  const onAddIfAutoPacFile = (path: string) => {
+    const name = basename(path);
+    if (!isAutoPacCsvFileName(name)) return;
+    onAdd(path);
+  };
+
   const ctrl = createResilientWatcher({
     name: AUTOPAC_WATCHER_NAME,
     label: AUTOPAC_WATCHER_LABEL,
     targetContext: { dir },
     probePath: { path: dir, intervalMs: 5_000, timeoutMs: 2_000, label: 'AutoPAC CSV folder' },
+    // Ignore transient lstat .tmp errors so the watcher does not stop after a file drop.
+    shouldIgnoreError: isBenignChokidarLstatTempError,
     createWatcher: () => {
       const w = chokidar.watch(dir, {
         ignoreInitial: true,
         depth: 0,
         ignored: shouldIgnoreAutoPacPath,
-        awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 }
+        awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
+        // Network shares (and some Windows setups) do not reliably emit fs events.
+        // Polling is slower but much more reliable for "drop a CSV" workflows.
+        usePolling: true,
+        interval: 500
       });
-      w.on('add', onAdd);
-      w.on('change', onAdd);
+      w.on('add', onAddIfAutoPacFile);
+      w.on('change', onAddIfAutoPacFile);
       return w;
     },
     onOfflineOnce: (err) => {
+      if (autoPacScanTimer) {
+        clearInterval(autoPacScanTimer);
+        autoPacScanTimer = null;
+      }
       const code = (err as NodeJS.ErrnoException)?.code;
       setMachineHealthIssue({
         machineId: null,
@@ -3165,11 +3340,36 @@ function setupAutoPacWatcher(dir: string) {
     onReady: () => {
       clearMachineHealthIssue(null, HEALTH_CODES.copyFailure);
       void (async () => {
+        const runScanOnce = async () => {
+          if (autoPacScanRunning) return;
+          autoPacScanRunning = true;
+          try {
+            const existing = await collectAutoPacCsvs(dir);
+            if (!existing.length) return;
+            for (const file of existing) {
+              onAdd(file);
+            }
+          } finally {
+            autoPacScanRunning = false;
+          }
+        };
+
+        // Process existing files immediately.
         const existing = await collectAutoPacCsvs(dir);
-        if (!existing.length) return;
-        logger.info({ dir, count: existing.length }, 'AutoPAC watcher: processing existing CSV files on startup');
-        for (const file of existing) {
-          onAdd(file);
+        if (existing.length) {
+          logger.info({ dir, count: existing.length }, 'AutoPAC watcher: processing existing CSV files on startup');
+          for (const file of existing) {
+            onAdd(file);
+          }
+        }
+
+        // Safety fallback: keep scanning for new files even if chokidar misses events.
+        if (!autoPacScanTimer) {
+          autoPacScanTimer = setInterval(() => {
+            if (shuttingDown) return;
+            void runScanOnce();
+          }, 1_000);
+          if (typeof autoPacScanTimer.unref === 'function') autoPacScanTimer.unref();
         }
       })();
     },

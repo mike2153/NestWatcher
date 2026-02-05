@@ -61,3 +61,10 @@ python .\simulation\integration_io_simulator.py `
 - Waits for `Nestpick.csv` to appear in `--nestpick-dir`, then:
   - writes `Nestpick.erl` with the same content
   - writes `Report_FullNestpickUnstack.csv`
+
+Notes:
+
+- AutoPAC status CSVs represent one sheet/job at a time. If the staged folder contains
+  multiple `.nc` files, the simulator picks one base deterministically (alphabetical)
+  and only emits status files for that one base.
+- AutoPAC status CSV column 2 is the numeric machine id (example: `JOB123,1`).
