@@ -1,0 +1,1 @@
+ python integration_io_simulator.py --ap-jobfolder "D:\GitHub\Test NC Files\ready_to_run" --nestpick-dir "D:\GitHub\Test NC Files\nestpick"
