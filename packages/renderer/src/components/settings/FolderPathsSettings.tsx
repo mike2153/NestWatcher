@@ -10,7 +10,6 @@ type PathValidationState = { status: 'empty' | 'checking' | 'valid' | 'invalid';
 const DEFAULT_PATHS: PathsState = {
   processedJobsRoot: '',
   autoPacCsvDir: '',
-  autoPacArchiveEnabled: false,
   grundnerFolderPath: '',
   archiveRoot: '',
   jobsRoot: '',
@@ -19,6 +18,7 @@ const DEFAULT_PATHS: PathsState = {
 
 export function FolderPathsSettings() {
   const [paths, setPaths] = useState<PathsState>(DEFAULT_PATHS);
+  const [archiveIoFiles, setArchiveIoFiles] = useState(false);
   const [pathStatus, setPathStatus] = useState<Record<PathFieldKey, PathValidationState>>({
     processedJobsRoot: { status: 'empty', message: 'Not set' },
     autoPacCsvDir: { status: 'empty', message: 'Not set' },
@@ -35,6 +35,9 @@ export function FolderPathsSettings() {
       const res = await window.api.settings.get();
       if (res.ok && res.value.paths) {
         setPaths({ ...DEFAULT_PATHS, ...res.value.paths });
+      }
+      if (res.ok) {
+        setArchiveIoFiles(Boolean(res.value.integrations?.archiveIoFiles));
       }
     })();
   }, []);
@@ -118,7 +121,11 @@ export function FolderPathsSettings() {
 
     const updatedSettings = {
       ...currentSettings.value,
-      paths
+      paths,
+      integrations: {
+        ...(currentSettings.value.integrations ?? { archiveIoFiles: false }),
+        archiveIoFiles
+      }
     };
 
     const saved = await window.api.settings.save(updatedSettings);
@@ -256,18 +263,18 @@ export function FolderPathsSettings() {
 
             <div className="mt-3 flex items-start gap-2">
               <input
-                id="autoPacArchiveEnabled"
+                id="archiveIoFiles"
                 type="checkbox"
                 className="mt-1"
-                checked={!!paths.autoPacArchiveEnabled}
-                onChange={(e) => setPaths({ ...paths, autoPacArchiveEnabled: e.target.checked })}
+                checked={archiveIoFiles}
+                onChange={(e) => setArchiveIoFiles(e.target.checked)}
               />
               <div>
-                <label htmlFor="autoPacArchiveEnabled" className="text-sm font-medium">
-                  Archive AutoPAC status CSVs
+                <label htmlFor="archiveIoFiles" className="text-sm font-medium">
+                  Archive all integration IO files
                 </label>
                 <p className="text-xs text-muted-foreground">
-                  When enabled, processed AutoPAC CSVs are moved into an "archive" subfolder with a timestamp suffix.
+                  When enabled, every correctly processed AutoPAC, Grundner, and Nestpick IO file is moved into an "archive" subfolder. Incorrect files always go to "incorrect_files".
                 </p>
               </div>
             </div>

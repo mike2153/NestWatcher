@@ -26,10 +26,9 @@ const DEFAULT_SETTINGS: Settings = {
     sslMode: 'disable',
     statementTimeoutMs: 30000
   },
-  paths: { processedJobsRoot: '', autoPacCsvDir: '', autoPacArchiveEnabled: false, grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' },
+  paths: { processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' },
   test: { testDataFolderPath: '', useTestDataMode: false, disableErlTimeouts: false },
   grundner: {
-    archiveErlReplies: false,
     tableColumns: {
       typeData: { visible: true, order: 1 },
       materialName: { visible: false, order: 2 },
@@ -44,6 +43,7 @@ const DEFAULT_SETTINGS: Settings = {
       lastUpdated: { visible: true, order: 11 }
     }
   },
+  integrations: { archiveIoFiles: false },
   inventoryExport: {
     template: {
       delimiter: ',',
@@ -76,6 +76,19 @@ let cache: Settings | null = null;
 
 type MaybeSettings = Partial<Settings> | undefined | null | { [key: string]: unknown };
 
+function normalizePaths(input: unknown): Settings['paths'] {
+  const record = input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : null;
+  const out: Settings['paths'] = { ...DEFAULT_SETTINGS.paths };
+  if (!record) return out;
+  if (typeof record.processedJobsRoot === 'string') out.processedJobsRoot = record.processedJobsRoot;
+  if (typeof record.autoPacCsvDir === 'string') out.autoPacCsvDir = record.autoPacCsvDir;
+  if (typeof record.grundnerFolderPath === 'string') out.grundnerFolderPath = record.grundnerFolderPath;
+  if (typeof record.archiveRoot === 'string') out.archiveRoot = record.archiveRoot;
+  if (typeof record.jobsRoot === 'string') out.jobsRoot = record.jobsRoot;
+  if (typeof record.quarantineRoot === 'string') out.quarantineRoot = record.quarantineRoot;
+  return out;
+}
+
 function cloneDefaults(): Settings {
   return {
     version: CURRENT_SETTINGS_VERSION,
@@ -83,6 +96,7 @@ function cloneDefaults(): Settings {
     paths: { ...DEFAULT_SETTINGS.paths },
     test: { ...DEFAULT_SETTINGS.test },
     grundner: { ...DEFAULT_SETTINGS.grundner, tableColumns: { ...DEFAULT_SETTINGS.grundner.tableColumns } },
+    integrations: { ...DEFAULT_SETTINGS.integrations },
     inventoryExport: {
       template: {
         ...DEFAULT_SETTINGS.inventoryExport.template,
@@ -152,19 +166,23 @@ function normalizeSettings(input: MaybeSettings): Settings {
     DEFAULT_SETTINGS.grundner.tableColumns
   );
 
-  const archiveErlReplies =
-    typeof grundnerBase.archiveErlReplies === 'boolean'
-      ? grundnerBase.archiveErlReplies
-      : DEFAULT_SETTINGS.grundner.archiveErlReplies;
+  const grundner: Settings['grundner'] = { tableColumns };
 
-  const grundner: Settings['grundner'] = { archiveErlReplies, tableColumns };
+  const integrationsBase = (base.integrations ?? {}) as Partial<Settings['integrations']>;
+  const integrations: Settings['integrations'] = {
+    archiveIoFiles:
+      typeof integrationsBase.archiveIoFiles === 'boolean'
+        ? integrationsBase.archiveIoFiles
+        : DEFAULT_SETTINGS.integrations.archiveIoFiles
+  };
 
   return {
     version: typeof base.version === 'number' && base.version > 0 ? base.version : CURRENT_SETTINGS_VERSION,
     db,
-    paths: { ...DEFAULT_SETTINGS.paths, ...(base.paths ?? {}) },
+    paths: normalizePaths(base.paths),
     test: { ...DEFAULT_SETTINGS.test, ...(base.test ?? {}) },
     grundner,
+    integrations,
     inventoryExport: { template, scheduled },
     jobs: { ...DEFAULT_SETTINGS.jobs, ...(base.jobs ?? {}) },
     validationWarnings: { ...DEFAULT_SETTINGS.validationWarnings, ...(base.validationWarnings ?? {}) }
@@ -183,6 +201,7 @@ function mergeSettingsInternal(base: Settings, update: MaybeSettings): Settings 
     paths: { ...base.paths, ...(partial.paths ?? {}) },
     test: { ...base.test, ...(partial.test ?? {}) },
     grundner: { ...base.grundner, ...(partial.grundner ?? {}), tableColumns: grundnerTableColumns },
+    integrations: { ...base.integrations, ...(partial.integrations ?? {}) },
     inventoryExport: {
       template: { ...base.inventoryExport.template, ...((partial.inventoryExport?.template ?? {}) as Partial<Settings['inventoryExport']['template']>) },
       scheduled: { ...base.inventoryExport.scheduled, ...((partial.inventoryExport?.scheduled ?? {}) as Partial<Settings['inventoryExport']['scheduled']>) }

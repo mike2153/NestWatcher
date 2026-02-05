@@ -385,6 +385,16 @@ Every response after code changes must include:
 5. Data-flow mind map (if applicable)
 6. Any risks or follow-ups
 
+### 12.1 Brevity rule (mandatory)
+
+Keep answers short and to the point.
+
+* Default response style: 3 to 7 bullets total.
+* Do NOT list file paths or code locations unless the user explicitly asks.
+* Do NOT paste large command outputs; summarize.
+* If a rule requires explanations (what changed, why, how to test, risks), keep each item to 1 to 2 sentences max.
+* Only include deeper detail (variables, types, data flow diagrams) when this document requires it, or when the user asks.
+
 ---
 
 ## 13) Agent behavioral checklist

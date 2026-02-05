@@ -33,7 +33,7 @@ import { ingestProcessedJobsRoot } from '../services/ingest';
 import { appendProductionListDel } from '../services/nestpick';
 import { archiveCompletedJob } from '../services/archive';
 import { buildNcCatValidationReport } from '../services/ncCatValidationReport';
-import { archiveGrundnerReplyFile, quarantineGrundnerReplyFile } from '../services/grundnerArchive';
+import { archiveGrundnerReplyFile, copyGrundnerIoFileToArchive, quarantineGrundnerReplyFile } from '../services/grundnerArchive';
 
 const { access, copyFile, readFile, readdir, rename, stat, unlink, open } = fsp;
 
@@ -264,6 +264,18 @@ const GRUNDNER_WATCHER_NAME = 'watcher:grundner';
 const GRUNDNER_WATCHER_LABEL = 'Grundner Stock Poller';
 let grundnerTimer: NodeJS.Timeout | null = null;
 let grundnerLastHash: string | null = null;
+let grundnerLastIssueKey: string | null = null;
+
+function recordGrundnerIssueOnce(issueKey: string, message: string, context?: Record<string, unknown>) {
+  if (grundnerLastIssueKey === issueKey) return;
+  grundnerLastIssueKey = issueKey;
+  // Pass a string so we do not spam stack traces.
+  recordWatcherError(GRUNDNER_WATCHER_NAME, message, { ...(context ?? {}), label: GRUNDNER_WATCHER_LABEL });
+}
+
+function clearGrundnerIssue() {
+  grundnerLastIssueKey = null;
+}
 
 type NestpickOutboundRecord = {
   jobKey: string;
@@ -1569,8 +1581,17 @@ async function handleAutoPacOrderSawCsv(path: string) {
       await fsp.writeFile(outCsv, csvLines, 'utf8');
     });
 
-    // Wait for confirmation
+    // Optional: archive a copy of the outbound request without breaking the slot file.
     const cfg = loadConfig();
+    const archiveIoFiles = Boolean(cfg.integrations?.archiveIoFiles);
+    if (archiveIoFiles && existsSync(outCsv)) {
+      const copied = await copyGrundnerIoFileToArchive({ grundnerFolder: grundnerRoot, sourcePath: outCsv, suffix: 'sent' });
+      if (!copied.ok) {
+        logger.warn({ error: copied.error, file: outCsv }, 'watcher: failed to copy ChangeMachNr.csv into archive');
+      }
+    }
+
+    // Wait for confirmation
     const erlTimeoutMs = cfg.test?.disableErlTimeouts ? Number.POSITIVE_INFINITY : 30_000;
     const confirmed = await waitForExists(outErl, erlTimeoutMs);
     if (!confirmed) {
@@ -1583,31 +1604,14 @@ async function handleAutoPacOrderSawCsv(path: string) {
     const norm = (s: string) => s.replace(/\r\n/g, '\n').trim();
     const ok = norm(erlRaw) === norm(csvLines);
 
-    // File disposition policy:
-    // - success equals archive
-    // - failure equals incorrect_files
-    const moveRes = ok
-      ? await archiveGrundnerReplyFile({ grundnerFolder: grundnerRoot, sourcePath: outErl })
-      : await quarantineGrundnerReplyFile({ grundnerFolder: grundnerRoot, sourcePath: outErl });
-
-    if (moveRes.ok) {
-      if (ok) {
-        emitAppMessage(
-          'grundner.erl.archived',
-          {
-            fileName: 'ChangeMachNr.erl',
-            archivedAs: moveRes.archivedPath,
-            note: 'Reply matched request.'
-          },
-          'grundner'
-        );
-      } else {
+    // Reply disposition policy:
+    // - incorrect replies always go to incorrect_files
+    // - correct replies are archived only when Archive IO is enabled
+    if (!ok) {
+      const moveRes = await quarantineGrundnerReplyFile({ grundnerFolder: grundnerRoot, sourcePath: outErl });
+      if (moveRes.ok) {
         const reason = 'Reply did not match request.';
-        emitAppMessage(
-          'grundner.file.quarantined',
-          { fileName: 'ChangeMachNr.erl', folder: grundnerRoot, reason },
-          'grundner'
-        );
+        emitAppMessage('grundner.file.quarantined', { fileName: 'ChangeMachNr.erl', folder: grundnerRoot, reason }, 'grundner');
         postMessageToMain({
           type: 'userAlert',
           title: 'Grundner ChangeMachNr Reply Mismatch',
@@ -1617,9 +1621,25 @@ async function handleAutoPacOrderSawCsv(path: string) {
             `Problem: ${reason}\n\n` +
             `Action: The file was moved to incorrect_files.`
         });
+      } else {
+        logger.warn({ file: outErl, error: moveRes.error }, 'watcher: failed to quarantine ChangeMachNr.erl');
+      }
+    } else if (archiveIoFiles) {
+      const moveRes = await archiveGrundnerReplyFile({ grundnerFolder: grundnerRoot, sourcePath: outErl });
+      if (moveRes.ok) {
+        emitAppMessage(
+          'grundner.erl.archived',
+          { fileName: 'ChangeMachNr.erl', archivedAs: moveRes.archivedPath, note: 'Reply matched request.' },
+          'grundner'
+        );
+      } else {
+        logger.warn({ file: outErl, error: moveRes.error }, 'watcher: failed to archive ChangeMachNr.erl');
       }
     } else {
-      logger.warn({ file: outErl, error: moveRes.error }, 'watcher: failed to move ChangeMachNr.erl');
+      const deleted = await unlinkWithRetry(outErl, 6, 150);
+      if (!deleted) {
+        logger.warn({ file: outErl }, 'watcher: failed to delete ChangeMachNr.erl');
+      }
     }
 
     if (!ok) {
@@ -1779,6 +1799,18 @@ async function forwardToNestpick(base: string, job: Awaited<ReturnType<typeof fi
     await fsp.writeFile(tempPath, raw, 'utf8');
     await rename(tempPath, outPath);
 
+    // Optional: archive a copy of the outbound payload without breaking Nestpick's slot file.
+    const cfg = loadConfig();
+    const archiveIoFiles = Boolean(cfg.integrations?.archiveIoFiles);
+    if (archiveIoFiles) {
+      try {
+        const archivedAs = await copyToTimestampedDir(outPath, join(outDir, 'archive'), 'sent');
+        logger.info({ file: outPath, archivedAs, machineId: resolvedMachine.machineId }, 'watcher: archived outbound Nestpick.csv copy');
+      } catch (err) {
+        logger.warn({ err, file: outPath, machineId: resolvedMachine.machineId }, 'watcher: failed to archive outbound Nestpick.csv copy');
+      }
+    }
+
     lastNestpickOutboundByMachine.set(resolvedMachine.machineId, {
       jobKey: job.key,
       base,
@@ -1892,33 +1924,53 @@ async function disposeAutoPacCsv(sourcePath: string): Promise<boolean> {
   const autoPacDir = dirname(sourcePath);
   const archiveDir = join(autoPacDir, AUTOPAC_ARCHIVE_DIRNAME);
 
-  // Policy: never delete watcher-read input files.
-  // Success equals archive. If we cannot move right now due to share issues,
-  // enqueue a retryable move task instead.
+  const cfg = loadConfig();
+  const archiveIoFiles = Boolean(cfg.integrations?.archiveIoFiles);
+
+  // Policy:
+  // - If Archive IO is enabled: success equals archive
+  // - If Archive IO is disabled: success equals delete
   try {
     if (!(await fileExists(sourcePath))) {
       return true;
     }
+
+    if (!archiveIoFiles) {
+      const deleted = await unlinkWithRetry(sourcePath, 6, 150);
+      if (deleted) {
+        logger.info({ file: sourcePath }, 'watcher: deleted AutoPAC CSV');
+        return true;
+      }
+      return false;
+    }
+
     const movedTo = await moveToTimestampedDir(sourcePath, archiveDir);
     logger.info({ file: sourcePath, archived: movedTo }, 'watcher: archived AutoPAC CSV');
     return true;
   } catch (err) {
     if (await fileExists(sourcePath)) {
-      enqueueFileMoveTask({
-        source: sourcePath,
-        targetDir: archiveDir,
-        purpose: 'archive',
-        watcherName: AUTOPAC_WATCHER_NAME,
-        watcherLabel: AUTOPAC_WATCHER_LABEL,
-        machineId: null,
-        // Once it is moved successfully, allow a new file with the same name
-        // to be processed later.
-        onMoved: () => {
-          autoPacHashes.delete(sourcePath);
-        }
-      });
+      if (archiveIoFiles) {
+        enqueueFileMoveTask({
+          source: sourcePath,
+          targetDir: archiveDir,
+          purpose: 'archive',
+          watcherName: AUTOPAC_WATCHER_NAME,
+          watcherLabel: AUTOPAC_WATCHER_LABEL,
+          machineId: null,
+          // Once it is moved successfully, allow a new file with the same name
+          // to be processed later.
+          onMoved: () => {
+            autoPacHashes.delete(sourcePath);
+          }
+        });
+      }
     }
-    logger.warn({ err, file: sourcePath }, 'watcher: failed to archive AutoPAC CSV immediately; queued move retry');
+    logger.warn(
+      { err, file: sourcePath },
+      archiveIoFiles
+        ? 'watcher: failed to archive AutoPAC CSV immediately; queued move retry'
+        : 'watcher: failed to delete AutoPAC CSV after processing'
+    );
     return false;
   }
 }
@@ -2264,6 +2316,20 @@ async function moveToTimestampedDir(source: string, targetDir: string): Promise<
   return target;
 }
 
+async function copyToTimestampedDir(source: string, targetDir: string, suffix?: string): Promise<string> {
+  await ensureDir(targetDir);
+  const stamp = formatArchiveTimestampDdMmHhMmSs();
+  const base = basename(source, extname(source));
+  const ext = extname(source) || '';
+  const extra = suffix ? `_${suffix}` : '';
+  let target = join(targetDir, `${base}_${stamp}${extra}${ext}`);
+  for (let i = 1; i <= 25 && (await fileExists(target)); i++) {
+    target = join(targetDir, `${base}_${stamp}${extra}_${i}${ext}`);
+  }
+  await copyFile(source, target);
+  return target;
+}
+
 type FileMovePurpose = 'archive' | 'incorrect_files';
 
 // File move queue with backoff to avoid losing files when shares are unavailable.
@@ -2441,16 +2507,28 @@ async function handleNestpickAck(machine: Machine, path: string) {
       await appendJobEvent(job.key, 'nestpick:ack', { file: path, hash }, machine.machineId);
     }
 
-    // Archive the ack file (best-effort, with retry) so the share stays clean.
+    const cfg = loadConfig();
+    const archiveIoFiles = Boolean(cfg.integrations?.archiveIoFiles);
+
+    // Correct ack disposition:
+    // - archive only when enabled
+    // - otherwise delete
     if (await fileExists(path)) {
-      enqueueFileMoveTask({
-        source: path,
-        targetDir: join(machine.nestpickFolder, 'archive'),
-        purpose: 'archive',
-        watcherName: nestpickAckWatcherName(machine),
-        watcherLabel: nestpickAckWatcherLabel(machine),
-        machineId: machine.machineId ?? null
-      });
+      if (archiveIoFiles) {
+        enqueueFileMoveTask({
+          source: path,
+          targetDir: join(machine.nestpickFolder, 'archive'),
+          purpose: 'archive',
+          watcherName: nestpickAckWatcherName(machine),
+          watcherLabel: nestpickAckWatcherLabel(machine),
+          machineId: machine.machineId ?? null
+        });
+      } else {
+        const deleted = await unlinkWithRetry(path, 6, 150);
+        if (!deleted) {
+          logger.warn({ file: path, machineId: machine.machineId }, 'watcher: failed to delete Nestpick.erl');
+        }
+      }
     }
 
     recordWatcherEvent(nestpickAckWatcherName(machine), {
@@ -2603,19 +2681,40 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
         logger.warn({ jobKey: job.key, base, sourcePlace: sourcePlaceValue, row: i + 1 }, 'watcher: unstack pallet update failed');
       }
     }
-    const purpose: FileMovePurpose = hasStructuralIssues ? 'incorrect_files' : 'archive';
-    const targetDir = join(machine.nestpickFolder, purpose === 'archive' ? 'archive' : INCORRECT_FILES_DIRNAME);
-    // Move the file out of the root folder so it does not keep re-triggering.
+    const cfg = loadConfig();
+    const archiveIoFiles = Boolean(cfg.integrations?.archiveIoFiles);
+    // Disposition:
+    // - incorrect always goes to incorrect_files
+    // - correct archives only when enabled, otherwise delete
     if (await fileExists(path)) {
-      enqueueFileMoveTask({
-        source: path,
-        targetDir,
-        purpose,
-        watcherName: nestpickUnstackWatcherName(machine),
-        watcherLabel: nestpickUnstackWatcherLabel(machine),
-        machineId: machine.machineId ?? null
-      });
-      logger.info({ file: path, targetDir, purpose, processedAny }, 'watcher: unstack moved');
+      if (hasStructuralIssues) {
+        const targetDir = join(machine.nestpickFolder, INCORRECT_FILES_DIRNAME);
+        enqueueFileMoveTask({
+          source: path,
+          targetDir,
+          purpose: 'incorrect_files',
+          watcherName: nestpickUnstackWatcherName(machine),
+          watcherLabel: nestpickUnstackWatcherLabel(machine),
+          machineId: machine.machineId ?? null
+        });
+        logger.info({ file: path, targetDir, purpose: 'incorrect_files', processedAny }, 'watcher: unstack moved');
+      } else if (archiveIoFiles) {
+        const targetDir = join(machine.nestpickFolder, 'archive');
+        enqueueFileMoveTask({
+          source: path,
+          targetDir,
+          purpose: 'archive',
+          watcherName: nestpickUnstackWatcherName(machine),
+          watcherLabel: nestpickUnstackWatcherLabel(machine),
+          machineId: machine.machineId ?? null
+        });
+        logger.info({ file: path, targetDir, purpose: 'archive', processedAny }, 'watcher: unstack moved');
+      } else {
+        const deleted = await unlinkWithRetry(path, 6, 150);
+        if (!deleted) {
+          logger.warn({ file: path, machineId: machine.machineId }, 'watcher: failed to delete Report_FullNestpickUnstack.csv');
+        }
+      }
     }
 
     if (hasStructuralIssues) {
@@ -3798,32 +3897,27 @@ async function grundnerPollOnce(folder: string) {
     await rename(tmp, reqPath).catch(async () => {
       await fsp.writeFile(reqPath, '0\r\n!E', 'utf8');
     });
-    recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Request dropped' });
 
     // 2) Wait 5 seconds and check for reply
     await delay(5000);
     if (!(await fileExists(stockPath))) {
-      recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Reply missing; will retry' });
+      recordGrundnerIssueOnce('reply-missing', 'Reply missing; will retry', { folder });
       return;
     }
     await waitForStableFile(stockPath);
     if (!(await waitForFileRelease(stockPath))) {
       if (await fileExists(stockPath)) {
-        recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Reply busy; will retry' });
+        recordGrundnerIssueOnce('reply-busy', 'Reply busy; will retry', { folder });
       }
       return;
     }
     await delay(10000);
     if (!(await fileExists(stockPath))) {
-      recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Reply vanished before read; will retry' });
+      recordGrundnerIssueOnce('reply-vanished', 'Reply vanished before read; will retry', { folder });
       return;
     }
     const raw = await readFile(stockPath, 'utf8');
-    recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
-      label: GRUNDNER_WATCHER_LABEL,
-      message: 'Reply read',
-      context: { bytes: raw.length }
-    });
+
     const hash = createHash('sha1').update(raw).digest('hex');
     if (grundnerLastHash === hash) {
       // Even if the content is identical to the last poll, keep the folder clean.
@@ -3831,12 +3925,11 @@ async function grundnerPollOnce(folder: string) {
       if (await fileExists(stockPath)) {
         const deleted = await unlinkWithRetry(stockPath, 6, 150);
         if (!deleted) {
-          recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
-            label: GRUNDNER_WATCHER_LABEL,
-            message: 'Reply delete failed; will retry'
-          });
+          recordGrundnerIssueOnce('reply-delete-failed', 'Reply delete failed; will retry', { folder });
+          return;
         }
       }
+      clearGrundnerIssue();
       return;
     }
     grundnerLastHash = hash;
@@ -3852,6 +3945,11 @@ async function grundnerPollOnce(folder: string) {
     }
 
     if (!parseOk) {
+      recordGrundnerIssueOnce(
+        'parse-failed',
+        'stock.csv could not be parsed or contained no usable rows',
+        { folder, bytes: raw.length }
+      );
       // Keep a copy for debugging when parsing fails.
       // We still move it out of the root folder so it does not keep re-triggering.
       if (await fileExists(stockPath)) {
@@ -3944,13 +4042,12 @@ async function grundnerPollOnce(folder: string) {
 
     // Grundner can send stock.csv every few seconds.
     // We delete it after successful processing to avoid creating endless archives.
+    let replyDeleteFailed = false;
     if (await fileExists(stockPath)) {
       const deleted = await unlinkWithRetry(stockPath, 6, 150);
       if (!deleted) {
-        recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
-          label: GRUNDNER_WATCHER_LABEL,
-          message: 'Reply delete failed; will retry'
-        });
+        recordGrundnerIssueOnce('reply-delete-failed', 'Reply delete failed; will retry', { folder });
+        replyDeleteFailed = true;
       }
     }
 
@@ -3980,10 +4077,9 @@ async function grundnerPollOnce(folder: string) {
       }
     }
 
-    recordWatcherEvent(GRUNDNER_WATCHER_NAME, {
-      label: GRUNDNER_WATCHER_LABEL,
-      message: `Synced Grundner stock (inserted ${result.inserted}, updated ${result.updated}, deleted ${result.deleted})`
-    });
+    if (!replyDeleteFailed) {
+      clearGrundnerIssue();
+    }
   } catch (err) {
     throw err;
   }
@@ -4022,12 +4118,8 @@ function startGrundnerPoller(folder: string) {
   const loop = async () => {
     if (shuttingDown) return;
     const now = Date.now();
-    const hadBackoff = backoffByKey.has(backoffKey);
     try {
       await grundnerPollOnce(normalizedRoot);
-      if (hadBackoff) {
-        recordWatcherEvent(GRUNDNER_WATCHER_NAME, { label: GRUNDNER_WATCHER_LABEL, message: 'Recovered' });
-      }
       clearBackoff(backoffKey);
       scheduleNext(baseIntervalMs);
     } catch (err) {

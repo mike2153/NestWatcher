@@ -237,19 +237,17 @@ export const SettingsSchema = z.object({
   paths: z.object({
     processedJobsRoot: z.string().default(''),
     autoPacCsvDir: z.string().default(''),
-    autoPacArchiveEnabled: z.boolean().default(false),
     grundnerFolderPath: z.string().default(''),
     archiveRoot: z.string().default(''),
     jobsRoot: z.string().default(''),
     quarantineRoot: z.string().default(''),
-  }).default({ processedJobsRoot: '', autoPacCsvDir: '', autoPacArchiveEnabled: false, grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' }),
+  }).default({ processedJobsRoot: '', autoPacCsvDir: '', grundnerFolderPath: '', archiveRoot: '', jobsRoot: '', quarantineRoot: '' }),
   test: z.object({
     testDataFolderPath: z.string().default(''),
     useTestDataMode: z.boolean().default(false),
     disableErlTimeouts: z.boolean().default(false),
   }).default({ testDataFolderPath: '', useTestDataMode: false, disableErlTimeouts: false }),
   grundner: z.object({
-    archiveErlReplies: z.boolean().default(false),
     tableColumns: z.object({
       typeData: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(1) }).default({}),
       materialName: z.object({ visible: z.boolean().default(false), order: z.number().int().min(1).default(2) }).default({}),
@@ -264,6 +262,11 @@ export const SettingsSchema = z.object({
       lastUpdated: z.object({ visible: z.boolean().default(true), order: z.number().int().min(1).default(11) }).default({})
     }).default({})
   }).default({}),
+  integrations: z
+    .object({
+      archiveIoFiles: z.boolean().default(false)
+    })
+    .default({ archiveIoFiles: false }),
   inventoryExport: InventoryExportSettingsSchema,
   jobs: z.object({
     completedJobsTimeframe: z.enum(['1day', '3days', '7days', '1month', 'all']).default('7days'),

@@ -48,6 +48,7 @@ export function registerSettingsIpc() {
       (prevSettings.paths.autoPacCsvDir ?? '') !== (nextSettings.paths.autoPacCsvDir ?? '') ||
       (prevSettings.paths.grundnerFolderPath ?? '') !== (nextSettings.paths.grundnerFolderPath ?? '') ||
       (prevSettings.paths.jobsRoot ?? '') !== (nextSettings.paths.jobsRoot ?? '') ||
+      Boolean(prevSettings.integrations?.archiveIoFiles) !== Boolean(nextSettings.integrations?.archiveIoFiles) ||
       Boolean(prevSettings.test?.useTestDataMode) !== Boolean(nextSettings.test?.useTestDataMode) ||
       (prevSettings.test?.testDataFolderPath ?? '') !== (nextSettings.test?.testDataFolderPath ?? '');
 
