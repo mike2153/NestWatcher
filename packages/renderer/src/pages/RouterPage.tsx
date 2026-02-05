@@ -38,6 +38,20 @@ const DEFAULT_AUTO_REFRESH_SECONDS = 30;
 
 type RouterReadyFile = ReadyFile & { machineId: number };
 
+// Keep this list in sync with Main's lifecycle rules.
+// Purpose: the Router "manual change" dialog should not offer status jumps that will
+// always be rejected by the backend with INVALID_TRANSITION.
+const MANUAL_ALLOWED_PREVIOUS_STATUSES: Record<JobStatus, JobStatus[]> = {
+  PENDING: ['PENDING'],
+  STAGED: ['PENDING', 'STAGED'],
+  RUNNING: ['STAGED', 'RUNNING'],
+  LOAD_FINISH: ['PENDING', 'STAGED', 'RUNNING', 'LOAD_FINISH'],
+  LABEL_FINISH: ['STAGED', 'RUNNING', 'LOAD_FINISH', 'LABEL_FINISH'],
+  CNC_FINISH: ['STAGED', 'RUNNING', 'LOAD_FINISH', 'LABEL_FINISH', 'CNC_FINISH'],
+  FORWARDED_TO_NESTPICK: ['CNC_FINISH', 'FORWARDED_TO_NESTPICK'],
+  NESTPICK_COMPLETE: ['FORWARDED_TO_NESTPICK', 'NESTPICK_COMPLETE']
+};
+
 // Percent-based widths (normalized by GlobalTable)
 const ROUTER_COL_PCT = {
   machine: 12,
@@ -120,6 +134,7 @@ export function RouterPage() {
   const [changeStatusTo, setChangeStatusTo] = useState<JobStatus | null>(null);
   const [changeStatusReason, setChangeStatusReason] = useState('');
   const [changeStatusSubmitting, setChangeStatusSubmitting] = useState(false);
+  const [changeStatusError, setChangeStatusError] = useState<string | null>(null);
 
   const applyClearedFilter = useCallback(
     (items: ReadyFile[], machineId: number): ReadyFile[] => {
@@ -139,13 +154,19 @@ export function RouterPage() {
     if (!current) return [] as JobStatus[];
     const idx = JOB_STATUS_VALUES.indexOf(current);
     if (idx < 0) return [] as JobStatus[];
-    return JOB_STATUS_VALUES.slice(idx + 1);
+
+    // "Forward" in UI order AND allowed by backend lifecycle rules.
+    // Example: from PENDING you cannot jump straight to FORWARDED_TO_NESTPICK.
+    return JOB_STATUS_VALUES.slice(idx + 1).filter((candidate) =>
+      MANUAL_ALLOWED_PREVIOUS_STATUSES[candidate]?.includes(current)
+    );
   }, [contextRow]);
 
   const resetChangeStatusDialogState = useCallback(() => {
     setChangeStatusTo(null);
     setChangeStatusReason('');
     setChangeStatusSubmitting(false);
+    setChangeStatusError(null);
   }, []);
 
   const refreshReadyForMachine = useCallback(
@@ -194,6 +215,8 @@ export function RouterPage() {
 
   const openChangeStatusDialog = useCallback(() => {
     resetChangeStatusDialogState();
+    // Avoid showing stale background banners behind the modal.
+    setBanner(null);
     setChangeStatusOpen(true);
   }, [resetChangeStatusDialogState]);
 
@@ -203,38 +226,38 @@ export function RouterPage() {
     const reason = changeStatusReason.trim();
 
     if (!row?.jobKey) {
-      setBanner({ type: 'error', message: 'This file is not linked to a job in the database yet.' });
+      setChangeStatusError('This file is not linked to a job in the database yet.');
       return;
     }
     if (!row.status) {
-      setBanner({ type: 'error', message: 'This job does not have a current status. Cannot apply a manual change.' });
+      setChangeStatusError('This job does not have a current status. Cannot apply a manual change.');
       return;
     }
     if (!to) {
-      setBanner({ type: 'error', message: 'Pick a target status.' });
+      setChangeStatusError('Pick a target status.');
       return;
     }
     if (!allowedForwardStatuses.includes(to)) {
-      setBanner({ type: 'error', message: `Invalid target status: ${to}` });
+      setChangeStatusError(`Invalid target status: ${to}`);
       return;
     }
     if (!reason) {
-      setBanner({ type: 'error', message: 'Reason is required.' });
+      setChangeStatusError('Reason is required.');
       return;
     }
 
     setChangeStatusSubmitting(true);
-    setBanner(null);
+    setChangeStatusError(null);
 
     try {
       const res = await window.api.router.changeStatus({ key: row.jobKey, to, reason });
       if (!res.ok) {
-        setBanner({ type: 'error', message: res.error.message ?? 'Failed to change status.' });
+        setChangeStatusError(res.error.message ?? 'Failed to change status.');
         return;
       }
       if (!res.value.ok) {
         const detail = res.value.reason ? ` (${res.value.reason})` : '';
-        setBanner({ type: 'error', message: `Status change rejected${detail}.` });
+        setChangeStatusError(`Status change rejected${detail}.`);
         return;
       }
 
@@ -247,7 +270,7 @@ export function RouterPage() {
       resetChangeStatusDialogState();
       await refreshReadyForMachine(row.machineId);
     } catch (err) {
-      setBanner({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+      setChangeStatusError(err instanceof Error ? err.message : String(err));
     } finally {
       setChangeStatusSubmitting(false);
     }
@@ -839,6 +862,11 @@ export function RouterPage() {
             </DialogHeader>
 
             <div className="space-y-5">
+              {changeStatusError ? (
+                <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {changeStatusError}
+                </div>
+              ) : null}
               <div className="text-sm">
                 <div className="font-medium truncate">
                   {contextRow?.name ?? 'No selection'}

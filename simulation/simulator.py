@@ -517,7 +517,7 @@ def remove_staged_job_files(dest_root: Path, base_stem: str):
             pass
 
 
-def write_autopac_csv(auto_pac_dir: Path, machine_token: str, kind: str, bases: list[str], dry_run=False) -> Path:
+def write_autopac_csv(auto_pac_dir: Path, machine_token: str, machine_id: int, kind: str, bases: list[str], dry_run=False) -> Path:
     # kind ∈ {load_finish, label_finish, cnc_finish}
     filename = f"{kind}{machine_token}.csv"
     content_lines = []
@@ -525,8 +525,8 @@ def write_autopac_csv(auto_pac_dir: Path, machine_token: str, kind: str, bases: 
         content_lines.append(b)
     content_lines.append(machine_token)
     data = "\n".join(content_lines)
-    # Ensure CSV rows are comma-separated as Base,Machine
-    rows = [f"{b},{machine_token}" for b in bases]
+    # Ensure CSV rows are comma-separated as Base,MachineId
+    rows = [f"{b},{machine_id}" for b in bases]
     data = "\n".join(rows)
     out_path = auto_pac_dir / filename
     if dry_run:
@@ -644,7 +644,7 @@ def workflow_once(argv: Optional[list[str]] = None):
             return False
 
         sleep_random(args.min_delay, args.max_delay)
-        p = write_autopac_csv(auto_pac_dir, machine_token, "load_finish", [base], dry_run=args.dry_run)
+        p = write_autopac_csv(auto_pac_dir, machine_token, machine.machine_id, "load_finish", [base], dry_run=args.dry_run)
         if args.wait_app and not args.dry_run:
             if not wait_consumed(p, args.wait_timeout):
                 print("[skip] Aborting remaining steps due to unconsumed load_finish CSV")
@@ -654,7 +654,7 @@ def workflow_once(argv: Optional[list[str]] = None):
                 return
 
         sleep_random(args.min_delay, args.max_delay)
-        p = write_autopac_csv(auto_pac_dir, machine_token, "label_finish", [base], dry_run=args.dry_run)
+        p = write_autopac_csv(auto_pac_dir, machine_token, machine.machine_id, "label_finish", [base], dry_run=args.dry_run)
         if args.wait_app and not args.dry_run:
             if not wait_consumed(p, args.wait_timeout):
                 print("[skip] Aborting remaining steps due to unconsumed label_finish CSV")
@@ -664,7 +664,7 @@ def workflow_once(argv: Optional[list[str]] = None):
                 return
 
         sleep_random(args.min_delay, args.max_delay)
-        p = write_autopac_csv(auto_pac_dir, machine_token, "cnc_finish", [base], dry_run=args.dry_run)
+        p = write_autopac_csv(auto_pac_dir, machine_token, machine.machine_id, "cnc_finish", [base], dry_run=args.dry_run)
         if args.wait_app and not args.dry_run:
             if not wait_consumed(p, args.wait_timeout):
                 print("[skip] CNC finish not consumed; skipping Nestpick")
@@ -799,7 +799,7 @@ def workflow_loop(argv: Optional[list[str]] = None):
                         return False
 
                     sleep_random(args.min_delay, args.max_delay)
-                    p = write_autopac_csv(auto_pac_dir, machine_token, "load_finish", [base], dry_run=args.dry_run)
+                    p = write_autopac_csv(auto_pac_dir, machine_token, machine.machine_id, "load_finish", [base], dry_run=args.dry_run)
                     if args.wait_app and not args.dry_run and not wait_consumed(p, args.wait_timeout):
                         print("[skip] Skipping remaining steps for this cycle due to unconsumed load_finish CSV")
                         if staged_dest:
@@ -808,7 +808,7 @@ def workflow_loop(argv: Optional[list[str]] = None):
                         continue
 
                     sleep_random(args.min_delay, args.max_delay)
-                    p = write_autopac_csv(auto_pac_dir, machine_token, "label_finish", [base], dry_run=args.dry_run)
+                    p = write_autopac_csv(auto_pac_dir, machine_token, machine.machine_id, "label_finish", [base], dry_run=args.dry_run)
                     if args.wait_app and not args.dry_run and not wait_consumed(p, args.wait_timeout):
                         print("[skip] Skipping remaining steps for this cycle due to unconsumed label_finish CSV")
                         if staged_dest:
@@ -817,7 +817,7 @@ def workflow_loop(argv: Optional[list[str]] = None):
                         continue
 
                     sleep_random(args.min_delay, args.max_delay)
-                    p = write_autopac_csv(auto_pac_dir, machine_token, "cnc_finish", [base], dry_run=args.dry_run)
+                    p = write_autopac_csv(auto_pac_dir, machine_token, machine.machine_id, "cnc_finish", [base], dry_run=args.dry_run)
                     if args.wait_app and not args.dry_run and not wait_consumed(p, args.wait_timeout):
                         print("[skip] CNC finish not consumed; skipping Nestpick for this cycle")
                         if staged_dest:
