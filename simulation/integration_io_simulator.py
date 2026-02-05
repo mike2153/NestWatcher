@@ -120,7 +120,7 @@ def _find_nc_bases(staged_folder: Path) -> list[str]:
     return bases
 
 
-def _write_autopac_status_csv(auto_pac_dir: Path, kind: str, machine_token: str, bases: Iterable[str]) -> Path:
+def _write_autopac_status_csv(auto_pac_dir: Path, kind: str, machine_token: str, machine_id: int, bases: Iterable[str]) -> Path:
     # The app enforces:
     # - filename prefix kind
     # - machine token is extracted from filename
@@ -128,7 +128,8 @@ def _write_autopac_status_csv(auto_pac_dir: Path, kind: str, machine_token: str,
     # - token must appear somewhere in the CSV
     # - base in column 1 (with or without .nc)
     out = auto_pac_dir / f"{kind}{machine_token}.csv"
-    rows = [f"{b},{machine_token}" for b in bases]
+    # Real AutoPAC status files use machine number in column 2.
+    rows = [f"{b},{machine_id}" for b in bases]
     _atomic_write_text(out, "\n".join(rows))
     print(f"[autopac] wrote {out}")
     return out
@@ -296,23 +297,28 @@ def _job_runner_loop(
             if not bases:
                 print(f"[runner] no .nc files found in {staged}; skipping")
                 continue
-            print(f"[runner] bases={bases}")
+            # AutoPAC status CSVs should represent ONE sheet/job at a time.
+            # If the staged folder contains multiple .nc programs, pick one deterministically
+            # so we do not incorrectly progress multiple jobs.
+            bases = sorted(bases, key=lambda s: s.lower())
+            base = bases[0]
+            print(f"[runner] selected base={base} from {len(bases)} nc file(s)")
 
             # AutoPAC + Grundner (optional order_saw -> ChangeMachNr handshake)
             if emit_order_saw:
                 _sleep_random(min_delay_s, max_delay_s, "before order_saw")
-                _write_autopac_order_saw(auto_pac_dir, machine_token, machine_id, bases)
+                _write_autopac_order_saw(auto_pac_dir, machine_token, machine_id, [base])
                 print(f"[runner] order_saw emitted; app should write ChangeMachNr.csv into {grundner_dir}")
 
             # AutoPAC status progression
             _sleep_random(min_delay_s, max_delay_s, "before load_finish")
-            _write_autopac_status_csv(auto_pac_dir, "load_finish", machine_token, bases)
+            _write_autopac_status_csv(auto_pac_dir, "load_finish", machine_token, machine_id, [base])
 
             _sleep_random(min_delay_s, max_delay_s, "before label_finish")
-            _write_autopac_status_csv(auto_pac_dir, "label_finish", machine_token, bases)
+            _write_autopac_status_csv(auto_pac_dir, "label_finish", machine_token, machine_id, [base])
 
             _sleep_random(min_delay_s, max_delay_s, "before cnc_finish")
-            _write_autopac_status_csv(auto_pac_dir, "cnc_finish", machine_token, bases)
+            _write_autopac_status_csv(auto_pac_dir, "cnc_finish", machine_token, machine_id, [base])
 
             # Nestpick request/ack/unstack
             nestpick_req = nestpick_dir / "Nestpick.csv"
@@ -320,7 +326,7 @@ def _job_runner_loop(
                 _sleep_random(min_delay_s, max_delay_s, "before Nestpick.erl")
                 _write_nestpick_ack(nestpick_dir)
                 _sleep_random(min_delay_s, max_delay_s, "before Report_FullNestpickUnstack.csv")
-                _write_nestpick_unstack(nestpick_dir, bases, pallet="P1")
+                _write_nestpick_unstack(nestpick_dir, [base], pallet="P1")
             else:
                 print(
                     f"[nestpick] did not see Nestpick.csv within {nestpick_timeout_s:.0f}s; "
