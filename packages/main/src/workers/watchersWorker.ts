@@ -2264,7 +2264,24 @@ async function handleAutoPacCsv(path: string) {
     let processedAny = false;
 
     {
-      const job = await findJobByNcBase(base);
+      // AutoPAC CSVs only carry the NC base (example: "A1") + machine id.
+      // If operators rerun the same NC base under a different job key/folder, multiple DB rows can share that base.
+      // Prefer a job whose *current* status is a sensible predecessor for the incoming file type,
+      // so we don't accidentally match a completed/stuck job and treat the CSV as a duplicate.
+      const preferredStatuses = (() => {
+        switch (to) {
+          case 'LOAD_FINISH':
+            return ['PENDING', 'STAGED', 'RUNNING'];
+          case 'LABEL_FINISH':
+            return ['STAGED', 'RUNNING', 'LOAD_FINISH'];
+          case 'CNC_FINISH':
+            return ['STAGED', 'RUNNING', 'LOAD_FINISH', 'LABEL_FINISH'];
+          default:
+            return [];
+        }
+      })();
+
+      const job = await findJobByNcBasePreferStatus(base, preferredStatuses);
       if (!job) {
         logger.warn({ base, file: path }, 'watcher: job not found for AutoPAC CSV');
         // This is not a file format issue, but it is still an operator-actionable problem.
