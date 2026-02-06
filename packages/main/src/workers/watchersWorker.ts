@@ -1,6 +1,6 @@
 import chokidar, { type FSWatcher } from 'chokidar';
 import { createHash } from 'crypto';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, statSync } from 'fs';
 import { promises as fsp } from 'fs';
 import type { Dirent } from 'fs';
 import { basename, dirname, extname, join, normalize, relative, sep } from 'path';
@@ -57,6 +57,11 @@ function shouldIgnoreNcCatPath(path: string): boolean {
   const lower = path.toLowerCase().replace(/\\/g, '/');
   if (lower.includes('/$recycle.bin') || lower.includes('/system volume information')) {
     return true;
+  }
+  try {
+    if (statSync(path).isDirectory()) return false;
+  } catch {
+    return false;
   }
   const extension = extname(path).toLowerCase();
   if (!extension) return false;

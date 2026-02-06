@@ -326,6 +326,13 @@ export function registerFilesIpc() {
         if (lower.includes('/$recycle.bin') || lower.includes('/system volume information')) {
           return true;
         }
+        try {
+          if (statSync(p).isDirectory()) {
+            return false;
+          }
+        } catch {
+          return false;
+        }
         const extension = extname(p).toLowerCase();
         if (!extension) return false;
         if (!READY_WATCH_ALLOWED_EXTENSIONS.has(extension)) {
