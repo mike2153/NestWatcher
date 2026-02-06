@@ -11,7 +11,9 @@ logs/
 resources/
 dist/
 build/
-tests/reports/
+tests/reports
 tests/.tmp
+tests/failed_files/
+tests/reports/
 
 nul

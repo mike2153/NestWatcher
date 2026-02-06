@@ -160,6 +160,17 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+function formatTimeForReport(value: string | null | undefined): string {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  const ms = String(d.getMilliseconds()).padStart(3, '0');
+  return `${hh}:${mm}:${ss}:${ms}`;
+}
+
 function slug(input: string): string {
   return input.replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'scenario';
 }
@@ -236,7 +247,10 @@ function renderReportHtml(report: LiveIoReport): string {
     .map((scenario) => {
       const statusClass = scenario.status === 'passed' ? 'ok' : 'bad';
       const logs = scenario.logs
-        .map((log) => `<li><code>${escapeHtml(log.timestamp)}</code> <strong>${escapeHtml(log.level)}</strong> ${escapeHtml(log.message)}</li>`)
+        .map(
+          (log) =>
+            `<li><code>${escapeHtml(formatTimeForReport(log.timestamp))}</code> <strong>${escapeHtml(log.level)}</strong> ${escapeHtml(log.message)}</li>`
+        )
         .join('');
       const writes = scenario.filesWritten
         .map(
@@ -254,7 +268,7 @@ function renderReportHtml(report: LiveIoReport): string {
       const messages = scenario.appMessages
         .map(
           (entry) =>
-            `<tr><td>${escapeHtml(entry.createdAt)}</td><td>${escapeHtml(entry.event)}</td><td>${escapeHtml(entry.title)}</td><td>${escapeHtml(entry.body)}</td><td>${escapeHtml(entry.source ?? '')}</td></tr>`
+            `<tr><td>${escapeHtml(formatTimeForReport(entry.createdAt))}</td><td>${escapeHtml(entry.event)}</td><td>${escapeHtml(entry.title)}</td><td>${escapeHtml(entry.body)}</td><td>${escapeHtml(entry.source ?? '')}</td></tr>`
         )
         .join('');
       const watcherRows = scenario.watchersAfter
@@ -267,7 +281,7 @@ function renderReportHtml(report: LiveIoReport): string {
       return `
       <section class="scenario">
         <h2>${escapeHtml(scenario.name)} <span class="pill ${statusClass}">${escapeHtml(scenario.status)}</span></h2>
-        <p><strong>Started:</strong> ${escapeHtml(scenario.startedAt)} | <strong>Finished:</strong> ${escapeHtml(scenario.finishedAt)} | <strong>Duration:</strong> ${scenario.durationMs} ms</p>
+        <p><strong>Started:</strong> ${escapeHtml(formatTimeForReport(scenario.startedAt))} | <strong>Finished:</strong> ${escapeHtml(formatTimeForReport(scenario.finishedAt))} | <strong>Duration:</strong> ${scenario.durationMs} ms</p>
         ${scenario.error ? `<p class="error"><strong>Error:</strong> ${escapeHtml(scenario.error)}</p>` : ''}
         <p><strong>Incorrect input attempts:</strong> ${deriveIncorrectInputAttempts(scenario)}</p>
         <h3>Logs</h3>
@@ -314,8 +328,8 @@ function renderReportHtml(report: LiveIoReport): string {
     <div class="meta">
       <p><strong>Run ID:</strong> ${escapeHtml(report.runId)}</p>
       <p><strong>Target:</strong> ${escapeHtml(report.target)}</p>
-      <p><strong>Started:</strong> ${escapeHtml(report.startedAt)}</p>
-      <p><strong>Finished:</strong> ${escapeHtml(report.finishedAt)}</p>
+      <p><strong>Started:</strong> ${escapeHtml(formatTimeForReport(report.startedAt))}</p>
+      <p><strong>Finished:</strong> ${escapeHtml(formatTimeForReport(report.finishedAt))}</p>
       <p><strong>Settings Path:</strong> <code>${escapeHtml(report.settingsPath)}</code></p>
       <p><strong>Machine:</strong> ${escapeHtml(report.machine ? `${report.machine.name} #${report.machine.machineId}` : 'none')}</p>
       <p><strong>AutoPAC Dir:</strong> <code>${escapeHtml(report.paths.autoPacDir)}</code></p>
@@ -386,7 +400,6 @@ async function runScenario(name: string, fn: () => Promise<void>) {
   } catch (err) {
     scenario.status = 'failed';
     scenario.error = err instanceof Error ? err.message : String(err);
-    await persistFailedScenarioArtifacts(liveReport, scenario);
     logFail(`Scenario failed: ${name} -> ${scenario.error}`);
     throw err;
   } finally {
@@ -400,6 +413,9 @@ async function runScenario(name: string, fn: () => Promise<void>) {
       source: entry.source ? String(entry.source) : null
     }));
     scenario.watchersAfter = compactWatcherSnapshot(getDiagnosticsSnapshot?.() ?? null);
+    if (scenario.status === 'failed') {
+      await persistFailedScenarioArtifacts(liveReport, scenario);
+    }
     currentScenario = null;
   }
 }
@@ -683,14 +699,6 @@ async function stageFixtureFolderToReady(asset: FixtureAsset) {
     await ensureDir(dirname(target));
     await fsp.copyFile(sourceFile, target);
     copiedCount += 1;
-    if (currentScenario) {
-      currentScenario.fileOutcomes.push({
-        timestamp: new Date().toISOString(),
-        path: target,
-        outcome: 'observed',
-        contentPreview: `[staged from fixture folder] ${sourceFile}`
-      });
-    }
   }
 
   logStep(`Staged fixture folder ${asset.sourceDir} into ${destinationRoot} with ${copiedCount} file(s)`);
@@ -701,6 +709,12 @@ async function waitForFile(path: string, timeoutMs = 30_000) {
     if (!existsSync(path)) return null;
     return path;
   }, timeoutMs, 250);
+}
+
+async function triggerCncFinishForJob(base: string) {
+  if (!machine) throw new Error('Machine is not initialized');
+  const cncPath = join(autoPacDir, `cnc_finish${machineToken}.csv`);
+  await pacedWriteAtomic(cncPath, `${base},${machine.machineId}\r\n`);
 }
 
 async function waitForArchiveFile(
@@ -752,24 +766,57 @@ async function createFixtureJob(status: string, assetOverride?: FixtureAsset): P
 
   const key = `${asset.folderRel}/${asset.base}`.slice(0, 100);
 
-  await withDb!(async (db) => {
-    await db.insert(jobsTable).values({
-      key,
-      folder: asset.folderRel,
-      ncfile: `${asset.base}.nc`,
-      machineId: machine!.machineId,
-      status,
-      dateAdded: new Date(),
-      updatedAt: new Date(),
-      isLocked: false,
-      preReserved: false,
-      qty: 1
+  // Stage files first, then insert pending row.
+  // This avoids a race where jobs-ingest prunes a PENDING row before its .nc exists on disk.
+  await stageFixtureFolderToReady(asset);
+
+  const upsertRow = async () => {
+    await withDb!(async (db) => {
+      await db
+        .insert(jobsTable)
+        .values({
+          key,
+          folder: asset.folderRel,
+          ncfile: `${asset.base}.nc`,
+          machineId: machine!.machineId,
+          status,
+          dateAdded: new Date(),
+          updatedAt: new Date(),
+          isLocked: false,
+          preReserved: false,
+          qty: 1
+        })
+        .onConflictDoUpdate({
+          target: jobsTable.key,
+          set: {
+            folder: asset.folderRel,
+            ncfile: `${asset.base}.nc`,
+            machineId: machine!.machineId,
+            status,
+            updatedAt: new Date(),
+            isLocked: false,
+            preReserved: false
+          }
+        });
     });
-  });
+  };
+
+  await upsertRow();
+
+  // jobs-ingest can run concurrently and prune newly inserted PENDING rows
+  // if it scanned before this fixture folder appeared.
+  // Retry a few times so the row survives once ingest catches up.
+  if (status === 'PENDING') {
+    for (let i = 0; i < 3; i += 1) {
+      await delay(450);
+      const row = await getJob(key);
+      if (row) break;
+      logWarn(`Reinserting pruned pending fixture job ${key} after ingest race`);
+      await upsertRow();
+    }
+  }
 
   createdJobKeys.push(key);
-
-  await stageFixtureFolderToReady(asset);
 
   logStep(`Created fixture-backed job ${key} from ${asset.base} with status ${status}`);
   return { key, base: asset.base };
@@ -1158,9 +1205,12 @@ liveDescribe('Live Watcher IO Suites', () => {
       await cleanupSlotFiles();
       const startedAt = Date.now();
 
-      const job = await createFixtureJob('CNC_FINISH');
+      const job = await createFixtureJob('LABEL_FINISH');
       const stackCsvPath = join(nestpickDir, 'Nestpick.csv');
       const stackErlPath = join(nestpickDir, 'Nestpick.erl');
+
+      await triggerCncFinishForJob(job.base);
+      await waitForJobStatus(job.key, 'CNC_FINISH', 35_000);
 
       await waitFor('app forwarded Nestpick.csv', async () => (existsSync(stackCsvPath) ? true : null), 45_000, 300);
       const stackPayload = await fsp.readFile(stackCsvPath, 'utf8');
@@ -1375,7 +1425,9 @@ liveDescribe('Live Watcher IO Suites', () => {
         run: async (asset) => {
           await cleanupSlotFiles();
           const startedAt = Date.now();
-          const job = await createFixtureJob('CNC_FINISH', asset);
+          const job = await createFixtureJob('LABEL_FINISH', asset);
+          await triggerCncFinishForJob(job.base);
+          await waitForJobStatus(job.key, 'CNC_FINISH', 35_000);
           const csvPath = join(nestpickDir, 'Nestpick.csv');
           await waitForFile(csvPath, 45_000);
           const payload = await fsp.readFile(csvPath, 'utf8');
@@ -1394,7 +1446,9 @@ liveDescribe('Live Watcher IO Suites', () => {
         run: async (asset) => {
           await cleanupSlotFiles();
           const startedAt = Date.now();
-          const job = await createFixtureJob('CNC_FINISH', asset);
+          const job = await createFixtureJob('LABEL_FINISH', asset);
+          await triggerCncFinishForJob(job.base);
+          await waitForJobStatus(job.key, 'CNC_FINISH', 35_000);
           const csvPath = join(nestpickDir, 'Nestpick.csv');
           await waitForFile(csvPath, 45_000);
           const erlPath = join(nestpickDir, 'Nestpick.erl');
@@ -1408,7 +1462,16 @@ liveDescribe('Live Watcher IO Suites', () => {
         run: async (asset) => {
           await cleanupSlotFiles();
           const startedAt = Date.now();
-          const job = await createFixtureJob('FORWARDED_TO_NESTPICK', asset);
+          const job = await createFixtureJob('LABEL_FINISH', asset);
+          await triggerCncFinishForJob(job.base);
+          await waitForJobStatus(job.key, 'CNC_FINISH', 35_000);
+          const csvPath = join(nestpickDir, 'Nestpick.csv');
+          await waitForFile(csvPath, 45_000);
+          const payload = await fsp.readFile(csvPath, 'utf8');
+          const erlPath = join(nestpickDir, 'Nestpick.erl');
+          await pacedWriteAtomic(erlPath, payload);
+          await unlinkIfExists(csvPath);
+          await waitForJobStatus(job.key, 'FORWARDED_TO_NESTPICK', 35_000);
           const unstackPath = join(nestpickDir, 'Report_FullNestpickUnstack.csv');
           await pacedWriteAtomic(unstackPath, `${job.base},PALLET-FUZZ\r\n`);
           await waitForJobStatus(job.key, 'NESTPICK_COMPLETE', 35_000);
@@ -1421,7 +1484,16 @@ liveDescribe('Live Watcher IO Suites', () => {
         run: async (asset) => {
           await cleanupSlotFiles();
           const startedAt = Date.now();
-          await createFixtureJob('FORWARDED_TO_NESTPICK', asset);
+          const job = await createFixtureJob('LABEL_FINISH', asset);
+          await triggerCncFinishForJob(job.base);
+          await waitForJobStatus(job.key, 'CNC_FINISH', 35_000);
+          const csvPath = join(nestpickDir, 'Nestpick.csv');
+          await waitForFile(csvPath, 45_000);
+          const payload = await fsp.readFile(csvPath, 'utf8');
+          const erlPath = join(nestpickDir, 'Nestpick.erl');
+          await pacedWriteAtomic(erlPath, payload);
+          await unlinkIfExists(csvPath);
+          await waitForJobStatus(job.key, 'FORWARDED_TO_NESTPICK', 35_000);
           const unstackPath = join(nestpickDir, 'Report_FullNestpickUnstack.csv');
           await pacedWriteAtomic(unstackPath, '');
           await waitForMovedFile(join(nestpickDir, 'incorrect_files'), 'Report_FullNestpickUnstack_', startedAt);

@@ -1496,6 +1496,31 @@ async function waitForExists(path: string, timeoutMs = 30_000) {
   return true;
 }
 
+async function readStableFileWithRetry(path: string, timeoutMs = 5_000) {
+  const start = Date.now();
+  let lastErr: unknown;
+  while (Date.now() - start < timeoutMs) {
+    try {
+      if (!(await fileExists(path))) {
+        await delay(150);
+        continue;
+      }
+      await waitForStableFile(path, 3, 250);
+      return await readFile(path, 'utf8');
+    } catch (err) {
+      lastErr = err;
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code === 'ENOENT') {
+        await delay(150);
+        continue;
+      }
+      throw err;
+    }
+  }
+  if (lastErr instanceof Error) throw lastErr;
+  throw new Error(`Timed out reading stable file: ${path}`);
+}
+
 async function handleAutoPacOrderSawCsv(path: string, machineTokenFromFile: string) {
   const cfg = loadConfig();
   const grundnerRoot = cfg.paths.grundnerFolderPath?.trim() ?? '';
@@ -1711,8 +1736,7 @@ async function handleAutoPacOrderSawCsv(path: string, machineTokenFromFile: stri
       return;
     }
 
-    await waitForStableFile(outErl);
-    const erlRaw = await readFile(outErl, 'utf8');
+    const erlRaw = await readStableFileWithRetry(outErl, 6_000);
     const norm = (s: string) => s.replace(/\r\n/g, '\n').trim();
     const ok = norm(erlRaw) === norm(csvLines);
 

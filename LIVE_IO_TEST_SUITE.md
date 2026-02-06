@@ -118,9 +118,15 @@ Every live run writes:
 - `tests/reports/live-io-latest.html`
 - `tests/reports/live-io-latest.json`
 
+When a scenario fails, input payload copies and a manifest are also saved to:
+
+- `tests/failed_files/<timestamp>_<scenario>/inputs/*`
+- `tests/failed_files/<timestamp>_<scenario>/manifest.json`
+
 Report sections include:
 
 - Scenario status and duration
+- Top summary cards with pass/fail and bad-input attempt counts by watcher family
 - Named step logs
 - Exact files written and contents
 - File outcomes like `archive`, `incorrect_files`, `consumed`
