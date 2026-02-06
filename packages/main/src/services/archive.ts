@@ -167,8 +167,8 @@ export async function archiveCompletedJob(options: ArchiveJobOptions): Promise<{
       }
 
       const fileName = basename(sourceFile);
-      // Normalize rerun file names: store without runN_ prefix in archive
-      const normalizedName = fileName.replace(/^run\d+_/i, '');
+      // Normalize rerun file names: store without rerun prefix in archive
+      const normalizedName = fileName.replace(/^(?:run)?\d+_/i, '');
       let targetPath = join(archiveJobDir, normalizedName);
 
       // Handle file name conflicts - prefix with date (dd.MM.yy_)

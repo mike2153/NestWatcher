@@ -11,3 +11,7 @@ logs/
 resources/
 dist/
 build/
+tests/reports/
+tests/.tmp
+
+nul

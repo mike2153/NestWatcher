@@ -249,6 +249,7 @@ let stageSanityTimer: NodeJS.Timeout | null = null;
 let sourceSanityTimer: NodeJS.Timeout | null = null;
 
 const autoPacHashes = new Map<string, string>();
+const orderSawInFlight = new Set<string>();
 const autoPacOrderSawInFlight = new Set<string>();
 const pendingGrundnerReleases = new Map<string, number>();
 const PENDING_GRUNDNER_RELEASE_TTL_MS = 60_000;
@@ -1568,6 +1569,10 @@ async function handleAutoPacOrderSawCsv(path: string, machineTokenFromFile: stri
         quarantinedAs
       }
     });
+
+    if (quarantinedAs || !(await fileExists(path))) {
+      autoPacHashes.delete(path);
+    }
   };
 
   // Strict naming requirement: order_saw<machineToken>.csv
@@ -1595,8 +1600,29 @@ async function handleAutoPacOrderSawCsv(path: string, machineTokenFromFile: stri
     return;
   }
 
+  const inFlightKey = path.toLowerCase();
+  if (orderSawInFlight.has(inFlightKey)) {
+    return;
+  }
+  orderSawInFlight.add(inFlightKey);
+
   try {
+    if (!(await fileExists(path))) {
+      autoPacHashes.delete(path);
+      return;
+    }
+
     await waitForStableFile(path);
+
+    const hash = await hashFile(path);
+    if (autoPacHashes.get(path) === hash) {
+      return;
+    }
+    autoPacHashes.set(path, hash);
+    if (autoPacHashes.size > 200) {
+      const firstKey = autoPacHashes.keys().next().value;
+      if (firstKey) autoPacHashes.delete(firstKey);
+    }
 
     const raw = await readFile(path, 'utf8');
     const items = parseOrderSawChangeCsv(raw);
@@ -1766,7 +1792,9 @@ async function handleAutoPacOrderSawCsv(path: string, machineTokenFromFile: stri
       emitAppMessage('autopac.order_saw.recovered', { message: body }, 'autopac');
     }
     await disposeAutoPacCsv(path);
+    autoPacHashes.delete(path);
   } catch (err) {
+    autoPacHashes.delete(path);
     const msg = err instanceof Error ? err.message : String(err);
 
     // If the Grundner slot file never clears, treat it as a temporary busy condition.
@@ -1838,6 +1866,8 @@ async function handleAutoPacOrderSawCsv(path: string, machineTokenFromFile: stri
 
     recordWatcherError(AUTOPAC_WATCHER_NAME, err, { path, label: AUTOPAC_WATCHER_LABEL });
     logger.error({ err, file: path }, 'watcher: order_saw ChangeMachNr processing failed');
+  } finally {
+    orderSawInFlight.delete(inFlightKey);
   }
 }
 

@@ -10,7 +10,7 @@ function toRelDirFromKey(key: string): string {
 }
 
 function originalBase(base: string): string {
-  return base.replace(/^run\d+_/i, '');
+  return base.replace(/^(?:run)?\d+_/i, '');
 }
 
 export async function rerunJob(key: string): Promise<{ ok: true; created: string[] } | { ok: false; error: string }>{
@@ -32,12 +32,12 @@ export async function rerunJob(key: string): Promise<{ ok: true; created: string
   const origBase = originalBase(base);
 
   const relDir = toRelDirFromKey(key);
-  // Determine next run number by scanning the source directory for existing runN_ copies
+  // Determine next run number by scanning the source directory for existing rerun copies
   const srcDir = relDir ? resolve(root, relDir.split('/').join(sep)) : root;
-  let nextRun = 2; // Start at run2 for the second run
+  let nextRun = 2; // Start at 2_ for the second run
   try {
     const entries = readdirSync(srcDir, { withFileTypes: true });
-    const pattern = new RegExp(`^run(\\d+)_${origBase.replace(/[.*+?^${}()|[\\]\\]/g, r => r)}(?:\\.[A-Za-z0-9]+)?$`, 'i');
+    const pattern = new RegExp(`^(?:run)?(\\d+)_${origBase.replace(/[.*+?^${}()|[\\]\\]/g, r => r)}(?:\\.[A-Za-z0-9]+)?$`, 'i');
     let maxRun = 1;
     for (const e of entries) {
       if (!e.isFile()) continue;
@@ -51,7 +51,7 @@ export async function rerunJob(key: string): Promise<{ ok: true; created: string
   } catch {
     // ignore and use default nextRun
   }
-  const prefix = `run${nextRun}_`;
+  const prefix = `${nextRun}_`;
 
   const created: string[] = [];
 

@@ -28020,8 +28020,8 @@ function toIso(value) {
   if (Number.isNaN(date2.getTime())) return null;
   return date2.toISOString();
 }
-async function findJobByNcBase(base) {
-  const baseLower = base.trim().toLowerCase();
+async function findJobByNcBaseMachinePreferStatus(base, machineId, preferred) {
+  const baseLower = base.toLowerCase();
   const withoutExt = baseLower.replace(/\.nc$/i, "");
   const selectCols = {
     key: jobs.key,
@@ -28031,11 +28031,34 @@ async function findJobByNcBase(base) {
     status: jobs.status,
     isLocked: jobs.isLocked
   };
+  if (preferred.length > 0) {
+    const preferredTyped = preferred;
+    const rows2 = await withDb(
+      (db) => db.select(selectCols).from(jobs).where(
+        and(
+          eq(jobs.machineId, machineId),
+          inArray(jobs.status, preferredTyped),
+          or(sql`LOWER(${jobs.ncfile}) = ${withoutExt}`, sql`LOWER(${jobs.ncfile}) = ${withoutExt} || '.nc'`)
+        )
+      ).orderBy(desc(jobs.updatedAt)).limit(1)
+    );
+    if (rows2.length) {
+      const row2 = rows2[0];
+      return {
+        key: row2.key,
+        folder: row2.folder,
+        ncfile: row2.ncfile,
+        machineId: row2.machineId ?? null,
+        status: row2.status,
+        isLocked: !!row2.isLocked
+      };
+    }
+  }
   const rows = await withDb(
     (db) => db.select(selectCols).from(jobs).where(
-      or(
-        sql`LOWER(${jobs.ncfile}) = ${withoutExt}`,
-        sql`LOWER(${jobs.ncfile}) = ${withoutExt} || '.nc'`
+      and(
+        eq(jobs.machineId, machineId),
+        or(sql`LOWER(${jobs.ncfile}) = ${withoutExt}`, sql`LOWER(${jobs.ncfile}) = ${withoutExt} || '.nc'`)
       )
     ).orderBy(desc(jobs.updatedAt)).limit(1)
   );
@@ -28049,41 +28072,6 @@ async function findJobByNcBase(base) {
     status: row.status,
     isLocked: !!row.isLocked
   };
-}
-async function findJobByNcBasePreferStatus(base, preferred) {
-  const baseLower = base.toLowerCase();
-  const withoutExt = baseLower.replace(/\.nc$/i, "");
-  const selectCols = {
-    key: jobs.key,
-    folder: jobs.folder,
-    ncfile: jobs.ncfile,
-    machineId: jobs.machineId,
-    status: jobs.status,
-    isLocked: jobs.isLocked
-  };
-  if (preferred.length > 0) {
-    const preferredTyped = preferred;
-    const rows = await withDb(
-      (db) => db.select(selectCols).from(jobs).where(
-        and(
-          inArray(jobs.status, preferredTyped),
-          or(sql`LOWER(${jobs.ncfile}) = ${withoutExt}`, sql`LOWER(${jobs.ncfile}) = ${withoutExt} || '.nc'`)
-        )
-      ).orderBy(desc(jobs.updatedAt)).limit(1)
-    );
-    if (rows.length) {
-      const row = rows[0];
-      return {
-        key: row.key,
-        folder: row.folder,
-        ncfile: row.ncfile,
-        machineId: row.machineId ?? null,
-        status: row.status,
-        isLocked: !!row.isLocked
-      };
-    }
-  }
-  return findJobByNcBase(base);
 }
 async function updateLifecycle(key, to, options = {}) {
   return withDb(
@@ -28546,6 +28534,7 @@ function pushAppMessage(event, params, options) {
 }
 
 // packages/main/src/services/ingest.ts
+var INGEST_ALLOWED_EXTENSIONS = /* @__PURE__ */ new Set([".bmp", ".jpg", ".pts", ".lpt", ".npt", ".nsp", ".nc", ".csv"]);
 function walkDir(dir) {
   const out = [];
   let hadError = false;
@@ -28562,6 +28551,10 @@ function walkDir(dir) {
         if (child.hadError) hadError = true;
         out.push(...child.files);
       } else if (e.isFile()) {
+        const extension = (0, import_path3.extname)(e.name).toLowerCase();
+        if (!INGEST_ALLOWED_EXTENSIONS.has(extension)) {
+          continue;
+        }
         out.push(p);
       }
     }
@@ -28941,7 +28934,7 @@ async function archiveCompletedJob(options) {
         continue;
       }
       const fileName = (0, import_path5.basename)(sourceFile);
-      const normalizedName = fileName.replace(/^run\d+_/i, "");
+      const normalizedName = fileName.replace(/^(?:run)?\d+_/i, "");
       let targetPath = (0, import_path5.join)(archiveJobDir, normalizedName);
       try {
         await access(targetPath);
@@ -29098,6 +29091,25 @@ async function moveGrundnerFile(params) {
 // packages/main/src/workers/watchersWorker.ts
 var { access: access2, copyFile: copyFile2, readFile, readdir: readdir2, rename: rename2, stat, unlink, open } = import_fs10.promises;
 var SKIP_TRAVERSAL_DIRS = /* @__PURE__ */ new Set(["$recycle.bin", "system volume information"]);
+var NCCAT_ALLOWED_EXTENSIONS = /* @__PURE__ */ new Set([".bmp", ".jpg", ".pts", ".lpt", ".npt", ".nsp", ".nc", ".csv"]);
+function isNcCatAllowedFileName(fileName) {
+  const extension = (0, import_path7.extname)(fileName).toLowerCase();
+  return NCCAT_ALLOWED_EXTENSIONS.has(extension);
+}
+function shouldIgnoreNcCatPath(path) {
+  const lower = path.toLowerCase().replace(/\\/g, "/");
+  if (lower.includes("/$recycle.bin") || lower.includes("/system volume information")) {
+    return true;
+  }
+  try {
+    if ((0, import_fs9.statSync)(path).isDirectory()) return false;
+  } catch {
+    return false;
+  }
+  const extension = (0, import_path7.extname)(path).toLowerCase();
+  if (!extension) return false;
+  return !NCCAT_ALLOWED_EXTENSIONS.has(extension);
+}
 var channel = import_worker_threads2.parentPort;
 var fsWatchers = /* @__PURE__ */ new Set();
 function postMessageToMain(message) {
@@ -29222,6 +29234,7 @@ var processedRootMissingNotified = false;
 var stageSanityTimer = null;
 var sourceSanityTimer = null;
 var autoPacHashes = /* @__PURE__ */ new Map();
+var orderSawInFlight = /* @__PURE__ */ new Set();
 var pendingGrundnerReleases = /* @__PURE__ */ new Map();
 var PENDING_GRUNDNER_RELEASE_TTL_MS = 6e4;
 var NESTPICK_FILENAME = "Nestpick.csv";
@@ -30192,6 +30205,9 @@ ${content}`;
         quarantinedAs
       }
     });
+    if (quarantinedAs || !await fileExists2(path)) {
+      autoPacHashes.delete(path);
+    }
   };
   if (!machineToken) {
     await reportOrderSawFormatError({
@@ -30212,8 +30228,26 @@ ${content}`;
     });
     return;
   }
+  const inFlightKey = path.toLowerCase();
+  if (orderSawInFlight.has(inFlightKey)) {
+    return;
+  }
+  orderSawInFlight.add(inFlightKey);
   try {
+    if (!await fileExists2(path)) {
+      autoPacHashes.delete(path);
+      return;
+    }
     await waitForStableFile(path);
+    const hash = await hashFile(path);
+    if (autoPacHashes.get(path) === hash) {
+      return;
+    }
+    autoPacHashes.set(path, hash);
+    if (autoPacHashes.size > 200) {
+      const firstKey = autoPacHashes.keys().next().value;
+      if (firstKey) autoPacHashes.delete(firstKey);
+    }
     const raw = await readFile(path, "utf8");
     const items = parseOrderSawChangeCsv(raw);
     if (items.length === 0) {
@@ -30315,7 +30349,7 @@ Action: The file was moved to incorrect_files.`
       return;
     }
     for (const it of items) {
-      const job = await findJobByNcBasePreferStatus(it.base, ["STAGED"]);
+      const job = await findJobByNcBaseMachinePreferStatus(it.base, it.machineId, ["STAGED"]);
       if (!job) {
         logger.warn({ base: it.base, file: path }, "watcher: order_saw change could not find job");
         continue;
@@ -30343,7 +30377,9 @@ Grundner folder: ${grundnerRoot}`;
       emitAppMessage("autopac.order_saw.recovered", { message: body }, "autopac");
     }
     await disposeAutoPacCsv(path);
+    autoPacHashes.delete(path);
   } catch (err2) {
+    autoPacHashes.delete(path);
     const msg = err2 instanceof Error ? err2.message : String(err2);
     if (msg.toLowerCase().includes("changemachnr busy") || msg.toLowerCase().includes("file busy timeout")) {
       const now = Date.now();
@@ -30406,6 +30442,8 @@ The watcher will now retry every ${Math.round(WATCHER_BACKOFF_MAX_MS / 1e3)} sec
     }
     recordWatcherError(AUTOPAC_WATCHER_NAME, err2, { path, label: AUTOPAC_WATCHER_LABEL });
     logger.error({ err: err2, file: path }, "watcher: order_saw ChangeMachNr processing failed");
+  } finally {
+    orderSawInFlight.delete(inFlightKey);
   }
 }
 async function forwardToNestpick(base, job, machine, machines2) {
@@ -30763,7 +30801,24 @@ ${preview}`;
     }
     let processedAny = false;
     {
-      const job = await findJobByNcBase(base);
+      const preferredStatuses = (() => {
+        switch (to) {
+          case "LOAD_FINISH":
+            return ["PENDING", "STAGED", "RUNNING"];
+          case "LABEL_FINISH":
+            return ["STAGED", "RUNNING", "LOAD_FINISH"];
+          case "CNC_FINISH":
+            return ["STAGED", "RUNNING", "LOAD_FINISH", "LABEL_FINISH"];
+          default:
+            return [];
+        }
+      })();
+      const machineIdForLookup = machine.machineId ?? null;
+      if (machineIdForLookup == null) {
+        logger.warn({ file: path, machineToken }, "watcher: machine id missing while resolving AutoPAC CSV");
+        return;
+      }
+      const job = await findJobByNcBaseMachinePreferStatus(base, machineIdForLookup, preferredStatuses);
       if (!job) {
         logger.warn({ base, file: path }, "watcher: job not found for AutoPAC CSV");
         const autoPacDir = (0, import_path7.dirname)(path);
@@ -31097,7 +31152,12 @@ Action: The file will be moved to incorrect_files so it does not keep re-trigger
     }
     let updatedAny = false;
     for (const base of bases) {
-      const job = await findJobByNcBasePreferStatus(base, ["CNC_FINISH"]);
+      const machineIdForLookup = machine.machineId;
+      if (machineIdForLookup == null) {
+        logger.warn({ base, file: path }, "watcher: machine id missing for Nestpick stack lookup");
+        continue;
+      }
+      const job = await findJobByNcBaseMachinePreferStatus(base, machineIdForLookup, ["CNC_FINISH"]);
       if (!job) {
         logger.warn({ base, file: path }, "watcher: nestpick stack could not find job in CNC_FINISH");
         continue;
@@ -31217,7 +31277,12 @@ Action: The file will be moved to incorrect_files.`
       const rawJob = (row[jobIdx] ?? "").trim().replace(/^"|"$/g, "");
       if (!rawJob) continue;
       const base = rawJob;
-      const job = await findJobByNcBasePreferStatus(base, ["FORWARDED_TO_NESTPICK"]);
+      const machineIdForLookup = machine.machineId;
+      if (machineIdForLookup == null) {
+        logger.warn({ base, file: path }, "watcher: machine id missing for Nestpick unstack lookup");
+        continue;
+      }
+      const job = await findJobByNcBaseMachinePreferStatus(base, machineIdForLookup, ["FORWARDED_TO_NESTPICK"]);
       if (!job) {
         logger.warn({ base }, "watcher: unstack no matching job in FORWARDED_TO_NESTPICK");
         unmatched.push(base);
@@ -32700,83 +32765,118 @@ async function moveFolderToDestination(source, destRoot) {
       finalDest = candidate;
       logger.warn({ source, destination, finalDest }, "nccat: destination exists, using random suffix");
     }
-    const tryRename = async () => {
-      let lastErr = null;
-      for (let attempt = 1; attempt <= 8; attempt++) {
-        try {
-          await rename2(source, finalDest);
-          return;
-        } catch (err2) {
-          lastErr = err2;
-          const code = err2?.code;
-          if (code !== "EPERM" && code !== "EACCES" && code !== "EBUSY") {
-            throw err2;
-          }
-          await delay(150 * attempt);
-        }
-      }
-      throw lastErr;
-    };
-    try {
-      await tryRename();
-      return { ok: true, newPath: finalDest };
-    } catch (err2) {
-      const code = err2?.code;
-      if (code === "EXDEV" || code === "EPERM" || code === "EACCES" || code === "EBUSY") {
-        await copyFolderRecursive(source, finalDest);
-        await deleteFolderRecursive(source);
-        return { ok: true, newPath: finalDest };
-      }
-      throw err2;
+    const { files: allowedFiles, skippedFiles } = await collectAllowedJobFiles(source);
+    if (!allowedFiles.length) {
+      return { ok: false, error: `No allowed job files found in ${folderName}` };
     }
+    if (!(0, import_fs9.existsSync)(finalDest)) {
+      (0, import_fs9.mkdirSync)(finalDest, { recursive: true });
+    }
+    for (const file of allowedFiles) {
+      const destinationPath = (0, import_path7.join)(finalDest, file.relativePath);
+      await moveFileWithFallback(file.sourcePath, destinationPath);
+    }
+    if (skippedFiles > 0) {
+      logger.info({ source, skippedFiles }, "nccat: skipped unsupported file extensions");
+    }
+    await deleteEmptyDirectories(source);
+    return { ok: true, newPath: finalDest };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { ok: false, error: message };
   }
 }
-async function copyFolderRecursive(src, dest) {
-  if (!(0, import_fs9.existsSync)(dest)) {
-    (0, import_fs9.mkdirSync)(dest, { recursive: true });
+async function collectAllowedJobFiles(root) {
+  const files = [];
+  let skippedFiles = 0;
+  const walk = async (dir) => {
+    const entries = await readdir2(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const sourcePath = (0, import_path7.join)(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (SKIP_TRAVERSAL_DIRS.has(entry.name.toLowerCase())) continue;
+        await walk(sourcePath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (!isNcCatAllowedFileName(entry.name)) {
+        skippedFiles += 1;
+        continue;
+      }
+      files.push({
+        sourcePath,
+        relativePath: (0, import_path7.relative)(root, sourcePath)
+      });
+    }
+  };
+  await walk(root);
+  return { files, skippedFiles };
+}
+async function moveFileWithFallback(sourcePath, destinationPath) {
+  const destinationDir = (0, import_path7.dirname)(destinationPath);
+  if (!(0, import_fs9.existsSync)(destinationDir)) {
+    (0, import_fs9.mkdirSync)(destinationDir, { recursive: true });
   }
-  const entries = await readdir2(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const srcPath = (0, import_path7.join)(src, entry.name);
-    const destPath = (0, import_path7.join)(dest, entry.name);
-    if (entry.isDirectory()) {
-      await copyFolderRecursive(srcPath, destPath);
-    } else if (entry.isFile()) {
-      await copyFile2(srcPath, destPath);
+  const tryRename = async () => {
+    let lastErr = null;
+    for (let attempt = 1; attempt <= 8; attempt++) {
+      try {
+        await rename2(sourcePath, destinationPath);
+        return;
+      } catch (err2) {
+        lastErr = err2;
+        const code = err2?.code;
+        if (code !== "EPERM" && code !== "EACCES" && code !== "EBUSY") {
+          throw err2;
+        }
+        await delay(150 * attempt);
+      }
+    }
+    throw lastErr;
+  };
+  try {
+    await tryRename();
+    return;
+  } catch (err2) {
+    const code = err2?.code;
+    if (code !== "EXDEV" && code !== "EPERM" && code !== "EACCES" && code !== "EBUSY") {
+      throw err2;
+    }
+    await copyFile2(sourcePath, destinationPath);
+    const deleted = await unlinkWithRetry(sourcePath, 6, 150);
+    if (!deleted) {
+      throw new Error(`Failed to delete source file after copy: ${sourcePath}`);
     }
   }
 }
-async function deleteFolderRecursive(path) {
-  const entries = await readdir2(path, { withFileTypes: true });
+async function deleteEmptyDirectories(path) {
+  let entries = [];
+  try {
+    entries = await readdir2(path, { withFileTypes: true });
+  } catch {
+    return;
+  }
   for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
     const fullPath = (0, import_path7.join)(path, entry.name);
-    if (entry.isDirectory()) {
-      await deleteFolderRecursive(fullPath);
-    } else {
-      const ok2 = await unlinkWithRetry(fullPath, 6, 150);
-      if (!ok2) {
-        throw new Error(`Failed to delete file during folder cleanup: ${fullPath}`);
-      }
-    }
+    await deleteEmptyDirectories(fullPath);
   }
-  let lastErr = null;
-  for (let attempt = 1; attempt <= 6; attempt++) {
-    try {
-      await import_fs10.promises.rmdir(path);
+  let remaining = [];
+  try {
+    remaining = await readdir2(path, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  if (remaining.length > 0) return;
+  try {
+    await import_fs10.promises.rmdir(path);
+  } catch (err2) {
+    const code = err2?.code;
+    if (code === "EPERM" || code === "EACCES" || code === "EBUSY" || code === "ENOTEMPTY" || code === "ENOENT") {
       return;
-    } catch (err2) {
-      lastErr = err2;
-      const code = err2?.code;
-      if (code !== "EPERM" && code !== "EACCES" && code !== "EBUSY" && code !== "ENOTEMPTY") {
-        throw err2;
-      }
-      await delay(150 * attempt);
     }
+    throw err2;
   }
-  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 var NCCAT_STABILITY_THRESHOLD_MS = 1e4;
 var NCCAT_REQUEUE_DELAY_MS = 2e3;
@@ -32913,6 +33013,7 @@ async function collectLooseCandidates(jobsRoot, baseNoExt) {
       for (const entry of entries) {
         if (!entry.isFile()) continue;
         if (!isMatchingLooseName(entry.name, baseNoExt)) continue;
+        if (!isNcCatAllowedFileName(entry.name)) continue;
         const fullPath = (0, import_path7.join)(dir, entry.name);
         const rel = (0, import_path7.relative)(jobsRoot, fullPath);
         const depth = rel.split(/[\\/]+/).length;
@@ -33337,6 +33438,7 @@ function setupNcCatJobsWatcher(dir) {
         // Process existing files on startup
         depth: 10,
         // Allow deeper nesting under jobsRoot
+        ignored: shouldIgnoreNcCatPath,
         awaitWriteFinish: {
           stabilityThreshold: 2e3,
           // Wait 2 seconds for file to stabilize

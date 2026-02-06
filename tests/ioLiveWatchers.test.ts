@@ -93,6 +93,7 @@ type LiveIoReport = {
 };
 
 const reportOutputDir = resolve(process.cwd(), 'tests/reports');
+const failedFilesOutputDir = resolve(process.cwd(), 'tests/failed_files');
 const liveDelaySecondsRaw = Number(process.env.WOODTRON_LIVE_IO_FUZZ_DELAY_S ?? '0');
 const LIVE_DELAY_MS = Number.isFinite(liveDelaySecondsRaw) && liveDelaySecondsRaw > 0 ? Math.floor(liveDelaySecondsRaw * 1000) : 0;
 
@@ -104,6 +105,16 @@ type FixtureAsset = {
   nestpickPayloadPath: string;
   nestpickPayloadExt: '.nsp' | '.npt';
 };
+
+function sanitizeToken(input: string): string {
+  const cleaned = input.replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+  return cleaned.length ? cleaned : 'case';
+}
+
+function shortId5(): string {
+  const n = Math.floor(Math.random() * 36 ** 5);
+  return n.toString(36).padStart(5, '0');
+}
 const liveReport: LiveIoReport = {
   runId: `live-io-${Date.now()}`,
   target: process.env.WOODTRON_LIVE_IO_TARGET ?? 'all',
@@ -149,7 +160,78 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+function slug(input: string): string {
+  return input.replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'scenario';
+}
+
+function deriveWatcherFamilyFromScenarioName(name: string): 'autopac' | 'grundner' | 'nestpick' | 'e2e' | 'other' {
+  const lower = name.toLowerCase();
+  if (lower.includes('autopac')) return 'autopac';
+  if (lower.includes('grundner')) return 'grundner';
+  if (lower.includes('nestpick')) return 'nestpick';
+  if (lower.includes('end-to-end') || lower.includes('end to end') || lower.includes('e2e')) return 'e2e';
+  return 'other';
+}
+
+function deriveIncorrectInputAttempts(scenario: ScenarioReport): number {
+  const fromOutcomes = scenario.fileOutcomes.filter((f) => f.outcome === 'incorrect_files').length;
+  const fromMessages = scenario.appMessages.filter((m) => {
+    const e = m.event.toLowerCase();
+    return e.includes('format_error') || e.includes('invalid_transition') || e.includes('quarantined') || e.includes('job_not_found');
+  }).length;
+  return Math.max(fromOutcomes, fromMessages);
+}
+
+async function persistFailedScenarioArtifacts(report: LiveIoReport, scenario: ScenarioReport) {
+  if (scenario.status !== 'failed') return;
+  await ensureDir(failedFilesOutputDir);
+  const folderName = `${reportTimestampForFile()}_${slug(scenario.name)}`;
+  const scenarioDir = join(failedFilesOutputDir, folderName);
+  const inputsDir = join(scenarioDir, 'inputs');
+  await ensureDir(inputsDir);
+
+  for (let i = 0; i < scenario.filesWritten.length; i += 1) {
+    const entry = scenario.filesWritten[i];
+    const ext = basename(entry.path).includes('.') ? basename(entry.path).slice(basename(entry.path).lastIndexOf('.')) : '.txt';
+    const fileName = `${String(i + 1).padStart(2, '0')}_${slug(basename(entry.path, ext)).slice(0, 40)}${ext}`;
+    await fsp.writeFile(join(inputsDir, fileName), entry.content, 'utf8');
+  }
+
+  const manifest = {
+    runId: report.runId,
+    scenario: scenario.name,
+    startedAt: scenario.startedAt,
+    finishedAt: scenario.finishedAt,
+    error: scenario.error,
+    filesWritten: scenario.filesWritten,
+    fileOutcomes: scenario.fileOutcomes,
+    appMessages: scenario.appMessages,
+    watchersBefore: scenario.watchersBefore,
+    watchersAfter: scenario.watchersAfter
+  };
+  await fsp.writeFile(join(scenarioDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
+}
+
 function renderReportHtml(report: LiveIoReport): string {
+  const passedCount = report.scenarios.filter((s) => s.status === 'passed').length;
+  const failedCount = report.scenarios.filter((s) => s.status === 'failed').length;
+  const watcherStats = new Map<string, { attempts: number; failed: number; scenarios: number }>();
+  for (const scenario of report.scenarios) {
+    const family = deriveWatcherFamilyFromScenarioName(scenario.name);
+    const current = watcherStats.get(family) ?? { attempts: 0, failed: 0, scenarios: 0 };
+    current.scenarios += 1;
+    current.attempts += deriveIncorrectInputAttempts(scenario);
+    if (scenario.status === 'failed') current.failed += 1;
+    watcherStats.set(family, current);
+  }
+
+  const summaryCards = Array.from(watcherStats.entries())
+    .map(([family, stats]) => {
+      const ok = stats.failed === 0;
+      return `<div class="card ${ok ? 'ok' : 'bad'}"><h3>${escapeHtml(family.toUpperCase())}</h3><p><strong>Scenarios:</strong> ${stats.scenarios}</p><p><strong>Bad-input attempts:</strong> ${stats.attempts}</p><p><strong>Scenario failures:</strong> ${stats.failed}</p></div>`;
+    })
+    .join('');
+
   const scenarioBlocks = report.scenarios
     .map((scenario) => {
       const statusClass = scenario.status === 'passed' ? 'ok' : 'bad';
@@ -163,6 +245,7 @@ function renderReportHtml(report: LiveIoReport): string {
         )
         .join('');
       const outcomes = scenario.fileOutcomes
+        .filter((entry) => entry.outcome !== 'observed')
         .map(
           (entry) =>
             `<li><code>${escapeHtml(entry.outcome)}</code> <code>${escapeHtml(entry.path)}</code><pre>${escapeHtml(entry.contentPreview)}</pre></li>`
@@ -186,6 +269,7 @@ function renderReportHtml(report: LiveIoReport): string {
         <h2>${escapeHtml(scenario.name)} <span class="pill ${statusClass}">${escapeHtml(scenario.status)}</span></h2>
         <p><strong>Started:</strong> ${escapeHtml(scenario.startedAt)} | <strong>Finished:</strong> ${escapeHtml(scenario.finishedAt)} | <strong>Duration:</strong> ${scenario.durationMs} ms</p>
         ${scenario.error ? `<p class="error"><strong>Error:</strong> ${escapeHtml(scenario.error)}</p>` : ''}
+        <p><strong>Incorrect input attempts:</strong> ${deriveIncorrectInputAttempts(scenario)}</p>
         <h3>Logs</h3>
         <ul>${logs || '<li>None</li>'}</ul>
         <h3>Files Written</h3>
@@ -209,6 +293,10 @@ function renderReportHtml(report: LiveIoReport): string {
       body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; background: #f7f8fa; color: #111; }
       h1 { margin-bottom: 6px; }
       .meta { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+      .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 16px; }
+      .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 10px; }
+      .card.ok { border-color: #9cdab3; background: #f1fbf5; }
+      .card.bad { border-color: #f2a4a4; background: #fff1f1; }
       .scenario { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-bottom: 16px; }
       .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
       .pill.ok { background: #e7f8ee; color: #0b7a3c; }
@@ -235,7 +323,9 @@ function renderReportHtml(report: LiveIoReport): string {
       <p><strong>Nestpick Dir:</strong> <code>${escapeHtml(report.paths.nestpickDir)}</code></p>
       <p><strong>Processed Root:</strong> <code>${escapeHtml(report.paths.processedJobsRoot)}</code></p>
       <p><strong>Scenarios:</strong> ${report.scenarios.length}</p>
+      <p><strong>Passed:</strong> ${passedCount} | <strong>Failed:</strong> ${failedCount}</p>
     </div>
+    <div class="cards">${summaryCards}</div>
     ${scenarioBlocks || '<p>No scenarios recorded.</p>'}
   </body>
 </html>`;
@@ -296,6 +386,7 @@ async function runScenario(name: string, fn: () => Promise<void>) {
   } catch (err) {
     scenario.status = 'failed';
     scenario.error = err instanceof Error ? err.message : String(err);
+    await persistFailedScenarioArtifacts(liveReport, scenario);
     logFail(`Scenario failed: ${name} -> ${scenario.error}`);
     throw err;
   } finally {
@@ -501,6 +592,49 @@ async function findFixtureAsset(root: string): Promise<FixtureAsset | null> {
   return null;
 }
 
+async function copyDirWithBaseRename(sourceDir: string, targetDir: string, sourceBase: string, targetBase: string) {
+  await ensureDir(targetDir);
+  const entries = await fsp.readdir(sourceDir, { withFileTypes: true });
+  for (const entry of entries) {
+    const src = join(sourceDir, entry.name);
+    if (entry.isDirectory()) {
+      const sub = join(targetDir, entry.name);
+      await copyDirWithBaseRename(src, sub, sourceBase, targetBase);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    const ext = entry.name.includes('.') ? entry.name.slice(entry.name.lastIndexOf('.')) : '';
+    const stem = ext ? entry.name.slice(0, -ext.length) : entry.name;
+    const renamed = stem === sourceBase ? `${targetBase}${ext}` : entry.name;
+    const dst = join(targetDir, renamed);
+    await ensureDir(dirname(dst));
+    await fsp.copyFile(src, dst);
+  }
+}
+
+async function createVariantFixtureAsset(caseId: string): Promise<FixtureAsset> {
+  if (!fixtureAsset || !cfg?.paths?.processedJobsRoot) {
+    throw new Error('Fixture asset and processedJobsRoot must be initialized before creating variant assets');
+  }
+  const caseToken = sanitizeToken(caseId).slice(-5) || 'case5';
+  const runToken = shortId5();
+  const uniqueBase = `${fixtureAsset.base}_${caseToken}_${runToken}`;
+  const sourceLeaf = fixtureLeafFromFolder(fixtureAsset.folderRel);
+  const variantFolder = join(cfg.paths.processedJobsRoot, 'LIVE_IO_CASES', `${sourceLeaf}_${caseToken}_${runToken}`);
+  await copyDirWithBaseRename(fixtureAsset.sourceDir, variantFolder, fixtureAsset.base, uniqueBase);
+
+  const payloadExt = existsSync(join(variantFolder, `${uniqueBase}.nsp`)) ? '.nsp' : '.npt';
+  const folderRelRaw = relative(cfg.paths.processedJobsRoot, variantFolder).replace(/\\/g, '/');
+  return {
+    base: uniqueBase,
+    folderRel: folderRelRaw.length ? folderRelRaw : 'LIVE_IO_CASE',
+    sourceDir: variantFolder,
+    ncPath: join(variantFolder, `${uniqueBase}.nc`),
+    nestpickPayloadPath: join(variantFolder, `${uniqueBase}${payloadExt}`),
+    nestpickPayloadExt: payloadExt
+  };
+}
+
 async function pacedWriteAtomic(path: string, content: string) {
   await writeAtomic(path, content);
   if (LIVE_DELAY_MS > 0) {
@@ -609,20 +743,20 @@ async function waitForArchiveFile(
   }, timeoutMs, 300);
 }
 
-async function createFixtureJob(status: string): Promise<CreatedJob> {
+async function createFixtureJob(status: string, assetOverride?: FixtureAsset): Promise<CreatedJob> {
   assertLiveConfigReady();
-  if (!fixtureAsset) {
+  const asset = assetOverride ?? fixtureAsset;
+  if (!asset) {
     throw new Error('No fixture asset selected. Add paired .nc + .nsp files under processedJobsRoot (legacy .npt also supported).');
   }
 
-  const suffix = `${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-  const key = `${fixtureAsset.folderRel}/${fixtureAsset.base}_LIVE_${suffix}`.slice(0, 100);
+  const key = `${asset.folderRel}/${asset.base}`.slice(0, 100);
 
   await withDb!(async (db) => {
     await db.insert(jobsTable).values({
       key,
-      folder: fixtureAsset!.folderRel,
-      ncfile: `${fixtureAsset!.base}.nc`,
+      folder: asset.folderRel,
+      ncfile: `${asset.base}.nc`,
       machineId: machine!.machineId,
       status,
       dateAdded: new Date(),
@@ -635,10 +769,10 @@ async function createFixtureJob(status: string): Promise<CreatedJob> {
 
   createdJobKeys.push(key);
 
-  await stageFixtureFolderToReady(fixtureAsset);
+  await stageFixtureFolderToReady(asset);
 
-  logStep(`Created fixture-backed job ${key} from ${fixtureAsset.base} with status ${status}`);
-  return { key, base: fixtureAsset.base };
+  logStep(`Created fixture-backed job ${key} from ${asset.base} with status ${status}`);
+  return { key, base: asset.base };
 }
 
 async function getJob(key: string): Promise<{ status: string; pallet: string | null } | null> {
@@ -1132,15 +1266,15 @@ liveDescribe('Live Watcher IO Suites', () => {
   }, 180_000);
 
   liveFuzzIt('Live fuzz smoke: named scenarios with paced file generation and archive checks', async () => {
-    type CaseDef = { id: string; name: string; run: () => Promise<void> };
+    type CaseDef = { id: string; name: string; run: (asset: FixtureAsset) => Promise<void> };
     const cases: CaseDef[] = [
       {
         id: 'L-FZ-AUTOPAC-001',
         name: 'AutoPAC valid load_finish archives and advances status',
-        run: async () => {
+        run: async (asset) => {
           await cleanupSlotFiles();
           const startedAt = Date.now();
-          const job = await createFixtureJob('PENDING');
+          const job = await createFixtureJob('PENDING', asset);
           const path = join(autoPacDir, `load_finish${machineToken}.csv`);
           await pacedWriteAtomic(path, `${job.base},${machine!.machineId}\r\n`);
           await waitForJobStatus(job.key, 'LOAD_FINISH');
@@ -1150,10 +1284,10 @@ liveDescribe('Live Watcher IO Suites', () => {
       {
         id: 'L-FZ-AUTOPAC-002',
         name: 'AutoPAC out-of-order label_finish quarantines',
-        run: async () => {
+        run: async (asset) => {
           await cleanupSlotFiles();
           const startedAt = Date.now();
-          const job = await createFixtureJob('PENDING');
+          const job = await createFixtureJob('PENDING', asset);
           const path = join(autoPacDir, `label_finish${machineToken}.csv`);
           await pacedWriteAtomic(path, `${job.base},${machine!.machineId}\r\n`);
           await waitForMovedFile(join(autoPacDir, 'incorrect_files'), `label_finish${machineToken}_`, startedAt);
@@ -1175,10 +1309,10 @@ liveDescribe('Live Watcher IO Suites', () => {
       {
         id: 'L-FZ-AUTOPAC-004',
         name: 'AutoPAC bad delimiter quarantines',
-        run: async () => {
+        run: async (asset) => {
           await cleanupSlotFiles();
           const startedAt = Date.now();
-          const job = await createFixtureJob('PENDING');
+          const job = await createFixtureJob('PENDING', asset);
           const path = join(autoPacDir, `load_finish${machineToken}.csv`);
           await pacedWriteAtomic(path, `${job.base}|${machine!.machineId}\r\n`);
           await waitForMovedFile(join(autoPacDir, 'incorrect_files'), `load_finish${machineToken}_`, startedAt);
@@ -1187,10 +1321,10 @@ liveDescribe('Live Watcher IO Suites', () => {
       {
         id: 'L-FZ-AUTOPAC-005',
         name: 'AutoPAC machine mismatch quarantines',
-        run: async () => {
+        run: async (asset) => {
           await cleanupSlotFiles();
           const startedAt = Date.now();
-          const job = await createFixtureJob('PENDING');
+          const job = await createFixtureJob('PENDING', asset);
           const path = join(autoPacDir, `load_finish${machineToken}.csv`);
           await pacedWriteAtomic(path, `${job.base},999\r\n`);
           await waitForMovedFile(join(autoPacDir, 'incorrect_files'), `load_finish${machineToken}_`, startedAt);
@@ -1199,10 +1333,10 @@ liveDescribe('Live Watcher IO Suites', () => {
       {
         id: 'L-FZ-GRUNDNER-006',
         name: 'ChangeMachNr matching reply archives and moves STAGED to RUNNING',
-        run: async () => {
+        run: async (asset) => {
           await cleanupSlotFiles();
           const startedAt = Date.now();
-          const job = await createFixtureJob('STAGED');
+          const job = await createFixtureJob('STAGED', asset);
           const orderPath = join(autoPacDir, `order_saw${machineToken}.csv`);
           await pacedWriteAtomic(orderPath, `${job.base};${machine!.machineId};\r\n`);
           const changeCsv = join(grundnerDir, 'ChangeMachNr.csv');
@@ -1220,10 +1354,10 @@ liveDescribe('Live Watcher IO Suites', () => {
       {
         id: 'L-FZ-GRUNDNER-007',
         name: 'ChangeMachNr mismatch reply quarantines and status stays STAGED',
-        run: async () => {
+        run: async (asset) => {
           await cleanupSlotFiles();
           const startedAt = Date.now();
-          const job = await createFixtureJob('STAGED');
+          const job = await createFixtureJob('STAGED', asset);
           const orderPath = join(autoPacDir, `order_saw${machineToken}.csv`);
           await pacedWriteAtomic(orderPath, `${job.base};${machine!.machineId};\r\n`);
           const changeCsv = join(grundnerDir, 'ChangeMachNr.csv');
@@ -1238,10 +1372,10 @@ liveDescribe('Live Watcher IO Suites', () => {
       {
         id: 'L-FZ-NESTPICK-008',
         name: 'Nestpick valid stack reply archives and advances to FORWARDED_TO_NESTPICK',
-        run: async () => {
+        run: async (asset) => {
           await cleanupSlotFiles();
           const startedAt = Date.now();
-          const job = await createFixtureJob('CNC_FINISH');
+          const job = await createFixtureJob('CNC_FINISH', asset);
           const csvPath = join(nestpickDir, 'Nestpick.csv');
           await waitForFile(csvPath, 45_000);
           const payload = await fsp.readFile(csvPath, 'utf8');
@@ -1257,10 +1391,10 @@ liveDescribe('Live Watcher IO Suites', () => {
       {
         id: 'L-FZ-NESTPICK-009',
         name: 'Nestpick mismatched stack reply quarantines',
-        run: async () => {
+        run: async (asset) => {
           await cleanupSlotFiles();
           const startedAt = Date.now();
-          const job = await createFixtureJob('CNC_FINISH');
+          const job = await createFixtureJob('CNC_FINISH', asset);
           const csvPath = join(nestpickDir, 'Nestpick.csv');
           await waitForFile(csvPath, 45_000);
           const erlPath = join(nestpickDir, 'Nestpick.erl');
@@ -1271,10 +1405,10 @@ liveDescribe('Live Watcher IO Suites', () => {
       {
         id: 'L-FZ-NESTPICK-010',
         name: 'Nestpick valid unstack archives and advances complete',
-        run: async () => {
+        run: async (asset) => {
           await cleanupSlotFiles();
           const startedAt = Date.now();
-          const job = await createFixtureJob('FORWARDED_TO_NESTPICK');
+          const job = await createFixtureJob('FORWARDED_TO_NESTPICK', asset);
           const unstackPath = join(nestpickDir, 'Report_FullNestpickUnstack.csv');
           await pacedWriteAtomic(unstackPath, `${job.base},PALLET-FUZZ\r\n`);
           await waitForJobStatus(job.key, 'NESTPICK_COMPLETE', 35_000);
@@ -1284,10 +1418,10 @@ liveDescribe('Live Watcher IO Suites', () => {
       {
         id: 'L-FZ-NESTPICK-011',
         name: 'Nestpick empty unstack quarantines',
-        run: async () => {
+        run: async (asset) => {
           await cleanupSlotFiles();
           const startedAt = Date.now();
-          await createFixtureJob('FORWARDED_TO_NESTPICK');
+          await createFixtureJob('FORWARDED_TO_NESTPICK', asset);
           const unstackPath = join(nestpickDir, 'Report_FullNestpickUnstack.csv');
           await pacedWriteAtomic(unstackPath, '');
           await waitForMovedFile(join(nestpickDir, 'incorrect_files'), 'Report_FullNestpickUnstack_', startedAt);
@@ -1296,10 +1430,10 @@ liveDescribe('Live Watcher IO Suites', () => {
       {
         id: 'L-FZ-ORDER-012',
         name: 'Out-of-sequence cnc_finish quarantines then valid load_finish still processes',
-        run: async () => {
+        run: async (asset) => {
           await cleanupSlotFiles();
           const startedAt = Date.now();
-          const job = await createFixtureJob('PENDING');
+          const job = await createFixtureJob('PENDING', asset);
           const cncPath = join(autoPacDir, `cnc_finish${machineToken}.csv`);
           await pacedWriteAtomic(cncPath, `${job.base},${machine!.machineId}\r\n`);
           await waitForMovedFile(join(autoPacDir, 'incorrect_files'), `cnc_finish${machineToken}_`, startedAt);
@@ -1313,8 +1447,9 @@ liveDescribe('Live Watcher IO Suites', () => {
     const selected = cases.slice(0, Math.min(cases.length, LIVE_FUZZ_LIMIT));
     logStep(`Executing ${selected.length} live fuzz case(s) with delay ${LIVE_DELAY_MS}ms between writes`);
     for (const fuzzCase of selected) {
+      const caseAsset = await createVariantFixtureAsset(fuzzCase.id);
       await runScenario(`${fuzzCase.id} ${fuzzCase.name}`, async () => {
-        await fuzzCase.run();
+        await fuzzCase.run(caseAsset);
       });
     }
   }, 900_000);

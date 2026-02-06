@@ -84,6 +84,8 @@ This mirrors production where Grundner/Nestpick consume and remove slot CSVs aft
 
 `pnpm run test:live-io:fuzz` runs named live scenarios (AutoPAC, Grundner, Nestpick).
 
+Each fuzz scenario now gets a unique derived base name by cloning the selected fixture folder and renaming base-matching files. This prevents cross-scenario collisions when multiple jobs share the same original NC base.
+
 Env vars:
 
 - `WOODTRON_LIVE_IO_FUZZ=1` enable fuzz smoke mode

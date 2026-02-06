@@ -1101,7 +1101,7 @@ export async function rerunAndStage(origKey: string, machineId: number, actorNam
   if (!root) return { ok: false, error: 'processedJobsRoot not configured' };
   if (!existsSync(root)) return { ok: false, error: 'processedJobsRoot does not exist' };
 
-  // Perform rerun (copies runN_ files)
+  // Perform rerun (copies N_ files)
   const rr = await rerunJob(origKey);
   if (!rr.ok) return { ok: false, error: rr.error };
 

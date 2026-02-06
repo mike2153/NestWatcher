@@ -902,7 +902,7 @@ export function JobsPage() {
           .map((j) => `${j.folder ?? ''}/${j.ncfile ?? j.key} — ${j.status}${j.machineId != null ? ` (Machine ${j.machineId})` : ''}`)
           .join('\n');
         const ok = window.confirm(
-          `${rerunKeys.length} job(s) will be re-run (run2, run3, ...) and staged to the selected machine.\n\n${list}\n\nContinue?`
+          `${rerunKeys.length} job(s) will be re-run (2_, 3_, ...) and staged to the selected machine.\n\n${list}\n\nContinue?`
         );
         if (!ok) {
           setActionBusy(false);
