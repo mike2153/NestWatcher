@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { PanelLeft } from 'lucide-react';
-import { formatAuDateTime, formatAuTime } from '@/utils/datetime';
+import { formatAuTime } from '@/utils/datetime';
 
 // Nav is defined in AppSidebar; no local nav here.
 const PAGE_TITLES: Record<string, string> = {
@@ -279,21 +279,6 @@ function FullAppLayout() {
     }
   }, [fetchLogTail, logLimit, logSelectedFile]);
 
-  const handleClearDiagnosticsViews = useCallback(async () => {
-    // Intentionally do NOT clear log output.
-    // The log view is always "tail of file" and limited by the line count selector.
-    try {
-      const res = await window.api.diagnostics.clearErrors();
-      if (!res.ok) {
-        setCopyFeedback({ type: 'error', message: `Clear failed: ${res.error.message}` });
-        return;
-      }
-      setCopyFeedback({ type: 'success', message: 'Cleared recent errors.' });
-    } catch (err) {
-      setCopyFeedback({ type: 'error', message: `Clear failed: ${err instanceof Error ? err.message : String(err)}` });
-    }
-  }, []);
-
   useEffect(() => {
     let cancelled = false;
     window.api.alarms
@@ -539,16 +524,10 @@ function FullAppLayout() {
 
   const activeAlarmCount = alarms.length;
   const diagnosticsWatchers = diagnostics?.watchers ?? [];
-  const diagnosticsErrors = diagnostics?.recentErrors ?? [];
   const machineHealthEntries: MachineHealthEntry[] = diagnostics?.machineHealth ?? [];
   const machineHealthAlerts = machineHealthEntries.filter((issue) => issue.severity !== 'info');
   const watcherIssues = diagnosticsWatchers.filter((watcher) => watcher.status !== 'watching');
-  const recentErrorIsFresh = diagnosticsErrors.some((entry) => {
-    const parsed = Date.parse(entry.timestamp);
-    return !Number.isNaN(parsed) && Date.now() - parsed < 15 * 60 * 1000;
-  });
-  const diagnosticsAlertCount =
-    machineHealthAlerts.length + watcherIssues.length + (recentErrorIsFresh ? 1 : 0);
+  const diagnosticsAlertCount = machineHealthAlerts.length + watcherIssues.length;
   const logLines = useMemo(() => {
     // Only render the stored tail if it matches the currently selected file.
     // This avoids briefly showing stale lines from a previously-selected file.
@@ -925,24 +904,6 @@ function FullAppLayout() {
                 </div>
               )}
             </section>
-            <section className="shrink-0">
-              <div className="text-xs uppercase text-[var(--muted-foreground)]">Recent Errors</div>
-              <div className="mt-2 space-y-2 max-h-72 overflow-y-auto overscroll-contain rounded border border-[var(--border)] bg-[var(--background)] p-2">
-                {diagnosticsErrors.length === 0 ? (
-                  <div className="text-xs text-[var(--muted-foreground)]">No errors recorded.</div>
-                ) : (
-                  diagnosticsErrors.slice(0, 8).map((entry) => (
-                    <div key={entry.id} className="rounded border border-[var(--border)] bg-[var(--card)] px-2 py-1">
-                      <div className="text-xs text-[var(--muted-foreground)]">
-                        {formatAuDateTime(entry.timestamp)}
-                      </div>
-                      <div className="text-sm font-medium text-[var(--foreground)]">{entry.source}</div>
-                      <div className="text-[var(--foreground)]">{entry.message}</div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
             <section className="flex-1 min-h-0 flex flex-col">
               <div className="text-sm  text-[var(--muted-foreground)]">Logs</div>
               <div className="mt-2 space-y-2 flex flex-col flex-1 min-h-0">
@@ -1000,15 +961,6 @@ function FullAppLayout() {
                   >
                     Reload Log
                   </button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={handleClearDiagnosticsViews}
-                    title="Clear recent errors"
-                    className="h-7 px-2 py-1 text-xs"
-                  >
-                    Clear Errors
-                  </Button>
                 </div>
                 {logListLoading && logList.length === 0 ? (
                   <div className="text-xs text-[var(--muted-foreground)]">Loading logs...</div>

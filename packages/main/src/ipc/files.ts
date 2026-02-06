@@ -57,7 +57,7 @@ function baseFromName(name: string) {
 
 // File types to remove when cleaning up a sheet's artifacts in Ready-To-Run.
 // Includes .csv per updated requirements and Planit fallback mapping (.txt).
-const DELETE_EXTENSIONS = new Set(['.bmp', '.jpg', '.jpeg', '.png', '.gif', '.pts', '.lpt', '.nc', '.csv', '.npt', '.txt']);
+const DELETE_EXTENSIONS = new Set(['.bmp', '.jpg', '.jpeg', '.png', '.gif', '.pts', '.lpt', '.nc', '.csv', '.nsp', '.npt', '.txt']);
 
 function normalizeRelativePath(input: string) {
   return input.split('\\').join('/');

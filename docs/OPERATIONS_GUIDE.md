@@ -49,8 +49,7 @@ flowchart TD
 
 ## File expectations (short version)
 - **NC**: `.nc` under `processedJobsRoot/<jobFolder>/`. Job key = relative folder plus base name.
-- **Nestpick payload**: `.npt` under the same folder; copied as-is and renamed to `Nestpick.csv` on send. Missing `.npt` logs a warning but does not block staging.
-- **Nestpick content**: optional `.nsp`; written by NC-Cat headless path, not auto-sent today.
+- **Nestpick payload**: `.nsp` under the same folder, with legacy `.npt` still accepted. Payload is copied as-is and renamed to `Nestpick.csv` on send. Missing payload logs a warning but does not block staging.
 - **Parts lists**: `.pts` (Alphacam) or `.lpt` (Planit) enable mode detection and part counting.
 - **Project CSVs**: `<base>.csv` always copied; Planit also uses `<prefix>.csv` for image mapping.
 - **Images**: any `base*.bmp|jpg|jpeg` copied; Planit may add images found via family CSV or `<base>.txt` mapping.
@@ -86,5 +85,5 @@ flowchart TD
 ## Troubleshooting checklist
 - Job never appeared: confirm `processedJobsRoot` path and that `.nc` exists; check ingest poller log; verify `jobs.key` matches folder/base.
 - Status stuck before CNC: verify AutoPAC CSV naming/content and machine token; confirm archiving setting is correct.
-- Nestpick missing: ensure `.npt` exists at staging time, Nestpick enabled for machine, and check `Nestpick.csv` written in the machine folder.
+- Nestpick missing: ensure `.nsp` exists at staging time for the job base (legacy `.npt` also works), Nestpick is enabled for the machine, and `Nestpick.csv` is written in the machine folder.
 - Locks/reserves not clearing: remember lock only applies in `PENDING`; it is cleared automatically at `NESTPICK_COMPLETE`.

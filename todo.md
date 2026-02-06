@@ -226,7 +226,7 @@ Progress Log
     source: path,
     targetDir: join(machine.nestpickFolder, 'incorrect_files'),
     purpose: 'incorrect_files',
-    watcherName: nestpickAckWatcherName(machine),
+    watcherName: nestpickStackWatcherName(machine),
   })
   ```
 

@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Live IO Test Report</title>
+    <style>
+      body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; background: #f7f8fa; color: #111; }
+      h1 { margin-bottom: 6px; }
+      .meta { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+      .scenario { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+      .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+      .pill.ok { background: #e7f8ee; color: #0b7a3c; }
+      .pill.bad { background: #ffe8e8; color: #a70000; }
+      table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+      th, td { border: 1px solid #ddd; padding: 6px; text-align: left; vertical-align: top; }
+      th { background: #f0f2f5; }
+      pre { background: #0f172a; color: #e2e8f0; padding: 8px; border-radius: 6px; white-space: pre-wrap; }
+      code { background: #f1f5f9; padding: 1px 4px; border-radius: 4px; }
+      .error { color: #a70000; }
+    </style>
+  </head>
+  <body>
+    <h1>Live IO Test Report</h1>
+    <div class="meta">
+      <p><strong>Run ID:</strong> live-io-1770338724952</p>
+      <p><strong>Target:</strong> all</p>
+      <p><strong>Started:</strong> 2026-02-06T00:45:24.952Z</p>
+      <p><strong>Finished:</strong> 2026-02-06T00:46:02.000Z</p>
+      <p><strong>Settings Path:</strong> <code>D:\GitHub\electron_port\NestWatcher\settings.json</code></p>
+      <p><strong>Machine:</strong> WT1 #1</p>
+      <p><strong>AutoPAC Dir:</strong> <code>D:\GitHub\Test NC Files\label_status</code></p>
+      <p><strong>Grundner Dir:</strong> <code>D:\GitHub\Test NC Files\nestpick</code></p>
+      <p><strong>Nestpick Dir:</strong> <code>D:\GitHub\Test NC Files\nestpick</code></p>
+      <p><strong>Processed Root:</strong> <code>D:\GitHub\Test NC Files\nestwatch_jobs_root</code></p>
+      <p><strong>Scenarios:</strong> 1</p>
+    </div>
+    
+      <section class="scenario">
+        <h2>L-FZ-AUTOPAC-001 AutoPAC valid load_finish archives and advances status <span class="pill bad">failed</span></h2>
+        <p><strong>Started:</strong> 2026-02-06T00:45:26.705Z | <strong>Finished:</strong> 2026-02-06T00:46:01.975Z | <strong>Duration:</strong> 35270 ms</p>
+        <p class="error"><strong>Error:</strong> Timed out waiting for job test3/A1_LIVE_1770338726707_69038 -&gt; LOAD_FINISH after 35000ms</p>
+        <h3>Logs</h3>
+        <ul><li><code>2026-02-06T00:45:26.725Z</code> <strong>step</strong> Created fixture-backed job test3/A1_LIVE_1770338726707_69038 from A1 with status PENDING</li><li><code>2026-02-06T00:46:01.975Z</code> <strong>fail</strong> Scenario failed: L-FZ-AUTOPAC-001 AutoPAC valid load_finish archives and advances status -&gt; Timed out waiting for job test3/A1_LIVE_1770338726707_69038 -&gt; LOAD_FINISH after 35000ms</li></ul>
+        <h3>Files Written</h3>
+        <ul><li><code>D:\GitHub\Test NC Files\label_status\load_finish1.csv</code><pre>A1,1
+</pre></li></ul>
+        <h3>File Outcomes</h3>
+        <ul><li><code>observed</code> <code>D:\GitHub\Test NC Files\ready_to_run\A1.nc</code><pre>[copied from fixture] D:\GitHub\Test NC Files\nestwatch_jobs_root\test3\A1.nc</pre></li><li><code>observed</code> <code>D:\GitHub\Test NC Files\ready_to_run\A1.nsp</code><pre>[copied from fixture] D:\GitHub\Test NC Files\nestwatch_jobs_root\test3\A1.nsp</pre></li></ul>
+        <h3>App Messages</h3>
+        <table><thead><tr><th>Created</th><th>Event</th><th>Title</th><th>Body</th><th>Source</th></tr></thead><tbody><tr><td>2026-02-06T00:45:26.773Z</td><td>job.removed</td><td>Job Unallocated</td><td>Removed database entry for A1.nc in test3; material unallocated in Grundner.</td><td>jobs-ingest</td></tr></tbody></table>
+        <h3>Watcher State After Scenario</h3>
+        <table><thead><tr><th>Watcher</th><th>Status</th><th>Last Event</th><th>Last Error</th></tr></thead><tbody><tr><td>AutoPAC CSV Watcher</td><td>watching</td><td></td><td></td></tr><tr><td>Grundner Stock Poller</td><td>watching</td><td></td><td></td></tr><tr><td>NC Cat Jobs Watcher</td><td>watching</td><td></td><td></td></tr><tr><td>Nestpick Stack (WT1 (#1))</td><td>watching</td><td></td><td></td></tr><tr><td>Nestpick Stack (WT2 (#14))</td><td>watching</td><td></td><td></td></tr><tr><td>Nestpick Unstack (WT1 (#1))</td><td>watching</td><td></td><td></td></tr><tr><td>Nestpick Unstack (WT2 (#14))</td><td>watching</td><td></td><td></td></tr><tr><td>Source Sanity</td><td>watching</td><td></td><td></td></tr><tr><td>Stage Sanity</td><td>watching</td><td></td><td></td></tr></tbody></table>
+      </section>
+  </body>
+</html>

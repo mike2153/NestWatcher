@@ -228,7 +228,7 @@ const pendingGrundnerReleases = new Map<string, number>();
 const PENDING_GRUNDNER_RELEASE_TTL_MS = 60_000;
 
 const NESTPICK_FILENAME = 'Nestpick.csv';
-const NESTPICK_ACK_FILENAME = 'Nestpick.erl';
+const NESTPICK_STACK_FILENAME = 'Nestpick.erl';
 const NESTPICK_UNSTACK_FILENAME = 'Report_FullNestpickUnstack.csv';
 
 
@@ -309,12 +309,12 @@ function machineLabel(machine: Machine) {
   return machine.name ? `${machine.name} (#${machine.machineId})` : `Machine ${machine.machineId}`;
 }
 
-function nestpickAckWatcherName(machine: Machine) {
-  return `watcher:nestpick-ack:${machine.machineId}`;
+function nestpickStackWatcherName(machine: Machine) {
+  return `watcher:nestpick-stack:${machine.machineId}`;
 }
 
-function nestpickAckWatcherLabel(machine: Machine) {
-  return `Nestpick Ack (${machineLabel(machine)})`;
+function nestpickStackWatcherLabel(machine: Machine) {
+  return `Nestpick Stack (${machineLabel(machine)})`;
 }
 
 function shouldIgnoreShareTempFile(path: string): boolean {
@@ -1390,7 +1390,7 @@ function rewriteNestpickRows(rows: string[][], machineId: number) {
   return rows;
 }
 
-async function findMatchingNpt(root: string, base: string, depth = 0, maxDepth = 3): Promise<string | null> {
+async function findMatchingNestpickPayload(root: string, base: string, depth = 0, maxDepth = 3): Promise<string | null> {
   try {
     const entries = await readdir(root, { withFileTypes: true });
     const targetLower = base.toLowerCase();
@@ -1398,6 +1398,10 @@ async function findMatchingNpt(root: string, base: string, depth = 0, maxDepth =
       const entryPath = join(root, entry.name);
       if (entry.isFile()) {
         const nameLower = entry.name.toLowerCase();
+        // Prefer .nsp, but accept legacy .npt for compatibility.
+        if (nameLower === `${targetLower}.nsp`) {
+          return entryPath;
+        }
         if (nameLower === `${targetLower}.npt`) {
           return entryPath;
         }
@@ -1407,7 +1411,7 @@ async function findMatchingNpt(root: string, base: string, depth = 0, maxDepth =
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const entryPath = join(root, entry.name);
-      const result = await findMatchingNpt(entryPath, base, depth + 1, maxDepth);
+      const result = await findMatchingNestpickPayload(entryPath, base, depth + 1, maxDepth);
       if (result) return result;
     }
   } catch (err) {
@@ -1830,13 +1834,13 @@ async function forwardToNestpick(base: string, job: Awaited<ReturnType<typeof fi
   const preferredDir = join(apRoot, leaf);
   let sourceNpt: string | null = null;
   if (await fileExists(preferredDir)) {
-    sourceNpt = await findMatchingNpt(preferredDir, baseLower, 0, 2);
+    sourceNpt = await findMatchingNestpickPayload(preferredDir, baseLower, 0, 2);
   }
   if (!sourceNpt) {
-    sourceNpt = await findMatchingNpt(apRoot, baseLower, 0, 2);
+    sourceNpt = await findMatchingNestpickPayload(apRoot, baseLower, 0, 2);
   }
   if (!sourceNpt) {
-    logger.warn({ job: job.key, apRoot, leaf }, 'watcher: staged NPT not found for nestpick forwarding');
+    logger.warn({ job: job.key, apRoot, leaf }, 'watcher: staged Nestpick payload not found (.nsp or .npt) for forwarding');
     return;
   }
 
@@ -1876,7 +1880,7 @@ async function forwardToNestpick(base: string, job: Awaited<ReturnType<typeof fi
     });
 
     // Do NOT advance lifecycle here.
-    // We only set FORWARDED_TO_NESTPICK after receiving a matching Nestpick.erl acknowledgement.
+    // We only set FORWARDED_TO_NESTPICK after receiving a matching Nestpick.erl stack file.
     await appendJobEvent(
       job.key,
       'nestpick:sent',
@@ -2071,6 +2075,14 @@ async function handleAutoPacCsv(path: string) {
   if (!machineToken) return; // machine must be specified
 
   try {
+    // AutoPAC status files are short-lived: we deliberately delete/archive them after processing.
+    // chokidar can still emit a late poll/change event after the file is already gone.
+    if (!(await fileExists(path))) {
+      autoPacHashes.delete(path);
+      logger.debug({ file: path }, 'watcher: AutoPAC CSV no longer exists; skipping');
+      return;
+    }
+
     await waitForStableFile(path);
     const hash = await hashFile(path);
     if (autoPacHashes.get(path) === hash) return;
@@ -2446,6 +2458,15 @@ async function handleAutoPacCsv(path: string) {
       }
     }
   } catch (err) {
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    if (code === 'ENOENT') {
+      // The file vanished between scheduling and processing (usually because we already
+      // archived/deleted it on a previous event). This is expected and not a watcher failure.
+      autoPacHashes.delete(path);
+      logger.debug({ err, file: path }, 'watcher: AutoPAC CSV disappeared during processing; ignoring');
+      return;
+    }
+
     autoPacHashes.delete(path);
     recordWatcherError(AUTOPAC_WATCHER_NAME, err, { path, label: AUTOPAC_WATCHER_LABEL });
     logger.error({ err, file: path }, 'watcher: AutoPAC processing failed');
@@ -2570,7 +2591,7 @@ async function processFileMoveQueue() {
   }
 }
 
-async function handleNestpickAck(machine: Machine, path: string) {
+async function handleNestpickStack(machine: Machine, path: string) {
   try {
     await waitForStableFile(path);
     const raw = await readFile(path, 'utf8');
@@ -2596,15 +2617,15 @@ async function handleNestpickAck(machine: Machine, path: string) {
       const incorrectDir = join(machine.nestpickFolder, INCORRECT_FILES_DIRNAME);
       const reason = 'Nestpick.erl did not match the last outbound Nestpick.csv payload.';
 
-      recordWatcherEvent(nestpickAckWatcherName(machine), {
-        label: nestpickAckWatcherLabel(machine),
+      recordWatcherEvent(nestpickStackWatcherName(machine), {
+        label: nestpickStackWatcherLabel(machine),
         message: `Quarantining ${basename(path)}: ${reason}`,
         context: { file: path, machineId: machine.machineId, incorrectDir }
       });
 
       postMessageToMain({
         type: 'userAlert',
-        title: 'Nestpick Ack Mismatch',
+        title: 'Nestpick Stack Mismatch',
         message:
           `File: ${basename(path)}\n` +
           `Folder: ${machine.nestpickFolder}\n\n` +
@@ -2627,8 +2648,8 @@ async function handleNestpickAck(machine: Machine, path: string) {
           source: path,
           targetDir: incorrectDir,
           purpose: 'incorrect_files',
-          watcherName: nestpickAckWatcherName(machine),
-          watcherLabel: nestpickAckWatcherLabel(machine),
+          watcherName: nestpickStackWatcherName(machine),
+          watcherLabel: nestpickStackWatcherLabel(machine),
           machineId: machine.machineId ?? null
         });
       }
@@ -2645,13 +2666,13 @@ async function handleNestpickAck(machine: Machine, path: string) {
     for (const base of bases) {
       const job = await findJobByNcBasePreferStatus(base, ['CNC_FINISH']);
       if (!job) {
-        logger.warn({ base, file: path }, 'watcher: nestpick ack could not find job in CNC_FINISH');
+        logger.warn({ base, file: path }, 'watcher: nestpick stack could not find job in CNC_FINISH');
         continue;
       }
 
       const lifecycle = await updateLifecycle(job.key, 'FORWARDED_TO_NESTPICK', {
         machineId: machine.machineId,
-        source: 'nestpick-ack',
+        source: 'nestpick-stack',
         payload: { file: path }
       });
 
@@ -2659,13 +2680,13 @@ async function handleNestpickAck(machine: Machine, path: string) {
         updatedAny = true;
       }
 
-      await appendJobEvent(job.key, 'nestpick:ack', { file: path, hash }, machine.machineId);
+      await appendJobEvent(job.key, 'nestpick:stack', { file: path, hash }, machine.machineId);
     }
 
     const cfg = loadConfig();
     const archiveIoFiles = Boolean(cfg.integrations?.archiveIoFiles);
 
-    // Correct ack disposition:
+    // Correct stack disposition:
     // - archive only when enabled
     // - otherwise delete
     if (await fileExists(path)) {
@@ -2674,8 +2695,8 @@ async function handleNestpickAck(machine: Machine, path: string) {
           source: path,
           targetDir: join(machine.nestpickFolder, 'archive'),
           purpose: 'archive',
-          watcherName: nestpickAckWatcherName(machine),
-          watcherLabel: nestpickAckWatcherLabel(machine),
+          watcherName: nestpickStackWatcherName(machine),
+          watcherLabel: nestpickStackWatcherLabel(machine),
           machineId: machine.machineId ?? null
         });
       } else {
@@ -2686,8 +2707,8 @@ async function handleNestpickAck(machine: Machine, path: string) {
       }
     }
 
-    recordWatcherEvent(nestpickAckWatcherName(machine), {
-      label: nestpickAckWatcherLabel(machine),
+    recordWatcherEvent(nestpickStackWatcherName(machine), {
+      label: nestpickStackWatcherLabel(machine),
       message: `Processed ${basename(path)}`
     });
 
@@ -2698,16 +2719,16 @@ async function handleNestpickAck(machine: Machine, path: string) {
     setMachineHealthIssue({
       machineId: machine.machineId ?? null,
       code: HEALTH_CODES.copyFailure,
-      message: `Failed to process Nestpick ack file ${basename(path)}`,
+      message: `Failed to process Nestpick stack file ${basename(path)}`,
       severity: 'warning',
       context: { file: path, machineId: machine.machineId }
     });
-    recordWatcherError(nestpickAckWatcherName(machine), err, {
+    recordWatcherError(nestpickStackWatcherName(machine), err, {
       path,
       machineId: machine.machineId,
-      label: nestpickAckWatcherLabel(machine)
+      label: nestpickStackWatcherLabel(machine)
     });
-    logger.error({ err, file: path }, 'watcher: nestpick ack handling failed');
+    logger.error({ err, file: path }, 'watcher: nestpick stack handling failed');
 
     // If we cannot process Nestpick.erl, move it aside so it does not keep re-triggering.
     if (await fileExists(path)) {
@@ -2715,8 +2736,8 @@ async function handleNestpickAck(machine: Machine, path: string) {
         source: path,
         targetDir: join(machine.nestpickFolder, INCORRECT_FILES_DIRNAME),
         purpose: 'incorrect_files',
-        watcherName: nestpickAckWatcherName(machine),
-        watcherLabel: nestpickAckWatcherLabel(machine),
+        watcherName: nestpickStackWatcherName(machine),
+        watcherLabel: nestpickStackWatcherLabel(machine),
         machineId: machine.machineId ?? null
       });
     }
@@ -2943,16 +2964,36 @@ function stableProcess(
   options?: { watcherName?: string; watcherLabel?: string }
 ) {
   const pending = new Map<string, NodeJS.Timeout>();
-  return (path: string) => {
+
+  // Prevent multiple overlapping executions for the same path.
+  // chokidar can emit add + change events while we are still processing.
+  const inFlight = new Set<string>();
+  const rerunRequested = new Set<string>();
+
+  const trigger = (path: string) => {
     const normalizedPath = normalize(path);
     const watcher = options?.watcherName ?? 'watcher';
     const label = options?.watcherLabel ?? watcher;
+
+    if (inFlight.has(normalizedPath)) {
+      rerunRequested.add(normalizedPath);
+      logger.debug({ path: normalizedPath, watcher, label }, 'watcher: scan queued (in flight)');
+      return;
+    }
+
     logger.info({ path: normalizedPath, watcher, label }, 'watcher: scan queued');
     if (pending.has(normalizedPath)) clearTimeout(pending.get(normalizedPath)!);
     pending.set(
       normalizedPath,
       setTimeout(() => {
         pending.delete(normalizedPath);
+
+        if (inFlight.has(normalizedPath)) {
+          rerunRequested.add(normalizedPath);
+          return;
+        }
+
+        inFlight.add(normalizedPath);
         Promise.resolve()
           .then(() => fn(normalizedPath))
           .then(() => {
@@ -2968,10 +3009,22 @@ function stableProcess(
               recordWorkerError('watcher', err, { path: normalizedPath });
             }
             logger.error({ err, path: normalizedPath, watcher, label }, 'watcher error');
+          })
+          .finally(() => {
+            inFlight.delete(normalizedPath);
+            if (rerunRequested.has(normalizedPath)) {
+              rerunRequested.delete(normalizedPath);
+              const t = setTimeout(() => {
+                trigger(normalizedPath);
+              }, delayMs);
+              if (typeof t.unref === 'function') t.unref();
+            }
           });
       }, delayMs)
     );
   };
+
+  return trigger;
 }
 
 
@@ -3489,35 +3542,35 @@ async function setupNestpickWatchers() {
       const folder = machine.nestpickFolder;
 
       // Watch only two explicit files on the Nestpick share:
-      // - Nestpick.erl (acknowledgement)
+      // - Nestpick.erl stack file
       // - Report_FullNestpickUnstack.csv (completion report)
-      const ackPath = join(folder, NESTPICK_ACK_FILENAME);
-      const ackWatcherName = nestpickAckWatcherName(machine);
-      const ackWatcherLabel = nestpickAckWatcherLabel(machine);
-      registerWatcher(ackWatcherName, ackWatcherLabel);
+      const stackPath = join(folder, NESTPICK_STACK_FILENAME);
+      const stackWatcherName = nestpickStackWatcherName(machine);
+      const stackWatcherLabel = nestpickStackWatcherLabel(machine);
+      registerWatcher(stackWatcherName, stackWatcherLabel);
 
-      const handleAck = stableProcess(
-        (path) => handleNestpickAck(machine, path),
+      const handleStack = stableProcess(
+        (path) => handleNestpickStack(machine, path),
         500,
-        { watcherName: ackWatcherName, watcherLabel: ackWatcherLabel }
+        { watcherName: stackWatcherName, watcherLabel: stackWatcherLabel }
       );
 
-      const ackCtrl = createResilientWatcher({
-        name: ackWatcherName,
-        label: ackWatcherLabel,
-        targetContext: { folder: ackPath, machineId: machine.machineId },
+      const stackCtrl = createResilientWatcher({
+        name: stackWatcherName,
+        label: stackWatcherLabel,
+        targetContext: { folder: stackPath, machineId: machine.machineId },
         probePath: { path: folder, intervalMs: 5_000, timeoutMs: 2_000, label: 'Nestpick folder' },
         shouldIgnoreError: isBenignChokidarLstatTempError,
         createWatcher: () => {
-          const w = chokidar.watch(ackPath, {
+          const w = chokidar.watch(stackPath, {
             ignoreInitial: true,
             depth: 0,
             disableGlobbing: true,
             ignored: shouldIgnoreShareTempFile,
             awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 250 }
           });
-          w.on('add', handleAck);
-          w.on('change', handleAck);
+          w.on('add', handleStack);
+          w.on('change', handleStack);
           return w;
         },
         onOfflineOnce: (err) => {
@@ -3527,7 +3580,7 @@ async function setupNestpickWatchers() {
             code: HEALTH_CODES.nestpickShare,
             message: `Nestpick share unreachable${code ? ` (${code})` : ''}`,
             severity: 'critical',
-            context: { file: ackPath, machineId: machine.machineId, code }
+            context: { file: stackPath, machineId: machine.machineId, code }
           });
         },
         onReady: () => {
@@ -3537,7 +3590,7 @@ async function setupNestpickWatchers() {
           clearMachineHealthIssue(machine.machineId ?? null, HEALTH_CODES.nestpickShare);
         }
       });
-      ackCtrl.start();
+      stackCtrl.start();
 
 
       const reportPath = join(folder, NESTPICK_UNSTACK_FILENAME);

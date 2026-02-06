@@ -6,7 +6,7 @@ This folder contains Python scripts used to simulate CNC integration file I/O.
 
 - AutoPAC status CSVs
 - Grundner request/reply CSV/ERL handshakes
-- Nestpick request/ack/unstack
+- Nestpick stack/unstack
 
 It is meant to run alongside the Electron app.
 

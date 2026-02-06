@@ -76,7 +76,7 @@ function flushStagedBatchMessages() {
     const missingSample = e.sampleMissingNpt.slice(0, 5).join(', ');
     const missingMore = e.missingNptCount > e.sampleMissingNpt.length ? ` (+${e.missingNptCount - e.sampleMissingNpt.length} more)` : '';
     const warningSuffix = e.missingNptCount
-      ? ` WARNING: missing .npt for ${e.missingNptCount} job(s): ${missingSample}${missingMore}.`
+      ? ` WARNING: missing Nestpick payload .nsp or .npt for ${e.missingNptCount} job(s): ${missingSample}${missingMore}.`
       : '';
 
     pushAppMessage(
@@ -384,6 +384,7 @@ const OVERWRITE_PATTERNS: RegExp[] = [
   /^planit.*\.csv$/i,
   /\.csv$/i,
   /\.nc$/i,
+  /\.nsp$/i,
   /\.npt$/i,
   /\.lpt$/i,
   /\.pts$/i,
@@ -732,10 +733,13 @@ export async function addJobToWorklist(key: string, machineId: number, actorName
   }
 
   // Nestpick payload (required for Nestpick-enabled workflow, but do not block staging).
-  const nptPath = pickFileByName(`${ncBaseLower}.npt`, preferredDirLower);
-  const missingNpt = !nptPath;
-  if (nptPath) {
-    addCopyTarget(nptPath);
+  // Prefer .nsp, but accept legacy .npt.
+  const nestpickPayloadPath =
+    pickFileByName(`${ncBaseLower}.nsp`, preferredDirLower) ??
+    pickFileByName(`${ncBaseLower}.npt`, preferredDirLower);
+  const missingNpt = !nestpickPayloadPath;
+  if (nestpickPayloadPath) {
+    addCopyTarget(nestpickPayloadPath);
   }
 
   // Decide scanning mode

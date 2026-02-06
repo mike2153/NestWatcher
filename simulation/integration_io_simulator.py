@@ -145,7 +145,7 @@ def _write_autopac_order_saw(auto_pac_dir: Path, machine_token: str, machine_id:
     return out
 
 
-def _write_nestpick_ack(nestpick_dir: Path) -> Optional[Path]:
+def _write_nestpick_stack(nestpick_dir: Path) -> Optional[Path]:
     req = nestpick_dir / "Nestpick.csv"
     if not req.exists():
         return None
@@ -320,17 +320,17 @@ def _job_runner_loop(
             _sleep_random(min_delay_s, max_delay_s, "before cnc_finish")
             _write_autopac_status_csv(auto_pac_dir, "cnc_finish", machine_token, machine_id, [base])
 
-            # Nestpick request/ack/unstack
+            # Nestpick stack/unstack
             nestpick_req = nestpick_dir / "Nestpick.csv"
             if _wait_for_exists(nestpick_req, timeout_s=nestpick_timeout_s, poll_s=0.25):
                 _sleep_random(min_delay_s, max_delay_s, "before Nestpick.erl")
-                _write_nestpick_ack(nestpick_dir)
+                _write_nestpick_stack(nestpick_dir)
                 _sleep_random(min_delay_s, max_delay_s, "before Report_FullNestpickUnstack.csv")
                 _write_nestpick_unstack(nestpick_dir, [base], pallet="P1")
             else:
                 print(
                     f"[nestpick] did not see Nestpick.csv within {nestpick_timeout_s:.0f}s; "
-                    "skipping Nestpick ack/unstack for this job"
+                    "skipping Nestpick stack/unstack for this job"
                 )
 
         except Exception as e:

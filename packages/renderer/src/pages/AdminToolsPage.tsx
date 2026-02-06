@@ -81,7 +81,7 @@ type AdminToolsCacheV1 = {
   };
   r2r: {
     machineId: number | null;
-    fileKind: 'base.npt' | 'base.nc' | 'base.pts';
+    fileKind: 'base.nsp' | 'base.npt' | 'base.nc' | 'base.pts';
     base: string;
     preset: CorruptPreset;
     writeMode: WriteMode;
@@ -497,7 +497,7 @@ export function AdminToolsPage() {
 
   // Per-machine Ready-To-Run panel state
   const [r2rMachineId, setR2rMachineId] = useState<number | null>(null);
-  const [r2rFileKind, setR2rFileKind] = useState<'base.npt' | 'base.nc' | 'base.pts'>('base.npt');
+  const [r2rFileKind, setR2rFileKind] = useState<'base.nsp' | 'base.npt' | 'base.nc' | 'base.pts'>('base.nsp');
   const [r2rBase, setR2rBase] = useState('TEST 001');
   const [r2rPreset, setR2rPreset] = useState<CorruptPreset>('valid');
   const [r2rWriteMode, setR2rWriteMode] = useState<WriteMode>('atomic');
@@ -580,7 +580,7 @@ export function AdminToolsPage() {
     setNestpickDirty(Boolean(cached.nestpick?.dirty) || Boolean(cached.nestpick?.fileName) || Boolean(cached.nestpick?.content));
 
     setR2rMachineId(cached.r2r?.machineId ?? null);
-    setR2rFileKind(cached.r2r?.fileKind ?? 'base.npt');
+    setR2rFileKind(cached.r2r?.fileKind ?? 'base.nsp');
     setR2rBase(cached.r2r?.base ?? '');
     setR2rPreset(cached.r2r?.preset ?? 'valid');
     setR2rWriteMode(cached.r2r?.writeMode ?? 'atomic');
@@ -878,6 +878,8 @@ export function AdminToolsPage() {
 
     const good = (() => {
       switch (r2rFileKind) {
+        case 'base.nsp':
+          return `Job;Destination;SourceMachine;\r\n${base};99;${machineId};\r\n`;
         case 'base.npt':
           return `Job;Destination;SourceMachine;\r\n${base};99;${machineId};\r\n`;
         case 'base.nc':
@@ -1320,7 +1322,8 @@ export function AdminToolsPage() {
                   setR2rFileKind(next);
                 }}
               >
-                <option value="base.npt">base.npt</option>
+                <option value="base.nsp">base.nsp</option>
+                <option value="base.npt">base.npt legacy</option>
                 <option value="base.nc">base.nc</option>
                 <option value="base.pts">base.pts</option>
               </FormSelect>
@@ -1459,7 +1462,7 @@ export function AdminToolsPage() {
                   checked={jobIncludeNpt}
                   onChange={(e) => setJobIncludeNpt(e.target.checked)}
                 />
-                <span>Include .npt</span>
+                <span>Include Nestpick payload .nsp</span>
               </label>
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
@@ -1513,13 +1516,13 @@ export function AdminToolsPage() {
                     );
 
                     if (jobIncludeNpt) {
-                      const nptGood = `Job;Destination;SourceMachine;\r\n${base};99;1;\r\n`;
+                      const nspGood = `Job;Destination;SourceMachine;\r\n${base};99;1;\r\n`;
                       created.push(
                         await writeFile({
                           target: { kind: 'processedJobsRoot' },
                           relativeDir: folder,
-                          fileName: `${base}.npt`,
-                          content: nptGood,
+                          fileName: `${base}.nsp`,
+                          content: nspGood,
                           writeMode: 'atomic',
                           lineEnding: 'crlf',
                           overwrite: true

@@ -12,7 +12,6 @@
   "paths": {
     "processedJobsRoot": "D:\\GitHub\\Test NC Files\\nestwatch_jobs_root",
     "autoPacCsvDir": "D:\\GitHub\\Test NC Files\\label_status",
-    "autoPacArchiveEnabled": true,
     "grundnerFolderPath": "D:\\GitHub\\Test NC Files\\nestpick",
     "archiveRoot": "D:\\GitHub\\Test NC Files\\archive",
     "jobsRoot": "D:\\GitHub\\Test NC Files\\nc_cat_jobs_root",
@@ -25,7 +24,6 @@
     "sheetIdMode": "type_data"
   },
   "grundner": {
-    "archiveErlReplies": false,
     "tableColumns": {
       "typeData": {
         "visible": true,
@@ -72,6 +70,9 @@
         "order": 12
       }
     }
+  },
+  "integrations": {
+    "archiveIoFiles": true
   },
   "inventoryExport": {
     "template": {
