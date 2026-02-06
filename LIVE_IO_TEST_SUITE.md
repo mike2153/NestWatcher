@@ -40,7 +40,9 @@ The suite auto-selects one fixture from `processedJobsRoot` where both files exi
 - `<base>.nc`
 - `<base>.nsp` (preferred) or `<base>.npt` legacy
 
-It creates temporary DB job rows using that base and copies fixture files to machine ready-to-run folder when needed.
+It creates temporary DB job rows using that base and stages the **entire fixture source folder** into machine ready-to-run under the same leaf folder name.
+
+This means related files in that source folder are copied too, such as `.pts`, `.lpt`, `.bmp`, `.jpg`, family CSVs, and payload files, so live tests behave like real staged job folders.
 
 Important behavior requested by you:
 

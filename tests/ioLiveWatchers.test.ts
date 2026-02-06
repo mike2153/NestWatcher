@@ -99,6 +99,7 @@ const LIVE_DELAY_MS = Number.isFinite(liveDelaySecondsRaw) && liveDelaySecondsRa
 type FixtureAsset = {
   base: string;
   folderRel: string;
+  sourceDir: string;
   ncPath: string;
   nestpickPayloadPath: string;
   nestpickPayloadExt: '.nsp' | '.npt';
@@ -490,6 +491,7 @@ async function findFixtureAsset(root: string): Promise<FixtureAsset | null> {
       return {
         base: sanitizeBase(base),
         folderRel,
+        sourceDir: next,
         ncPath,
         nestpickPayloadPath: payloadPath,
         nestpickPayloadExt: ext
@@ -507,20 +509,57 @@ async function pacedWriteAtomic(path: string, content: string) {
   }
 }
 
-async function copyIfMissing(sourcePath: string, targetPath: string) {
-  if (existsSync(targetPath)) {
-    return;
+function fixtureLeafFromFolder(folderRel: string): string {
+  const parts = folderRel.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? folderRel;
+}
+
+async function listFilesRecursive(root: string): Promise<string[]> {
+  const out: string[] = [];
+  const stack = [root];
+  while (stack.length > 0) {
+    const next = stack.pop();
+    if (!next) continue;
+    let entries: Array<{ name: string; isDirectory: () => boolean; isFile: () => boolean }> = [];
+    try {
+      entries = (await fsp.readdir(next, { withFileTypes: true })) as any;
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = join(next, entry.name);
+      if (entry.isDirectory()) stack.push(full);
+      else if (entry.isFile()) out.push(full);
+    }
   }
-  await ensureDir(dirname(targetPath));
-  await fsp.copyFile(sourcePath, targetPath);
-  if (currentScenario) {
-    currentScenario.fileOutcomes.push({
-      timestamp: new Date().toISOString(),
-      path: targetPath,
-      outcome: 'observed',
-      contentPreview: `[copied from fixture] ${sourcePath}`
-    });
+  return out;
+}
+
+async function stageFixtureFolderToReady(asset: FixtureAsset) {
+  if (!machine) throw new Error('Machine is not initialized');
+  const leaf = fixtureLeafFromFolder(asset.folderRel);
+  const destinationRoot = join(machine.apJobfolder, leaf);
+  await ensureDir(destinationRoot);
+
+  const sourceFiles = await listFilesRecursive(asset.sourceDir);
+  let copiedCount = 0;
+  for (const sourceFile of sourceFiles) {
+    const rel = relative(asset.sourceDir, sourceFile).replace(/^[/\\]+/, '');
+    const target = join(destinationRoot, rel);
+    await ensureDir(dirname(target));
+    await fsp.copyFile(sourceFile, target);
+    copiedCount += 1;
+    if (currentScenario) {
+      currentScenario.fileOutcomes.push({
+        timestamp: new Date().toISOString(),
+        path: target,
+        outcome: 'observed',
+        contentPreview: `[staged from fixture folder] ${sourceFile}`
+      });
+    }
   }
+
+  logStep(`Staged fixture folder ${asset.sourceDir} into ${destinationRoot} with ${copiedCount} file(s)`);
 }
 
 async function waitForFile(path: string, timeoutMs = 30_000) {
@@ -596,10 +635,7 @@ async function createFixtureJob(status: string): Promise<CreatedJob> {
 
   createdJobKeys.push(key);
 
-  const readyNcPath = join(machine!.apJobfolder, `${fixtureAsset.base}.nc`);
-  const readyPayloadPath = join(machine!.apJobfolder, `${fixtureAsset.base}${fixtureAsset.nestpickPayloadExt}`);
-  await copyIfMissing(fixtureAsset.ncPath, readyNcPath);
-  await copyIfMissing(fixtureAsset.nestpickPayloadPath, readyPayloadPath);
+  await stageFixtureFolderToReady(fixtureAsset);
 
   logStep(`Created fixture-backed job ${key} from ${fixtureAsset.base} with status ${status}`);
   return { key, base: fixtureAsset.base };
