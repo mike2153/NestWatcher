@@ -16,6 +16,7 @@ import { onContentsDestroyed } from './onDestroyed';
 import { logger } from '../logger';
 
 const SKIP_WALK_DIRS = new Set(['$recycle.bin', 'system volume information']);
+const READY_WATCH_ALLOWED_EXTENSIONS = new Set(['.bmp', '.jpg', '.pts', '.lpt', '.npt', '.nsp', '.nc', '.csv']);
 
 function collectFiles(root: string, current: string = root) {
   let entries: Array<{ name: string; isFile: () => boolean; isDirectory: () => boolean }>;
@@ -323,6 +324,11 @@ export function registerFilesIpc() {
         const lower = p.toLowerCase().replace(/\\/g, '/');
         // System folders
         if (lower.includes('/$recycle.bin') || lower.includes('/system volume information')) {
+          return true;
+        }
+        const extension = extname(p).toLowerCase();
+        if (!extension) return false;
+        if (!READY_WATCH_ALLOWED_EXTENSIONS.has(extension)) {
           return true;
         }
         return false;

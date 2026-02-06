@@ -5,6 +5,8 @@ import { loadConfig } from './config';
 import { logger } from '../logger';
 import { pushAppMessage } from './messages';
 
+const INGEST_ALLOWED_EXTENSIONS = new Set(['.bmp', '.jpg', '.pts', '.lpt', '.npt', '.nsp', '.nc', '.csv']);
+
 function walkDir(dir: string): { files: string[]; hadError: boolean } {
   const out: string[] = [];
   let hadError = false;
@@ -21,6 +23,10 @@ function walkDir(dir: string): { files: string[]; hadError: boolean } {
         if (child.hadError) hadError = true;
         out.push(...child.files);
       } else if (e.isFile()) {
+        const extension = extname(e.name).toLowerCase();
+        if (!INGEST_ALLOWED_EXTENSIONS.has(extension)) {
+          continue;
+        }
         out.push(p);
       }
     }

@@ -424,6 +424,77 @@ export async function findJobByNcBasePreferStatus(base: string, preferred: strin
   return findJobByNcBase(base);
 }
 
+export async function findJobByNcBaseMachinePreferStatus(
+  base: string,
+  machineId: number,
+  preferred: string[]
+): Promise<JobLookupRow | null> {
+  const baseLower = base.toLowerCase();
+  const withoutExt = baseLower.replace(/\.nc$/i, '');
+
+  const selectCols = {
+    key: jobs.key,
+    folder: jobs.folder,
+    ncfile: jobs.ncfile,
+    machineId: jobs.machineId,
+    status: jobs.status,
+    isLocked: jobs.isLocked
+  };
+
+  if (preferred.length > 0) {
+    const preferredTyped = preferred as readonly JobStatus[];
+    const rows = await withDb((db) =>
+      db
+        .select(selectCols)
+        .from(jobs)
+        .where(
+          and(
+            eq(jobs.machineId, machineId),
+            inArray(jobs.status, preferredTyped),
+            or(sql`LOWER(${jobs.ncfile}) = ${withoutExt}`, sql`LOWER(${jobs.ncfile}) = ${withoutExt} || '.nc'`)
+          )
+        )
+        .orderBy(desc(jobs.updatedAt))
+        .limit(1)
+    );
+    if (rows.length) {
+      const row = rows[0];
+      return {
+        key: row.key,
+        folder: row.folder,
+        ncfile: row.ncfile,
+        machineId: row.machineId ?? null,
+        status: row.status as JobStatus,
+        isLocked: !!row.isLocked
+      };
+    }
+  }
+
+  const rows = await withDb((db) =>
+    db
+      .select(selectCols)
+      .from(jobs)
+      .where(
+        and(
+          eq(jobs.machineId, machineId),
+          or(sql`LOWER(${jobs.ncfile}) = ${withoutExt}`, sql`LOWER(${jobs.ncfile}) = ${withoutExt} || '.nc'`)
+        )
+      )
+      .orderBy(desc(jobs.updatedAt))
+      .limit(1)
+  );
+  if (!rows.length) return null;
+  const row = rows[0];
+  return {
+    key: row.key,
+    folder: row.folder,
+    ncfile: row.ncfile,
+    machineId: row.machineId ?? null,
+    status: row.status as JobStatus,
+    isLocked: !!row.isLocked
+  };
+}
+
 export type JobDetails = {
   key: string;
   status: JobStatus;

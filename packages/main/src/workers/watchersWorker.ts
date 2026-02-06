@@ -19,7 +19,12 @@ import { getPool, testConnection, withClient } from '../services/db';
 import { appendJobEvent } from '../repo/jobEventsRepo';
 import { upsertGrundnerInventory, type GrundnerCsvRow } from '../repo/grundnerRepo';
 import { listMachines } from '../repo/machinesRepo';
-import { findJobByNcBase, findJobByNcBasePreferStatus, updateJobPallet, updateLifecycle } from '../repo/jobsRepo';
+import {
+  findJobByNcBase,
+  findJobByNcBaseMachinePreferStatus,
+  updateJobPallet,
+  updateLifecycle
+} from '../repo/jobsRepo';
 import { bulkUpsertCncStats } from '../repo/cncStatsRepo';
 import type { CncStatsUpsert } from '../repo/cncStatsRepo';
 import { upsertNcStats } from '../repo/ncStatsRepo';
@@ -41,6 +46,22 @@ const { access, copyFile, readFile, readdir, rename, stat, unlink, open } = fsp;
 // If a configured root mistakenly points at the drive root (e.g. Z:\), recursive
 // scans will hit these and throw EPERM. We skip them to avoid spam + false errors.
 const SKIP_TRAVERSAL_DIRS = new Set(['$recycle.bin', 'system volume information']);
+const NCCAT_ALLOWED_EXTENSIONS = new Set(['.bmp', '.jpg', '.pts', '.lpt', '.npt', '.nsp', '.nc', '.csv']);
+
+function isNcCatAllowedFileName(fileName: string): boolean {
+  const extension = extname(fileName).toLowerCase();
+  return NCCAT_ALLOWED_EXTENSIONS.has(extension);
+}
+
+function shouldIgnoreNcCatPath(path: string): boolean {
+  const lower = path.toLowerCase().replace(/\\/g, '/');
+  if (lower.includes('/$recycle.bin') || lower.includes('/system volume information')) {
+    return true;
+  }
+  const extension = extname(path).toLowerCase();
+  if (!extension) return false;
+  return !NCCAT_ALLOWED_EXTENSIONS.has(extension);
+}
 
 const channel = parentPort;
 const fsWatchers = new Set<FSWatcher>();
@@ -1709,7 +1730,7 @@ async function handleAutoPacOrderSawCsv(path: string, machineTokenFromFile: stri
 
     // Update lifecycle: STAGED -> RUNNING (per job)
     for (const it of items) {
-      const job = await findJobByNcBasePreferStatus(it.base, ['STAGED']);
+      const job = await findJobByNcBaseMachinePreferStatus(it.base, it.machineId, ['STAGED']);
       if (!job) {
         logger.warn({ base: it.base, file: path }, 'watcher: order_saw change could not find job');
         continue;
@@ -2281,7 +2302,12 @@ async function handleAutoPacCsv(path: string) {
         }
       })();
 
-      const job = await findJobByNcBasePreferStatus(base, preferredStatuses);
+      const machineIdForLookup = machine.machineId ?? null;
+      if (machineIdForLookup == null) {
+        logger.warn({ file: path, machineToken }, 'watcher: machine id missing while resolving AutoPAC CSV');
+        return;
+      }
+      const job = await findJobByNcBaseMachinePreferStatus(base, machineIdForLookup, preferredStatuses);
       if (!job) {
         logger.warn({ base, file: path }, 'watcher: job not found for AutoPAC CSV');
         // This is not a file format issue, but it is still an operator-actionable problem.
@@ -2681,7 +2707,12 @@ async function handleNestpickStack(machine: Machine, path: string) {
 
     let updatedAny = false;
     for (const base of bases) {
-      const job = await findJobByNcBasePreferStatus(base, ['CNC_FINISH']);
+      const machineIdForLookup = machine.machineId;
+      if (machineIdForLookup == null) {
+        logger.warn({ base, file: path }, 'watcher: machine id missing for Nestpick stack lookup');
+        continue;
+      }
+      const job = await findJobByNcBaseMachinePreferStatus(base, machineIdForLookup, ['CNC_FINISH']);
       if (!job) {
         logger.warn({ base, file: path }, 'watcher: nestpick stack could not find job in CNC_FINISH');
         continue;
@@ -2817,7 +2848,12 @@ async function handleNestpickUnstack(machine: Machine, path: string) {
       if (!rawJob) continue;
 
       const base = rawJob;
-      const job = await findJobByNcBasePreferStatus(base, ['FORWARDED_TO_NESTPICK']);
+      const machineIdForLookup = machine.machineId;
+      if (machineIdForLookup == null) {
+        logger.warn({ base, file: path }, 'watcher: machine id missing for Nestpick unstack lookup');
+        continue;
+      }
+      const job = await findJobByNcBaseMachinePreferStatus(base, machineIdForLookup, ['FORWARDED_TO_NESTPICK']);
       if (!job) {
         logger.warn({ base }, 'watcher: unstack no matching job in FORWARDED_TO_NESTPICK');
         unmatched.push(base);
@@ -4563,38 +4599,26 @@ async function moveFolderToDestination(source: string, destRoot: string): Promis
       logger.warn({ source, destination, finalDest }, 'nccat: destination exists, using random suffix');
     }
 
-    const tryRename = async (): Promise<void> => {
-      let lastErr: unknown = null;
-      for (let attempt = 1; attempt <= 8; attempt++) {
-        try {
-          await rename(source, finalDest);
-          return;
-        } catch (err) {
-          lastErr = err;
-          const code = (err as NodeJS.ErrnoException)?.code;
-          if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') {
-            throw err;
-          }
-          await delay(150 * attempt);
-        }
-      }
-      throw lastErr;
-    };
-
-    try {
-      // Prefer atomic rename.
-      await tryRename();
-      return { ok: true, newPath: finalDest };
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException)?.code;
-      if (code === 'EXDEV' || code === 'EPERM' || code === 'EACCES' || code === 'EBUSY') {
-        // Cross-device or Windows file-lock edge cases: copy then delete.
-        await copyFolderRecursive(source, finalDest);
-        await deleteFolderRecursive(source);
-        return { ok: true, newPath: finalDest };
-      }
-      throw err;
+    const { files: allowedFiles, skippedFiles } = await collectAllowedJobFiles(source);
+    if (!allowedFiles.length) {
+      return { ok: false, error: `No allowed job files found in ${folderName}` };
     }
+
+    if (!existsSync(finalDest)) {
+      mkdirSync(finalDest, { recursive: true });
+    }
+
+    for (const file of allowedFiles) {
+      const destinationPath = join(finalDest, file.relativePath);
+      await moveFileWithFallback(file.sourcePath, destinationPath);
+    }
+
+    if (skippedFiles > 0) {
+      logger.info({ source, skippedFiles }, 'nccat: skipped unsupported file extensions');
+    }
+
+    await deleteEmptyDirectories(source);
+    return { ok: true, newPath: finalDest };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { ok: false, error: message };
@@ -4602,54 +4626,109 @@ async function moveFolderToDestination(source: string, destRoot: string): Promis
 }
 
 
-async function copyFolderRecursive(src: string, dest: string): Promise<void> {
-  if (!existsSync(dest)) {
-    mkdirSync(dest, { recursive: true });
+type NcCatAllowedFile = { sourcePath: string; relativePath: string };
+
+async function collectAllowedJobFiles(root: string): Promise<{ files: NcCatAllowedFile[]; skippedFiles: number }> {
+  const files: NcCatAllowedFile[] = [];
+  let skippedFiles = 0;
+
+  const walk = async (dir: string) => {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const sourcePath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (SKIP_TRAVERSAL_DIRS.has(entry.name.toLowerCase())) continue;
+        await walk(sourcePath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (!isNcCatAllowedFileName(entry.name)) {
+        skippedFiles += 1;
+        continue;
+      }
+      files.push({
+        sourcePath,
+        relativePath: relative(root, sourcePath)
+      });
+    }
+  };
+
+  await walk(root);
+  return { files, skippedFiles };
+}
+
+async function moveFileWithFallback(sourcePath: string, destinationPath: string): Promise<void> {
+  const destinationDir = dirname(destinationPath);
+  if (!existsSync(destinationDir)) {
+    mkdirSync(destinationDir, { recursive: true });
   }
-  const entries = await readdir(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const srcPath = join(src, entry.name);
-    const destPath = join(dest, entry.name);
-    if (entry.isDirectory()) {
-      await copyFolderRecursive(srcPath, destPath);
-    } else if (entry.isFile()) {
-      await copyFile(srcPath, destPath);
+
+  const tryRename = async (): Promise<void> => {
+    let lastErr: unknown = null;
+    for (let attempt = 1; attempt <= 8; attempt++) {
+      try {
+        await rename(sourcePath, destinationPath);
+        return;
+      } catch (err) {
+        lastErr = err;
+        const code = (err as NodeJS.ErrnoException)?.code;
+        if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') {
+          throw err;
+        }
+        await delay(150 * attempt);
+      }
+    }
+    throw lastErr;
+  };
+
+  try {
+    await tryRename();
+    return;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code !== 'EXDEV' && code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') {
+      throw err;
+    }
+    await copyFile(sourcePath, destinationPath);
+    const deleted = await unlinkWithRetry(sourcePath, 6, 150);
+    if (!deleted) {
+      throw new Error(`Failed to delete source file after copy: ${sourcePath}`);
     }
   }
 }
 
-async function deleteFolderRecursive(path: string): Promise<void> {
-  const entries = await readdir(path, { withFileTypes: true });
+async function deleteEmptyDirectories(path: string): Promise<void> {
+  let entries: Dirent[] = [];
+  try {
+    entries = await readdir(path, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
   for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
     const fullPath = join(path, entry.name);
-    if (entry.isDirectory()) {
-      await deleteFolderRecursive(fullPath);
-    } else {
-      const ok = await unlinkWithRetry(fullPath, 6, 150);
-      if (!ok) {
-        throw new Error(`Failed to delete file during folder cleanup: ${fullPath}`);
-      }
-    }
+    await deleteEmptyDirectories(fullPath);
   }
 
-  let lastErr: unknown = null;
-  for (let attempt = 1; attempt <= 6; attempt++) {
-    try {
-      await fsp.rmdir(path);
+  let remaining: Dirent[] = [];
+  try {
+    remaining = await readdir(path, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  if (remaining.length > 0) return;
+
+  try {
+    await fsp.rmdir(path);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === 'EPERM' || code === 'EACCES' || code === 'EBUSY' || code === 'ENOTEMPTY' || code === 'ENOENT') {
       return;
-    } catch (err) {
-      lastErr = err;
-      const code = (err as NodeJS.ErrnoException)?.code;
-      if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY' && code !== 'ENOTEMPTY') {
-        throw err;
-      }
-      await delay(150 * attempt);
     }
+    throw err;
   }
-
-  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
-
 
 const NCCAT_STABILITY_THRESHOLD_MS = 10_000;
 const NCCAT_REQUEUE_DELAY_MS = 2_000;
@@ -4810,6 +4889,7 @@ async function collectLooseCandidates(jobsRoot: string, baseNoExt: string): Prom
       for (const entry of entries) {
         if (!entry.isFile()) continue;
         if (!isMatchingLooseName(entry.name, baseNoExt)) continue;
+        if (!isNcCatAllowedFileName(entry.name)) continue;
         const fullPath = join(dir, entry.name);
         const rel = relative(jobsRoot, fullPath);
         const depth = rel.split(/[\\/]+/).length;
@@ -5298,6 +5378,7 @@ function setupNcCatJobsWatcher(dir: string) {
       const w = chokidar.watch(dir, {
         ignoreInitial: false, // Process existing files on startup
         depth: 10, // Allow deeper nesting under jobsRoot
+        ignored: shouldIgnoreNcCatPath,
         awaitWriteFinish: {
           stabilityThreshold: 2000, // Wait 2 seconds for file to stabilize
           pollInterval: 250
