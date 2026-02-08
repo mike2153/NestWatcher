@@ -24,6 +24,15 @@ function escapeCsvCell(value: string): string {
   return value;
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function buildCsv(rows: OrderingRow[]): string {
   const header = [
     'Type',
@@ -74,26 +83,26 @@ function buildPdfHtml(rows: OrderingRow[], generatedAt: string): string {
 
   const rowsHtml = rows
     .map((row) => {
-      const orderedAt = row.orderedAt ? new Date(row.orderedAt).toLocaleString() : '';
+      const orderedAt = escapeHtml(row.orderedAt ? new Date(row.orderedAt).toLocaleString() : '');
       const cells = [
-        `<td>${row.typeData != null ? row.typeData : ''}</td>`,
-        `<td>${row.materialName ?? ''}</td>`,
-        `<td>${row.customerId ?? ''}</td>`,
-        `<td class="num">${row.stock != null ? row.stock : ''}</td>`,
-        `<td class="num">${row.demand}</td>`,
-        `<td class="num">${row.shortfall}</td>`
+        `<td>${escapeHtml(row.typeData != null ? String(row.typeData) : '')}</td>`,
+        `<td>${escapeHtml(row.materialName ?? '')}</td>`,
+        `<td>${escapeHtml(row.customerId ?? '')}</td>`,
+        `<td class="num">${escapeHtml(row.stock != null ? String(row.stock) : '')}</td>`,
+        `<td class="num">${escapeHtml(String(row.demand))}</td>`,
+        `<td class="num">${escapeHtml(String(row.shortfall))}</td>`
       ];
       cells.push(
         `<td>${row.ordered ? 'Yes' : 'No'}</td>`,
-        `<td>${row.orderedBy ?? ''}</td>`,
+        `<td>${escapeHtml(row.orderedBy ?? '')}</td>`,
         `<td>${orderedAt}</td>`,
-        `<td>${row.comments ?? ''}</td>`
+        `<td>${escapeHtml(row.comments ?? '')}</td>`
       );
       return `<tr>${cells.join('')}</tr>`;
     })
     .join('');
 
-  const generatedLabel = generatedAt ? new Date(generatedAt).toLocaleString() : new Date().toLocaleString();
+  const generatedLabel = escapeHtml(generatedAt ? new Date(generatedAt).toLocaleString() : new Date().toLocaleString());
 
   return `
     <!DOCTYPE html>
@@ -207,7 +216,11 @@ export function registerOrderingIpc() {
     const win = new BrowserWindow({
       show: false,
       webPreferences: {
-        sandbox: false
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        javascript: false,
+        webSecurity: true
       }
     });
 

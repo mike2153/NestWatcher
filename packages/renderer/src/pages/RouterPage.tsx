@@ -11,6 +11,15 @@ import { JOB_STATUS_VALUES } from '../../../shared/src';
 import { cn } from '../utils/cn';
 import { GlobalTable } from '@/components/table/GlobalTable';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  ROUTER_COLUMN_LABELS,
+  TABLE_VIEW_PREFS_UPDATED_EVENT,
+  createDefaultRouterTableColumns,
+  loadTableViewPrefsForUser,
+  type RouterTableColumnKey,
+  type UserTableViewPrefs
+} from '@/lib/tableViewPrefs';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -65,6 +74,8 @@ const ROUTER_COL_PCT = {
   inDb: 6,
 } as const;
 
+const DEFAULT_ROUTER_TABLE_VIEW_COLUMNS = createDefaultRouterTableColumns();
+
 function formatIso(value: string | null) {
   if (!value) return '';
   const d = new Date(value);
@@ -106,6 +117,8 @@ function statusClass(status: JobStatus) {
 }
 
 export function RouterPage() {
+  const { session } = useAuth();
+  const userId = session?.userId ?? null;
   const [files, setFiles] = useState<RouterReadyFile[]>([]);
   const [machines, setMachines] = useState<Machine[]>([]);
   const [_diagnostics, setDiagnostics] = useState<DiagnosticsSnapshot | null>(null);
@@ -127,6 +140,7 @@ export function RouterPage() {
   const [clearedByMachine, setClearedByMachine] = useState<Map<number, Map<string, number>>>(() => new Map());
   const [validationModalOpen, setValidationModalOpen] = useState(false);
   const [validationJobKey, setValidationJobKey] = useState<string | null>(null);
+  const [tableViewPrefs, setTableViewPrefs] = useState<UserTableViewPrefs | null>(null);
 
   // Router context menu: manual status change
   const [contextRow, setContextRow] = useState<RouterReadyFile | null>(null);
@@ -309,6 +323,30 @@ export function RouterPage() {
     }
   }, [autoRefreshInterval]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || userId == null) {
+      setTableViewPrefs(null);
+      return;
+    }
+
+    const reloadPrefs = () => {
+      setTableViewPrefs(loadTableViewPrefsForUser(userId));
+    };
+
+    const onPrefsUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: number }>).detail;
+      if (!detail || detail.userId == null || detail.userId === userId) {
+        reloadPrefs();
+      }
+    };
+
+    reloadPrefs();
+    window.addEventListener(TABLE_VIEW_PREFS_UPDATED_EVENT, onPrefsUpdated);
+    return () => {
+      window.removeEventListener(TABLE_VIEW_PREFS_UPDATED_EVENT, onPrefsUpdated);
+    };
+  }, [userId]);
+
   // Removed unused helpers (machine map / issues, health labeling)
 
   const loadMachines = useCallback(async () => {
@@ -434,8 +472,8 @@ export function RouterPage() {
 
 
 
-  const columns = useMemo<ColumnDef<RouterReadyFile>[]>(() => [
-    {
+  const columnDefsByKey = useMemo<Record<RouterTableColumnKey, ColumnDef<RouterReadyFile>>>(() => ({
+    machine: {
       id: 'machine',
       header: 'Machine',
       enableSorting: false,
@@ -446,7 +484,7 @@ export function RouterPage() {
         return <div className="truncate">{name}</div>;
       }
     },
-    {
+    relativePath: {
       accessorKey: 'relativePath',
       header: 'Folder',
       enableSorting: false,
@@ -455,35 +493,35 @@ export function RouterPage() {
         <div className="truncate">{extractLeafFolder(row.original.relativePath)}</div>
       )
     },
-    {
+    name: {
       accessorKey: 'name',
       header: 'NC File',
       enableSorting: false,
       meta: { widthPercent: ROUTER_COL_PCT.name, minWidthPx: 180 },
       cell: ({ row }) => <div className="truncate">{row.original.name}</div>
     },
-    {
+    jobMaterial: {
       accessorKey: 'jobMaterial',
       header: 'Material',
       enableSorting: false,
       meta: { widthPercent: ROUTER_COL_PCT.material, minWidthPx: 120 },
       cell: ({ row }) => <div className="truncate">{row.original.jobMaterial ?? '-'}</div>
     },
-    {
+    jobSize: {
       accessorKey: 'jobSize',
       header: 'Size',
       enableSorting: false,
       meta: { widthPercent: ROUTER_COL_PCT.size, minWidthPx: 120 },
       cell: ({ row }) => <div className="truncate">{row.original.jobSize ?? '-'}</div>
     },
-    {
+    jobParts: {
       accessorKey: 'jobParts',
       header: 'Parts',
       enableSorting: false,
       meta: { widthPercent: ROUTER_COL_PCT.parts, minWidthPx: 70 },
       cell: ({ row }) => <div className="truncate">{row.original.jobParts ?? '-'}</div>
     },
-    {
+    status: {
       accessorKey: 'status',
       header: 'Status',
       enableSorting: false,
@@ -498,7 +536,7 @@ export function RouterPage() {
         );
       }
     },
-    {
+    addedAtR2R: {
       accessorKey: 'addedAtR2R',
       header: 'Staged',
       enableSorting: false,
@@ -511,14 +549,23 @@ export function RouterPage() {
         return <div className="truncate">{formatIso(raw)}</div>;
       }
     },
-    {
+    inDatabase: {
       accessorKey: 'inDatabase',
       header: 'In Database',
       enableSorting: false,
       meta: { widthPercent: ROUTER_COL_PCT.inDb, minWidthPx: 100 },
       cell: ({ row }) => <div className="truncate">{row.original.inDatabase ? 'Yes' : 'No'}</div>
     }
-  ], [extractLeafFolder, machineNameById]);
+  }), [extractLeafFolder, machineNameById]);
+
+  const columns = useMemo<ColumnDef<RouterReadyFile>[]>(() => {
+    const routerColumns = tableViewPrefs?.router ?? DEFAULT_ROUTER_TABLE_VIEW_COLUMNS;
+    return ROUTER_COLUMN_LABELS
+      .slice()
+      .sort((a, b) => routerColumns[a.key].order - routerColumns[b.key].order)
+      .filter((item) => routerColumns[item.key].visible)
+      .map((item) => columnDefsByKey[item.key]);
+  }, [columnDefsByKey, tableViewPrefs]);
 
   const table = useReactTable({
     data: files,

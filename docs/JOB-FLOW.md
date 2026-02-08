@@ -48,14 +48,16 @@ flowchart TD
   Parse --> LabelFinish[Update status to Label finished]
 
   Parse --> CncFinish[Update status to CNC finished]
-
-  CncFinish -->|If Nestpick enabled| NestpickForward[Write Nestpick.csv]
+  CncFinish --> NestMode{Machine Nestpick setting on<br/>and latest cncstats Nestpick mode on}
+  NestMode -->|Yes| NestpickForward[Write Nestpick.csv]
+  NestMode -->|No| DirectComplete[Mark job Nestpick complete]
   NestpickForward --> NestpickInbox[Nestpick inbox nestpickFolder]
 
   NestpickInbox --> NestpickRobot[Nestpick robot]
   NestpickRobot -->|Drops processed CSV| NestpickProcessed[nestpickFolder processed]
   NestpickProcessed --> NestpickWatcher[NestWatcher watches processed]
   NestpickWatcher --> Complete[Update status to Nestpick complete]
+  DirectComplete --> Complete
   Complete --> NestpickArchive[nestpickFolder archive]
 
   Complete -->|Optional| Archive[Archive files archiveRoot]
@@ -98,8 +100,8 @@ Job status is stored in Postgres in `public.jobs.status`.
 - `PENDING` is created by ingestion when a job exists in `processedJobsRoot`.
 - `STAGED` is set when an operator stages the job to a machine.
 - `LOAD_FINISH`, `LABEL_FINISH`, `CNC_FINISH` come from AutoPAC CSV files.
-- `FORWARDED_TO_NESTPICK` is set when NestWatcher successfully writes `Nestpick.csv`.
-- `NESTPICK_COMPLETE` is set when NestWatcher processes a CSV in `nestpickFolder/processed`.
+- `FORWARDED_TO_NESTPICK` is set when NestWatcher receives a matching Nestpick stack file.
+- `NESTPICK_COMPLETE` is set when NestWatcher processes a Nestpick completion report, or when CNC finish completes without Nestpick forwarding.
 
 ## File Structure Requirements
 
@@ -139,6 +141,7 @@ processedJobsRoot/
 
 **Important behavior**
 - Ingestion creates/updates jobs in the database, but does not pre-reserve stock.
+- Ingestion waits for source stability before upsert using repeated unchanged scans and minimum stable age.
 
 ### 2. Staging to a machine
 
@@ -171,10 +174,11 @@ processedJobsRoot/
 
 ### 4. Nestpick forwarding and completion
 
-- When a job hits `CNC_FINISH` and the machine has Nestpick enabled:
-  - NestWatcher finds the staged parts CSV.
-  - Rewrites it into `Nestpick.csv` inside `machine.nestpickFolder`.
-  - Updates status to `FORWARDED_TO_NESTPICK`.
+- When a job hits `CNC_FINISH`, NestWatcher checks machine + telemetry state:
+  - If machine Nestpick setting is enabled, and latest `cncstats.custom_values` for that machine indicates Nestpick mode on, NestWatcher sends `Nestpick.csv`.
+  - If Nestpick mode is off or unknown for that run, NestWatcher completes the job without forwarding.
+  - If machine Nestpick setting is disabled, NestWatcher completes the job without forwarding.
+- `FORWARDED_TO_NESTPICK` is not set at send time. It is set later when a matching Nestpick stack file is received.
 - Nestpick produces processed CSVs.
   - NestWatcher watches `machine.nestpickFolder/processed`.
   - When a CSV arrives, jobs inside are updated to `NESTPICK_COMPLETE`.

@@ -654,7 +654,16 @@ export async function updateLifecycle(
       const currentNestpickAt = toIso(current.nestpickCompletedAt);
       const currentUpdatedAt = toIso(current.updatedAt);
 
-      if (!ALLOWED_TRANSITIONS[to].includes(previousStatus)) {
+      const isAutoPacNestpickBypassCompletion = (() => {
+        if (to !== 'NESTPICK_COMPLETE') return false;
+        if (previousStatus !== 'CNC_FINISH') return false;
+        if (options.source !== 'autopac') return false;
+        if (!options.payload || typeof options.payload !== 'object') return false;
+        const payload = options.payload as Record<string, unknown>;
+        return payload.nestpickBypass === true;
+      })();
+
+      if (!ALLOWED_TRANSITIONS[to].includes(previousStatus) && !isAutoPacNestpickBypassCompletion) {
         return { ok: false, reason: 'INVALID_TRANSITION', previousStatus };
       }
 
@@ -690,7 +699,7 @@ export async function updateLifecycle(
               'reason', ${manualReason}
             )
           )
-        ` as unknown as any;
+        `;
         touched = true;
       }
 

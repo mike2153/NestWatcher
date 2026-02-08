@@ -227,7 +227,7 @@ export function AppSidebar() {
             <SidebarMenuItem>
               <ThemeSwitcher />
             </SidebarMenuItem>
-            {session?.role === 'admin' ? (
+            {session ? (
               <SidebarMenuItem>
                 <button
                   onClick={() => setShowSettings(true)}

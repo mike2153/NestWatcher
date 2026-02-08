@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types */
 import React, { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import type { Machine, Settings } from '../../../shared/src';
 import { Button } from '@/components/ui/button';

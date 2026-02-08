@@ -4,12 +4,13 @@ Audience: operators, support, and anyone tracing job/file movement. This replace
 
 ## Quick lifecycle
 - Statuses (ordered): `PENDING` → `STAGED` → `LOAD_FINISH` → `LABEL_FINISH` → `CNC_FINISH` → `FORWARDED_TO_NESTPICK` → `NESTPICK_COMPLETE`.
+- `FORWARDED_TO_NESTPICK` is conditional. When Nestpick mode is off for a CNC finish event, jobs complete without entering `FORWARDED_TO_NESTPICK`.
 - `PENDING` is the intake state; leaving it clears the pre-reserve flag. Locks also clear at `NESTPICK_COMPLETE`.
 - Full step-by-step timeline remains in `docs/JOB-FLOW.md`.
 
 ## Core folders (Settings)
 - `jobsRoot`: where raw NC jobs arrive; NC Cat validation happens here.
-- `processedJobsRoot`: validated jobs live here; ingest poller creates/updates DB rows from `.nc`.
+- `processedJobsRoot`: validated jobs live here; ingest poller creates/updates DB rows from `.nc` after stability checks.
 - `quarantineRoot`: failed validation is moved here with `validation_summary.txt`.
 - `archiveRoot`: final archive for completed jobs.
 - `autoPacCsvDir`: AutoPAC status CSVs; optional `archieve` subfolder for processed files when archiving is enabled.
@@ -31,7 +32,9 @@ flowchart TD
   Pending --> Stage[Stage to machine apJobfolder via Worklist service]
   Stage --> Ready[Ready-To-Run folder holds staged assets]
   Ready --> AutoPAC[AutoPAC CSVs update LOAD LABEL CNC]
-  AutoPAC --> NestSend[After CNC_FINISH send Nestpick.csv when enabled]
+  AutoPAC --> NestDecision[After CNC_FINISH check machine setting and latest cncstats mode]
+  NestDecision -->|mode on| NestSend[Send Nestpick.csv]
+  NestDecision -->|mode off or unknown| NestDone[Mark NESTPICK_COMPLETE]
   NestSend --> NestDone[Nestpick processed or unstack reports mark NESTPICK_COMPLETE]
   Stage --> Grundner[order_saw.csv handshake locks jobs when acked]
   Ready --> Router[Router page lists live files per machine]
@@ -59,10 +62,11 @@ flowchart TD
 - Names: `load_finish<machine>.csv`, `label_finish<machine>.csv`, `cnc_finish<machine>.csv`.
 - Validation: must contain commas or semicolons; at least two columns; machine token from filename must appear inside the file; column 1 supplies the base name (with or without `.nc`).
 - On success: sets `LOAD_FINISH` / `LABEL_FINISH` / `CNC_FINISH`, then archives or deletes the CSV based on settings.
-- On `CNC_FINISH`: triggers Nestpick send if enabled for the machine.
+- On `CNC_FINISH`: if machine Nestpick is enabled and latest `cncstats.custom_values` for that machine says Nestpick mode on, send `Nestpick.csv`; otherwise complete job without forwarding.
 
 ## Nestpick
-- Send: after `CNC_FINISH`, the staged CSV is rewritten with `Destination=99` and `SourceMachine=<machineId>`, saved as `Nestpick.csv` in `machines[].nestpickFolder`.
+- Send: after `CNC_FINISH`, NestWatcher sends `Nestpick.csv` only when machine setting is enabled and latest `cncstats` Nestpick mode is on for that machine.
+- Payload handling: source `.nsp` or legacy `.npt` is copied as-is and written as `Nestpick.csv` in `machines[].nestpickFolder`.
 - Completion: watcher reads `processed/*.csv` and `Report_FullNestpickUnstack.csv`, marks `NESTPICK_COMPLETE`, updates pallet/source place, then moves reports into `archive`.
 - If Nestpick is disabled for a machine, send/watch steps are skipped.
 
@@ -72,7 +76,7 @@ flowchart TD
 
 ## Sanity and cleanup
 - Stage sanity: ensures staged NC still exists in `apJobfolder`; if missing, revert to `PENDING`.
-- Source sanity: ensures `PENDING` jobs still have their NC in `processedJobsRoot`; deletes DB row if missing and resyncs Grundner pre-reserved counts.
+- Source sanity: ensures `PENDING` jobs still have their NC in `processedJobsRoot`; deletes DB row only after 3 consecutive missing scans and resyncs Grundner pre-reserved counts.
 - Archive queue: uses exponential backoff (cap 30s) to avoid losing files on flaky shares.
 
 ## Operator quick actions (UI)
@@ -83,7 +87,7 @@ flowchart TD
 - **Telemetry / CNC Alarms**: summaries from external cncstats collector; map machines by `pcIp`.
 
 ## Troubleshooting checklist
-- Job never appeared: confirm `processedJobsRoot` path and that `.nc` exists; check ingest poller log; verify `jobs.key` matches folder/base.
+- Job never appeared: confirm `processedJobsRoot` path and that `.nc` exists; ingest waits for file stability before DB upsert, then verify `jobs.key` matches folder/base.
 - Status stuck before CNC: verify AutoPAC CSV naming/content and machine token; confirm archiving setting is correct.
-- Nestpick missing: ensure `.nsp` exists at staging time for the job base (legacy `.npt` also works), Nestpick is enabled for the machine, and `Nestpick.csv` is written in the machine folder.
+- Nestpick missing: ensure `.nsp` exists at staging time for the job base (legacy `.npt` also works), machine Nestpick is enabled, and latest `cncstats.custom_values` Nestpick mode for that machine is on at CNC finish time.
 - Locks/reserves not clearing: remember lock only applies in `PENDING`; it is cleared automatically at `NESTPICK_COMPLETE`.

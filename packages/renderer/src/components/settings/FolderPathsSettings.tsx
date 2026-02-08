@@ -274,7 +274,7 @@ export function FolderPathsSettings() {
                   Archive all integration IO files
                 </label>
                 <p className="text-xs text-muted-foreground">
-                  When enabled, every correctly processed AutoPAC, Grundner, and Nestpick IO file is moved into an "archive" subfolder. Incorrect files always go to "incorrect_files".
+                  When enabled, every correctly processed AutoPAC, Grundner, and Nestpick IO file is moved into an &quot;archive&quot; subfolder. Incorrect files always go to &quot;incorrect_files&quot;.
                 </p>
               </div>
             </div>

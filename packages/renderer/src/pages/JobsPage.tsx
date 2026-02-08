@@ -26,6 +26,15 @@ import { cn } from '../utils/cn';
 import { GlobalTable } from '@/components/table/GlobalTable';
 import { ValidationDataModal } from '@/components/ValidationDataModal';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  JOB_COLUMN_LABELS,
+  TABLE_VIEW_PREFS_UPDATED_EVENT,
+  createDefaultJobsTableColumns,
+  loadTableViewPrefsForUser,
+  type JobsTableColumnKey,
+  type UserTableViewPrefs
+} from '@/lib/tableViewPrefs';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -104,6 +113,8 @@ const JOBS_COLUMN_WIDTHS_PCT: Record<string, number> = {
   processingSeconds: 10,
   machineId: 8,
 };
+
+const DEFAULT_JOBS_TABLE_VIEW_COLUMNS = createDefaultJobsTableColumns();
 
 type StatusGroup = 'pending' | 'processing' | 'complete';
 
@@ -268,6 +279,8 @@ function loadColumnSizing(): ColumnSizingState {
 
 
 export function JobsPage() {
+  const { session } = useAuth();
+  const userId = session?.userId ?? null;
   const [data, setData] = useState<JobRow[]>([]);
   const [machines, setMachines] = useState<Machine[]>([]);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsSnapshot | null>(null);
@@ -300,6 +313,7 @@ export function JobsPage() {
   const [validationJobKey, setValidationJobKey] = useState<string | null>(null);
   const [validationJobKeys, setValidationJobKeys] = useState<string[] | null>(null);
   const [expanded, setExpanded] = useState<ExpandedState>({});
+  const [tableViewPrefs, setTableViewPrefs] = useState<UserTableViewPrefs | null>(null);
   const isRefreshingRef = useRef(false);
 
   useEffect(() => {
@@ -320,6 +334,30 @@ export function JobsPage() {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(AUTO_REFRESH_INTERVAL_KEY, String(autoRefreshInterval));
   }, [autoRefreshInterval]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || userId == null) {
+      setTableViewPrefs(null);
+      return;
+    }
+
+    const reloadPrefs = () => {
+      setTableViewPrefs(loadTableViewPrefsForUser(userId));
+    };
+
+    const onPrefsUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: number }>).detail;
+      if (!detail || detail.userId == null || detail.userId === userId) {
+        reloadPrefs();
+      }
+    };
+
+    reloadPrefs();
+    window.addEventListener(TABLE_VIEW_PREFS_UPDATED_EVENT, onPrefsUpdated);
+    return () => {
+      window.removeEventListener(TABLE_VIEW_PREFS_UPDATED_EVENT, onPrefsUpdated);
+    };
+  }, [userId]);
 
   useEffect(() => {
     (async () => {
@@ -562,8 +600,8 @@ export function JobsPage() {
     return parts.length ? parts[parts.length - 1] : value;
   }, []);
 
-  const columns = useMemo<ColumnDef<TableRow>[]>(() => [
-    {
+  const columnDefsByKey = useMemo<Record<JobsTableColumnKey, ColumnDef<TableRow>>>(() => ({
+    folder: {
       accessorKey: 'folder',
       header: 'Folder',
       meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.folder, minWidthPx: 140 },
@@ -591,7 +629,7 @@ export function JobsPage() {
         );
       }
     },
-    {
+    ncfile: {
       accessorKey: 'ncfile',
       header: 'NC File',
       meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.ncfile, minWidthPx: 140 },
@@ -600,7 +638,7 @@ export function JobsPage() {
         return getValue();
       }
     },
-    {
+    material: {
       accessorKey: 'material',
       header: 'Material',
       meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.material, minWidthPx: 100 },
@@ -609,7 +647,7 @@ export function JobsPage() {
         return getValue();
       }
     },
-    {
+    parts: {
       accessorKey: 'parts',
       header: 'Parts',
       meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.parts, minWidthPx: 60 },
@@ -618,7 +656,7 @@ export function JobsPage() {
         return getValue();
       }
     },
-    {
+    size: {
       id: 'size',
       header: 'Dimensions (LxWxT)',
       accessorFn: (row) => (isFolderGroupRow(row) ? '' : formatJobDimensions(row)),
@@ -626,8 +664,7 @@ export function JobsPage() {
       sortingFn: 'alphanumeric',
       meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.size, minWidthPx: 120 }
     },
-
-    {
+    dateadded: {
       accessorKey: 'dateadded',
       header: 'Date Added',
       meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.dateadded, minWidthPx: 150 },
@@ -638,7 +675,7 @@ export function JobsPage() {
         return formatTimestamp(value);
       }
     },
-    {
+    locked: {
       accessorKey: 'locked',
       header: 'Reserved',
       meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.locked, minWidthPx: 70 },
@@ -655,7 +692,7 @@ export function JobsPage() {
         );
       }
     },
-    {
+    status: {
       accessorKey: 'status',
       header: 'Status',
       meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.status, minWidthPx: 110 },
@@ -680,7 +717,7 @@ export function JobsPage() {
         return badge;
       }
     },
-    {
+    processingSeconds: {
       accessorKey: 'processingSeconds',
       header: 'Processing Time',
       meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.processingSeconds, minWidthPx: 110 },
@@ -699,7 +736,7 @@ export function JobsPage() {
         return `${mm}:${String(ss).padStart(2, '0')}`;
       }
     },
-    {
+    machineId: {
       accessorKey: 'machineId',
       header: 'Machine',
       meta: { widthPercent: JOBS_COLUMN_WIDTHS_PCT.machineId, minWidthPx: 130 },
@@ -751,7 +788,16 @@ export function JobsPage() {
         );
       }
     }
-  ], [formatFolderLabel, machineNameById, machineIssuesById]);
+  }), [formatFolderLabel, machineNameById, machineIssuesById]);
+
+  const columns = useMemo<ColumnDef<TableRow>[]>(() => {
+    const jobsColumns = tableViewPrefs?.jobs ?? DEFAULT_JOBS_TABLE_VIEW_COLUMNS;
+    return JOB_COLUMN_LABELS
+      .slice()
+      .sort((a, b) => jobsColumns[a.key].order - jobsColumns[b.key].order)
+      .filter((item) => jobsColumns[item.key].visible)
+      .map((item) => columnDefsByKey[item.key]);
+  }, [columnDefsByKey, tableViewPrefs]);
 
   const table = useReactTable({
     data: displayData,

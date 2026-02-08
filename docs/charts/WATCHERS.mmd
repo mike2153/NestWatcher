@@ -8,7 +8,7 @@ flowchart TD
 
   Worker --> IngestPoller[Jobs ingest polling]
   IngestPoller --> ProcessedRoot
-  IngestPoller -->|Upsert jobs| DB[Postgres]
+  IngestPoller -->|Upsert jobs after source stability checks| DB[Postgres]
 
   Worker --> AutoPACWatcher[AutoPAC CSV watcher]
   AutoPACWatcher --> AutoPacCsvDir[AutoPAC CSV folder autoPacCsvDir]
@@ -28,4 +28,4 @@ flowchart TD
 
   Worker --> SourceSanity[Source sanity poller]
   SourceSanity --> ProcessedRoot
-  SourceSanity -->|Delete PENDING jobs missing on disk| DB
+  SourceSanity -->|Delete PENDING jobs only after 3 missing scans| DB

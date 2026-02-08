@@ -39,14 +39,16 @@ flowchart TD
   Parse --> LabelFinish[Update status to Label finished]
 
   Parse --> CncFinish[Update status to CNC finished]
-
-  CncFinish -->|If Nestpick enabled| NestpickForward[Write Nestpick.csv]
+  CncFinish --> NestMode{Machine Nestpick setting on and latest cncstats mode on}
+  NestMode -->|Yes| NestpickForward[Write Nestpick.csv]
+  NestMode -->|No| DirectComplete[Mark job Nestpick complete]
   NestpickForward --> NestpickInbox[Nestpick inbox nestpickFolder]
 
   NestpickInbox --> NestpickRobot[Nestpick robot]
   NestpickRobot -->|Drops processed CSV| NestpickProcessed[nestpickFolder processed]
   NestpickProcessed --> NestpickWatcher[NestWatcher watches processed]
   NestpickWatcher --> Complete[Update status to Nestpick complete]
+  DirectComplete --> Complete
   Complete --> NestpickArchive[nestpickFolder archive]
 
   Complete -->|Optional| Archive[Archive files archiveRoot]

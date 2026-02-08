@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Database, FolderOpen, Package, FileDown, Plus, Trash2, AlertTriangle, FlaskConical } from 'lucide-react';
+import { X, Database, FolderOpen, Package, FileDown, Plus, Trash2, AlertTriangle, FlaskConical, Columns3 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { Button } from '@/components/ui/button';
 import type { Machine } from '../../../shared/src';
@@ -10,8 +10,19 @@ import { TestDataSettings } from './settings/TestDataSettings';
 import { InventoryExportSettings } from './settings/InventoryExportSettings';
 import { MachineSettings } from './settings/MachineSettings';
 import { ValidationWarningsSettings } from './settings/ValidationWarningsSettings';
+import { JobsTableSettings, RouterTableSettings } from './settings/TableViewsSettings';
+import { useAuth } from '@/contexts/AuthContext';
 
-type SettingsCategory = 'database' | 'folders' | 'grundner' | 'testData' | 'inventoryExport' | 'validation' | 'machine';
+type SettingsCategory =
+  | 'database'
+  | 'folders'
+  | 'grundner'
+  | 'jobsTable'
+  | 'routerTable'
+  | 'testData'
+  | 'inventoryExport'
+  | 'validation'
+  | 'machine';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -19,11 +30,18 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const [activeCategory, setActiveCategory] = useState<SettingsCategory>('database');
+  const { session } = useAuth();
+  const isAdmin = session?.role === 'admin';
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>(isAdmin ? 'database' : 'jobsTable');
   const [machines, setMachines] = useState<Machine[]>([]);
   const [selectedMachineId, setSelectedMachineId] = useState<number | null>(null);
 
   const loadMachines = useCallback(async () => {
+    if (!isAdmin) {
+      setMachines([]);
+      setSelectedMachineId(null);
+      return;
+    }
     const res = await window.api.machines.list();
     if (res.ok) {
       setMachines(res.value.items);
@@ -31,15 +49,22 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         setSelectedMachineId(res.value.items[0].machineId);
       }
     }
-  }, [selectedMachineId]);
+  }, [isAdmin, selectedMachineId]);
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && isAdmin) {
       loadMachines();
     }
-  }, [isOpen, loadMachines]);
+  }, [isOpen, isAdmin, loadMachines]);
+
+  useEffect(() => {
+    if (!isAdmin && activeCategory !== 'jobsTable' && activeCategory !== 'routerTable') {
+      setActiveCategory('jobsTable');
+    }
+  }, [activeCategory, isAdmin]);
 
   const handleAddMachine = async () => {
+    if (!isAdmin) return;
     const res = await window.api.machines.save({
       name: 'New Machine',
       apJobfolder: '',
@@ -58,6 +83,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   };
 
   const handleDeleteMachine = async (machineId: number) => {
+    if (!isAdmin) return;
     if (!confirm('Delete this machine?')) return;
     const res = await window.api.machines.delete(machineId);
     if (!res.ok) {
@@ -73,6 +99,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   };
 
   const handleSelectMachine = (machineId: number) => {
+    if (!isAdmin) return;
     setSelectedMachineId(machineId);
     setActiveCategory('machine');
   };
@@ -93,14 +120,22 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             {/* General Section */}
             <div className="space-y-1">
               <nav className="space-y-1">
-                {[
-                  { id: 'database', label: 'Database', icon: Database },
-                  { id: 'folders', label: 'Folder Paths', icon: FolderOpen },
-                  { id: 'grundner', label: 'Grundner', icon: Package },
-                  { id: 'inventoryExport', label: 'Inventory Export', icon: FileDown },
-                  { id: 'validation', label: 'Validation', icon: AlertTriangle },
-                  { id: 'testData', label: 'Test Data', icon: FlaskConical }
-                ].map((item) => (
+                {(isAdmin
+                  ? [
+                    { id: 'database', label: 'Database', icon: Database },
+                    { id: 'folders', label: 'Folder Paths', icon: FolderOpen },
+                    { id: 'grundner', label: 'Grundner', icon: Package },
+                    { id: 'jobsTable', label: 'Jobs Table', icon: Columns3 },
+                    { id: 'routerTable', label: 'Router Table', icon: Columns3 },
+                    { id: 'inventoryExport', label: 'Inventory Export', icon: FileDown },
+                    { id: 'validation', label: 'Validation', icon: AlertTriangle },
+                    { id: 'testData', label: 'Test Data', icon: FlaskConical }
+                  ]
+                  : [
+                    { id: 'jobsTable', label: 'Jobs Table', icon: Columns3 },
+                    { id: 'routerTable', label: 'Router Table', icon: Columns3 }
+                  ]
+                ).map((item) => (
                   <button
                     key={item.id}
                     onClick={() => setActiveCategory(item.id as SettingsCategory)}
@@ -118,60 +153,62 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             </div>
 
             {/* Machines Section */}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between px-2 mb-1">
-                <span className="text-sm font-medium text-muted-foreground">
-                  Machines
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-6 h-6 w-6"
-                  onClick={handleAddMachine}
-                  title="Add Machine"
-                >
-                  <Plus className="size-3.5" />
-                </Button>
-              </div>
-
+            {isAdmin ? (
               <div className="space-y-1">
-                {machines.map((machine) => (
-                  <div
-                    key={machine.machineId}
-                    className="group flex items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 h-10 text-sm font-medium transition-colors hover:bg-[var(--accent-blue-subtle)] hover:text-[var(--foreground)] cursor-pointer relative font-sans"
-                    style={selectedMachineId === machine.machineId && activeCategory === 'machine'
-                      ? { backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }
-                      : { color: 'var(--muted-foreground)' }
-                    }
-                    onClick={() => handleSelectMachine(machine.machineId)}
+                <div className="flex items-center justify-between px-2 mb-1">
+                  <span className="text-sm font-medium text-muted-foreground">
+                    Machines
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 h-6 w-6"
+                    onClick={handleAddMachine}
+                    title="Add Machine"
                   >
-                    <div className={cn("size-2 rounded-full shrink-0", machine.nestpickEnabled ? "bg-emerald-500" : "bg-gray-300")} />
-                    <span className="truncate flex-1">{machine.name}</span>
+                    <Plus className="size-3.5" />
+                  </Button>
+                </div>
 
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 bg-muted pl-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-6 h-6 w-6 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteMachine(machine.machineId);
-                        }}
-                        title="Delete Machine"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
+                <div className="space-y-1">
+                  {machines.map((machine) => (
+                    <div
+                      key={machine.machineId}
+                      className="group flex items-center gap-3 overflow-hidden rounded-md pl-4 pr-3 h-10 text-sm font-medium transition-colors hover:bg-[var(--accent-blue-subtle)] hover:text-[var(--foreground)] cursor-pointer relative font-sans"
+                      style={selectedMachineId === machine.machineId && activeCategory === 'machine'
+                        ? { backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }
+                        : { color: 'var(--muted-foreground)' }
+                      }
+                      onClick={() => handleSelectMachine(machine.machineId)}
+                    >
+                      <div className={cn("size-2 rounded-full shrink-0", machine.nestpickEnabled ? "bg-emerald-500" : "bg-gray-300")} />
+                      <span className="truncate flex-1">{machine.name}</span>
+
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 bg-muted pl-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 h-6 w-6 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteMachine(machine.machineId);
+                          }}
+                          title="Delete Machine"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                ))}
-                {machines.length === 0 && (
-                  <div className="px-3 py-4 text-center border-2 border-dashed border-[var(--border)] rounded-lg">
-                    <p className="text-xs text-[var(--muted-foreground)] mb-2">No machines</p>
-                    <Button variant="outline" size="sm" onClick={handleAddMachine} className="text-xs h-7">Add First</Button>
-                  </div>
-                )}
+                  ))}
+                  {machines.length === 0 && (
+                    <div className="px-3 py-4 text-center border-2 border-dashed border-[var(--border)] rounded-lg">
+                      <p className="text-xs text-[var(--muted-foreground)] mb-2">No machines</p>
+                      <Button variant="outline" size="sm" onClick={handleAddMachine} className="text-xs h-7">Add First</Button>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            ) : null}
           </div>
         </div>
 
@@ -184,6 +221,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 {activeCategory === 'database' && 'Database Configuration'}
                 {activeCategory === 'folders' && 'Folder Path Management'}
                 {activeCategory === 'grundner' && 'Grundner Integration'}
+                {activeCategory === 'jobsTable' && 'Jobs Table Layout'}
+                {activeCategory === 'routerTable' && 'Router Table Layout'}
                 {activeCategory === 'testData' && 'Test Data'}
                 {activeCategory === 'inventoryExport' && 'Inventory Export'}
                 {activeCategory === 'validation' && 'Validation Rules'}
@@ -206,6 +245,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             {activeCategory === 'database' && <DatabaseSettings />}
             {activeCategory === 'folders' && <FolderPathsSettings />}
             {activeCategory === 'grundner' && <GrundnerSettings />}
+            {activeCategory === 'jobsTable' && <JobsTableSettings />}
+            {activeCategory === 'routerTable' && <RouterTableSettings />}
             {activeCategory === 'testData' && <TestDataSettings />}
             {activeCategory === 'inventoryExport' && <InventoryExportSettings />}
             {activeCategory === 'validation' && <ValidationWarningsSettings />}

@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, existsSync } from 'fs';
+import { readdirSync, readFileSync, existsSync, statSync } from 'fs';
 import { join, extname, basename, relative, dirname } from 'path';
 import { withClient } from './db';
 import { loadConfig } from './config';
@@ -107,7 +107,26 @@ export type IngestResult = {
   prunedJobs: { key: string; folder: string; ncFile: string; material: string | null; isLocked: boolean }[];
 };
 
-export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
+export type IngestStabilityStateEntry = {
+  size: number;
+  mtimeMs: number;
+  unchangedScans: number;
+  firstSeenAtMs: number;
+  lastSeenAtMs: number;
+};
+
+export type IngestOptions = {
+  stability?: {
+    enabled: boolean;
+    state: Map<string, IngestStabilityStateEntry>;
+    minUnchangedScans?: number;
+    minStableAgeMs?: number;
+    stateTtlMs?: number;
+    nowMs?: number;
+  };
+};
+
+export async function ingestProcessedJobsRoot(options?: IngestOptions): Promise<IngestResult> {
   const cfg = loadConfig();
   const root = cfg.paths.processedJobsRoot;
   if (!root) {
@@ -150,6 +169,13 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
   const files = scan.files.filter(p => extname(p).toLowerCase() === '.nc');
   const hadScanError = scan.hadError;
   const presentKeys = new Set<string>();
+  const stability = options?.stability;
+  const stabilityEnabled = Boolean(stability?.enabled);
+  const stabilityState = stability?.state;
+  const minUnchangedScans = Math.max(1, stability?.minUnchangedScans ?? 2);
+  const minStableAgeMs = Math.max(0, stability?.minStableAgeMs ?? 10_000);
+  const stateTtlMs = Math.max(60_000, stability?.stateTtlMs ?? 900_000);
+  const nowMs = stability?.nowMs ?? Date.now();
   for (const nc of files) {
     const dir = dirname(nc);
     const base = toBaseNoExt(nc);
@@ -159,6 +185,40 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
     const key = `${relFolder}/${baseNoExt}`.replace(/^\//, '').slice(0, 100);
     // Track this key as present in filesystem
     presentKeys.add(key);
+
+    if (stabilityEnabled && stabilityState) {
+      let nextEntry: IngestStabilityStateEntry;
+      try {
+        const info = statSync(nc);
+        const prev = stabilityState.get(key);
+        if (prev && prev.size === info.size && prev.mtimeMs === info.mtimeMs) {
+          nextEntry = {
+            size: info.size,
+            mtimeMs: info.mtimeMs,
+            unchangedScans: prev.unchangedScans + 1,
+            firstSeenAtMs: prev.firstSeenAtMs,
+            lastSeenAtMs: nowMs
+          };
+        } else {
+          nextEntry = {
+            size: info.size,
+            mtimeMs: info.mtimeMs,
+            unchangedScans: 1,
+            firstSeenAtMs: nowMs,
+            lastSeenAtMs: nowMs
+          };
+        }
+      } catch (err) {
+        logger.debug({ err, file: nc }, 'ingest: failed to stat file during stability check');
+        continue;
+      }
+      stabilityState.set(key, nextEntry);
+      const stableAgeMs = nowMs - nextEntry.firstSeenAtMs;
+      if (nextEntry.unchangedScans < minUnchangedScans && stableAgeMs < minStableAgeMs) {
+        continue;
+      }
+    }
+
     const { material, size, thickness } = parseNc(nc);
     const parts = countParts(dir, baseNoExt);
     const sql = `INSERT INTO public.jobs(key, folder, ncfile, material, parts, size, thickness, dateadded, updated_at)
@@ -205,6 +265,15 @@ export async function ingestProcessedJobsRoot(): Promise<IngestResult> {
     } catch (e) {
       logger.warn({ err: e }, 'ingest upsert failed');
       // Keep counters stable; treat failures as neither inserted nor updated
+    }
+  }
+
+  if (stabilityEnabled && stabilityState) {
+    for (const [key, entry] of stabilityState.entries()) {
+      const stale = nowMs - entry.lastSeenAtMs > stateTtlMs;
+      if (!presentKeys.has(key) || stale) {
+        stabilityState.delete(key);
+      }
     }
   }
 

@@ -220,7 +220,7 @@ From `packages/renderer/src/components/AppSidebar.tsx`:
 - Footer actions:
   - “Open NC Catalyst” button (calls `window.api.ncCatalyst.open()`)
   - Theme switcher (opens Theme Modal)
-  - Settings (admin-only, opens `SettingsModal`)
+  - Settings (available to signed-in users; admin-only categories remain restricted inside `SettingsModal`)
   - Login/Logout toggle (based on session)
 
 ## Missing Token Notes (Important When Porting)

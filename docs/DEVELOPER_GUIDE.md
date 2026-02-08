@@ -31,7 +31,7 @@ Push updates use `contents.send(channel, payload)` with subscribe/unsubscribe he
 
 ## Database quick reference
 Local Postgres is the system of record. Full DDL lives in `docs/schema.sql`.
-- `jobs`: `key` (stable identifier), `status` enum (`PENDING` → `STAGED` → `LOAD_FINISH` → `LABEL_FINISH` → `CNC_FINISH` → `FORWARDED_TO_NESTPICK` → `NESTPICK_COMPLETE`), machine linkage, timestamps, locking flags.
+- `jobs`: `key` (stable identifier), `status` enum (`PENDING` → `STAGED` → `LOAD_FINISH` → `LABEL_FINISH` → `CNC_FINISH` → `FORWARDED_TO_NESTPICK` → `NESTPICK_COMPLETE`), machine linkage, timestamps, locking flags. `FORWARDED_TO_NESTPICK` is conditional and can be skipped when Nestpick mode is off at CNC finish time.
 - `job_events`: append-only history.
 - `machines`: AutoPAC and Nestpick folders per machine, PC IP for telemetry mapping.
 - `grundner`: stock import from `stock.csv` (notably `reserved_stock`).
@@ -43,7 +43,7 @@ Local Postgres is the system of record. Full DDL lives in `docs/schema.sql`.
 - Table `public.app_users` stores username, display name, scrypt-hashed password, three hashed security answers, and `role` (`admin` or `operator`).
 - On app launch Renderer calls `auth:me`; without a session the login modal blocks the UI.
 - Successful login/register/reset issues an in-memory session token tied to `WebContents`; not persisted to disk.
-- Main guards privileged IPC with `requireSession` / `requireAdminSession`; Settings requires admin.
+- Main guards privileged IPC with `requireSession` / `requireAdminSession`; admin is still required for privileged settings writes, while per-user table view preferences are renderer-local.
 - Locks/stages and ordering events are attributed using the authenticated display name.
 
 ## Commands (run from repo root)

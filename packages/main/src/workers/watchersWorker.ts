@@ -34,7 +34,7 @@ import type {
   MainToWatcherMessage,
   NcCatValidationResponsePayload
 } from './watchersMessages';
-import { ingestProcessedJobsRoot } from '../services/ingest';
+import { ingestProcessedJobsRoot, type IngestStabilityStateEntry } from '../services/ingest';
 import { appendProductionListDel } from '../services/nestpick';
 import { archiveCompletedJob } from '../services/archive';
 import { buildNcCatValidationReport } from '../services/ncCatValidationReport';
@@ -331,6 +331,12 @@ const STAGE_SANITY_WATCHER_NAME = 'watcher:stage-sanity';
 const STAGE_SANITY_WATCHER_LABEL = 'Stage Sanity';
 const SOURCE_SANITY_WATCHER_NAME = 'watcher:source-sanity';
 const SOURCE_SANITY_WATCHER_LABEL = 'Source Sanity';
+const SOURCE_SANITY_MISSING_PRUNE_THRESHOLD = 3;
+const sourceSanityMissingCounts = new Map<string, number>();
+const JOBS_INGEST_MIN_UNCHANGED_SCANS = 2;
+const JOBS_INGEST_MIN_STABLE_AGE_MS = 10_000;
+const JOBS_INGEST_STABILITY_STATE_TTL_MS = 900_000;
+const jobsIngestStabilityState = new Map<string, IngestStabilityStateEntry>();
 
 function machineLabel(machine: Machine) {
   return machine.name ? `${machine.name} (#${machine.machineId})` : `Machine ${machine.machineId}`;
@@ -2426,7 +2432,7 @@ async function handleAutoPacCsv(path: string) {
           return;
         }
 
-        const previous = (lifecycle as any).previousStatus ?? 'UNKNOWN';
+        const previous = 'previousStatus' in lifecycle ? lifecycle.previousStatus : 'UNKNOWN';
         const reason =
           lifecycle.reason === 'INVALID_TRANSITION'
             ? `Out of order status file. Job is currently '${previous}' but file tried to set '${to}'.`
@@ -2471,9 +2477,12 @@ async function handleAutoPacCsv(path: string) {
       }
 
       if (lifecycle.ok && to === 'CNC_FINISH') {
+        const previousStatus = lifecycle.previousStatus;
+        const transitionedFromLabelFinish = previousStatus === 'LABEL_FINISH';
         let shouldUseNestpick = false;
+        let nestpickTelemetryEnabled: boolean | null = null;
 
-        if (machineForJob.nestpickEnabled) {
+        if (machineForJob.nestpickEnabled && transitionedFromLabelFinish) {
           const pcIp = (machineForJob.pcIp ?? '').trim();
           if (!pcIp) {
             // If we can't map telemetry rows to this machine, treat Nestpick mode as OFF.
@@ -2481,6 +2490,7 @@ async function handleAutoPacCsv(path: string) {
             logger.warn({ machineId: machineForJob.machineId }, 'watcher: nestpick mode check skipped (machine pcIp missing)');
           } else {
             const latest = await getLatestNestpickEnabledForPcIp(pcIp);
+            nestpickTelemetryEnabled = latest.enabled;
             shouldUseNestpick = latest.enabled === true;
             logger.debug(
               {
@@ -2498,11 +2508,55 @@ async function handleAutoPacCsv(path: string) {
           // Nestpick-capable machine + operator has Nestpick mode ON for this run.
           await forwardToNestpick(base, job, machineForJob, machines);
         } else {
-          // Either not Nestpick-capable, or Nestpick mode is OFF for this run.
-          // Treat CNC_FINISH as completion and archive now.
+          // Either not Nestpick-capable, not in the LABEL_FINISH -> CNC_FINISH step,
+          // or Nestpick mode is OFF for this run. Complete without Nestpick forwarding.
           // Keep existing UX behavior:
           // - Non-Nestpick machines use the "cnc.completion" message.
           // - Nestpick-capable machines already emit the "status.cnc_finish" message above.
+          let archiveStatus: 'CNC_FINISH' | 'NESTPICK_COMPLETE' = 'CNC_FINISH';
+
+          if (machineForJob.nestpickEnabled) {
+            const complete = await updateLifecycle(job.key, 'NESTPICK_COMPLETE', {
+              machineId: machineId ?? machineForJob.machineId ?? null,
+              source: 'autopac',
+              payload: {
+                base,
+                file: path,
+                reason: 'nestpick_mode_off',
+                previousStatus,
+                transitionedFromLabelFinish,
+                nestpickBypass: true,
+                nestpickEnabledTelemetry: nestpickTelemetryEnabled
+              }
+            });
+
+            if (complete.ok || complete.reason === 'NO_CHANGE') {
+              archiveStatus = 'NESTPICK_COMPLETE';
+              emitLifecycleStageMessage('NESTPICK_COMPLETE', job, base, machineForJob, 'autopac', {
+                transitionedFromLabelFinish,
+                nestpickEnabledTelemetry: nestpickTelemetryEnabled
+              });
+              await appendJobEvent(
+                job.key,
+                'autopac:nestpick_complete',
+                {
+                  file: path,
+                  base,
+                  previousStatus,
+                  transitionedFromLabelFinish,
+                  nestpickEnabledTelemetry: nestpickTelemetryEnabled
+                },
+                machineId
+              );
+            } else {
+              const previousForLog = 'previousStatus' in complete ? complete.previousStatus : undefined;
+              logger.warn(
+                { jobKey: job.key, reason: complete.reason, previousStatus: previousForLog },
+                'watcher: failed to auto-complete Nestpick-disabled CNC finish'
+              );
+            }
+          }
+
           if (!machineForJob.nestpickEnabled) {
             const fallbackNc = base.toLowerCase().endsWith('.nc') ? base : `${base}.nc`;
             emitAppMessage(
@@ -2519,10 +2573,12 @@ async function handleAutoPacCsv(path: string) {
           logger.info(
             {
               jobKey: job.key,
-              status: 'CNC_FINISH',
+              status: archiveStatus,
               folder: job.folder,
               nestpickCapable: machineForJob.nestpickEnabled,
-              nestpickMode: shouldUseNestpick
+              nestpickMode: shouldUseNestpick,
+              transitionedFromLabelFinish,
+              nestpickEnabledTelemetry: nestpickTelemetryEnabled
             },
             'watcher: archiving completed job'
           );
@@ -2530,7 +2586,7 @@ async function handleAutoPacCsv(path: string) {
             jobKey: job.key,
             jobFolder: job.folder,
             ncfile: job.ncfile,
-            status: 'CNC_FINISH',
+            status: archiveStatus,
             sourceFiles: []
           });
           if (!arch.ok) {
@@ -3900,16 +3956,15 @@ async function collectNcBaseNames(
 }
 
 async function stageSanityPollOnce() {
-  try {
-    // Fetch staged jobs with machine assignment
-    const staged = await withClient(async (c) =>
-      c
-        .query<{ key: string; ncfile: string | null; machine_id: number | null }>(
-          `SELECT key, ncfile, machine_id FROM public.jobs WHERE status = 'STAGED' AND machine_id IS NOT NULL`
-        )
-        .then((r) => r.rows)
-    );
-    if (!staged.length) return;
+  // Fetch staged jobs with machine assignment
+  const staged = await withClient(async (c) =>
+    c
+      .query<{ key: string; ncfile: string | null; machine_id: number | null }>(
+        `SELECT key, ncfile, machine_id FROM public.jobs WHERE status = 'STAGED' AND machine_id IS NOT NULL`
+      )
+      .then((r) => r.rows)
+  );
+  if (!staged.length) return;
 
     // Group by machineId
     const byMachine = new Map<number, { key: string; nc: string; ncfile: string | null }[]>();
@@ -4015,14 +4070,11 @@ async function stageSanityPollOnce() {
         }
       }
     }
-    if (reverted > 0) {
-      recordWatcherEvent(STAGE_SANITY_WATCHER_NAME, {
-        label: STAGE_SANITY_WATCHER_LABEL,
-        message: `Reverted ${reverted} staged job(s) to PENDING due to missing NC in R2R`
-      });
-    }
-  } catch (err) {
-    throw err;
+  if (reverted > 0) {
+    recordWatcherEvent(STAGE_SANITY_WATCHER_NAME, {
+      label: STAGE_SANITY_WATCHER_LABEL,
+      message: `Reverted ${reverted} staged job(s) to PENDING due to missing NC in R2R`
+    });
   }
 }
 
@@ -4125,68 +4177,90 @@ async function collectProcessedJobKeys(
 }
 
 async function sourceSanityPollOnce() {
-  try {
-    const cfg = loadConfig();
-    const root = cfg.paths.processedJobsRoot?.trim?.() ?? '';
-    if (!root || !(await fileExists(root))) return;
+  const cfg = loadConfig();
+  const root = cfg.paths.processedJobsRoot?.trim?.() ?? '';
+  if (!root || !(await fileExists(root))) return;
 
-    const now = Date.now();
-    const rootBackoffKey = 'source-sanity:processedJobsRoot';
-    const rootBackoff = backoffByKey.get(rootBackoffKey);
-    if (!shouldAttemptBackoff(rootBackoff, now)) {
-      return;
+  const now = Date.now();
+  const rootBackoffKey = 'source-sanity:processedJobsRoot';
+  const rootBackoff = backoffByKey.get(rootBackoffKey);
+  if (!shouldAttemptBackoff(rootBackoff, now)) {
+    return;
+  }
+
+  const { keys: presentKeys, hadError, error } = await collectProcessedJobKeys(root);
+  if (hadError) {
+    const existing = backoffByKey.get(rootBackoffKey);
+    const state = existing ?? getOrCreateBackoff(rootBackoffKey, now);
+    const { delayMs, nextRetryAtMs } = scheduleBackoffRetry(state, now);
+    const errSuffix = error ? ` (dir=${error.dir}, code=${error.code ?? 'unknown'})` : '';
+    logger.warn({ processedJobsRoot: root, error }, 'source-sanity: root traversal error');
+    recordWatcherBackoff(SOURCE_SANITY_WATCHER_NAME, {
+      label: SOURCE_SANITY_WATCHER_LABEL,
+      message: `Skipped source sanity (root=${root})${errSuffix}. ${buildBackoffStatusMessage({
+        delayMs,
+        nextRetryAtMs,
+        maxDelayReachAtMs: state.maxDelayReachAtMs
+      })}`,
+      context: { processedJobsRoot: root, error, delayMs }
+    });
+    return;
+  }
+
+  clearBackoff(rootBackoffKey);
+  // Find PENDING jobs whose key is not present on disk
+  const pending = await withClient((c) =>
+    c
+      .query<{ key: string }>(`SELECT key FROM public.jobs WHERE status = 'PENDING'`)
+      .then((r) => r.rows)
+  );
+  const pendingKeySet = new Set(pending.map((row) => row.key));
+  for (const trackedKey of sourceSanityMissingCounts.keys()) {
+    if (!pendingKeySet.has(trackedKey)) {
+      sourceSanityMissingCounts.delete(trackedKey);
+    }
+  }
+
+  // Delete missing PENDING jobs after repeated misses.
+  let removed = 0;
+  for (const row of pending) {
+    const k = row.key;
+    if (presentKeys.has(k)) {
+      sourceSanityMissingCounts.delete(k);
+      continue;
     }
 
-    const { keys: presentKeys, hadError, error } = await collectProcessedJobKeys(root);
-    if (hadError) {
-      const existing = backoffByKey.get(rootBackoffKey);
-      const state = existing ?? getOrCreateBackoff(rootBackoffKey, now);
-      const { delayMs, nextRetryAtMs } = scheduleBackoffRetry(state, now);
-      const errSuffix = error ? ` (dir=${error.dir}, code=${error.code ?? 'unknown'})` : '';
-      logger.warn({ processedJobsRoot: root, error }, 'source-sanity: root traversal error');
-      recordWatcherBackoff(SOURCE_SANITY_WATCHER_NAME, {
-        label: SOURCE_SANITY_WATCHER_LABEL,
-        message: `Skipped source sanity (root=${root})${errSuffix}. ${buildBackoffStatusMessage({
-          delayMs,
-          nextRetryAtMs,
-          maxDelayReachAtMs: state.maxDelayReachAtMs
-        })}`,
-        context: { processedJobsRoot: root, error, delayMs }
-      });
-      return;
+    const missingCount = (sourceSanityMissingCounts.get(k) ?? 0) + 1;
+    sourceSanityMissingCounts.set(k, missingCount);
+    if (missingCount < SOURCE_SANITY_MISSING_PRUNE_THRESHOLD) {
+      continue;
     }
 
-    clearBackoff(rootBackoffKey);
-    // Find PENDING jobs whose key is not present on disk
-    const pending = await withClient((c) =>
-      c
-        .query<{ key: string }>(`SELECT key FROM public.jobs WHERE status = 'PENDING'`)
-        .then((r) => r.rows)
-    );
-    const missing = pending.map((r) => r.key).filter((k) => !presentKeys.has(k));
-    if (!missing.length) return;
-
-    // Delete missing PENDING jobs (business rule)
-    let removed = 0;
-    for (const k of missing) {
-      const res = await withClient((c) => c.query(`DELETE FROM public.jobs WHERE key = $1 AND status = 'PENDING'`, [k]));
-      if ((res.rowCount ?? 0) > 0) {
-        removed += 1;
-        try {
-          await appendJobEvent(k, 'jobs:prune:missing-source', { reason: 'NC file missing in processed root' }, null, undefined);
-        } catch {
-          /* ignore appendJobEvent failure during prune */
-        }
+    const res = await withClient((c) => c.query(`DELETE FROM public.jobs WHERE key = $1 AND status = 'PENDING'`, [k]));
+    sourceSanityMissingCounts.delete(k);
+    if ((res.rowCount ?? 0) > 0) {
+      removed += 1;
+      try {
+        await appendJobEvent(
+          k,
+          'jobs:prune:missing-source',
+          {
+            reason: 'NC file missing in processed root',
+            missingScansBeforePrune: missingCount
+          },
+          null,
+          undefined
+        );
+      } catch {
+        /* ignore appendJobEvent failure during prune */
       }
     }
-    if (removed > 0) {
-      recordWatcherEvent(SOURCE_SANITY_WATCHER_NAME, {
-        label: SOURCE_SANITY_WATCHER_LABEL,
-        message: `Pruned ${removed} PENDING job(s) missing from processed root`
-      });
-    }
-  } catch (err) {
-    throw err;
+  }
+  if (removed > 0) {
+    recordWatcherEvent(SOURCE_SANITY_WATCHER_NAME, {
+      label: SOURCE_SANITY_WATCHER_LABEL,
+      message: `Pruned ${removed} PENDING job(s) missing from processed root after ${SOURCE_SANITY_MISSING_PRUNE_THRESHOLD} scans`
+    });
   }
 }
 
@@ -4245,10 +4319,9 @@ function startSourceSanityPoller() {
 }
 
 async function grundnerPollOnce(folder: string) {
-  try {
-    cleanupPendingGrundnerReleases();
-    const reqPath = join(folder, 'stock_request.csv');
-    const stockPath = join(folder, 'stock.csv');
+  cleanupPendingGrundnerReleases();
+  const reqPath = join(folder, 'stock_request.csv');
+  const stockPath = join(folder, 'stock.csv');
 
     // If a pending request exists, do nothing and wait for next interval
     if (await fileExists(reqPath)) {
@@ -4442,11 +4515,8 @@ async function grundnerPollOnce(folder: string) {
       }
     }
 
-    if (!replyDeleteFailed) {
-      clearGrundnerIssue();
-    }
-  } catch (err) {
-    throw err;
+  if (!replyDeleteFailed) {
+    clearGrundnerIssue();
   }
 }
 
@@ -4544,7 +4614,15 @@ function startJobsIngestPolling() {
       }
       processedRootMissingNotified = false;
 
-      const result = await ingestProcessedJobsRoot();
+      const result = await ingestProcessedJobsRoot({
+        stability: {
+          enabled: true,
+          state: jobsIngestStabilityState,
+          minUnchangedScans: JOBS_INGEST_MIN_UNCHANGED_SCANS,
+          minStableAgeMs: JOBS_INGEST_MIN_STABLE_AGE_MS,
+          stateTtlMs: JOBS_INGEST_STABILITY_STATE_TTL_MS
+        }
+      });
       for (const job of result.addedJobs ?? []) {
         emitAppMessage('job.detected', { ncFile: job.ncFile, folder: job.folder }, 'jobs-ingest');
       }
